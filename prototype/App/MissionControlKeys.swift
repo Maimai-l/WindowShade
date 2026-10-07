@@ -110,15 +110,18 @@ final class MissionControlKeys {
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
         self.port = port
         self.source = source
-        let thread = Thread { [weak self] in
-            guard let self, let source = self.source else { return }
+        // 钩子线程只写 threadRunLoop；主线程停钩子时读它去停 run loop。这个对象跟 App 同生命周期。
+        let keys = HandOff(self)
+        let thread = Thread {
+            let keys = keys.value
+            guard let source = keys.source else { return }
             let runLoop = CFRunLoopGetCurrent()
-            self.threadRunLoop = runLoop
+            keys.threadRunLoop = runLoop
             CFRunLoopAddSource(runLoop, source, .commonModes)
             CGEvent.tapEnable(tap: port, enable: true)
             CFRunLoopRun()
             CFRunLoopRemoveSource(runLoop, source, .commonModes)
-            self.threadRunLoop = nil
+            keys.threadRunLoop = nil
         }
         thread.name = "WindowShade.MissionControlKeys"
         thread.stackSize = 512 * 1024

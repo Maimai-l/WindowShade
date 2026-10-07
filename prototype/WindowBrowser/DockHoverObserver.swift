@@ -575,20 +575,21 @@ struct DockHoverTarget: Equatable {
         workspaceTokens.append(center.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil, queue: .main) { [weak self] note in
-                guard let self,
-                      let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
+                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
                         as? NSRunningApplication else { return }
-                if app.processIdentifier == self.dockPID {
+                let pid = app.processIdentifier
+                MainActor.assumeIsolated {
+                    guard let self, pid == self.dockPID else { return }
                     self.invalidate(reason: "dock-terminated")
                 }
             })
         workspaceTokens.append(center.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
             object: nil, queue: .main) { [weak self] note in
-                guard let self,
-                      let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
-                        as? NSRunningApplication else { return }
-                if app.bundleIdentifier == "com.apple.dock", self.running {
+                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
+                        as? NSRunningApplication, app.bundleIdentifier == "com.apple.dock" else { return }
+                MainActor.assumeIsolated {
+                    guard let self, self.running else { return }
                     self.invalidate(reason: "dock-launched")
                 }
             })
@@ -610,16 +611,18 @@ struct DockHoverTarget: Equatable {
         screensToken = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main) { [weak self] _ in
-                guard let self, self.running else { return }
-                let layout = DisplayLayout.current()
-                guard layout != self.displayLayout else {
-                    self.refreshDockAreas()
-                    return
+                MainActor.assumeIsolated {
+                    guard let self, self.running else { return }
+                    let layout = DisplayLayout.current()
+                    guard layout != self.displayLayout else {
+                        self.refreshDockAreas()
+                        return
+                    }
+                    self.displayLayout = layout
+                    self.topologyVersion &+= 1
+                    self.detection.reset()
+                    self.rebuildObserver(reason: "screens-changed")
                 }
-                self.displayLayout = layout
-                self.topologyVersion &+= 1
-                self.detection.reset()
-                self.rebuildObserver(reason: "screens-changed")
             }
     }
 

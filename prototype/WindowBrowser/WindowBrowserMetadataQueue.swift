@@ -23,7 +23,8 @@ final class WindowBrowserMetadataQueue: @unchecked Sendable {
 
     func submit(pid: pid_t, isInteractive: Bool, work: @escaping () -> Void) {
         dispatchPrecondition(condition: .onQueue(.main))
-        let operation = BlockOperation(block: work)
+        let job = HandOff(work)
+        let operation = BlockOperation { job.value() }
         if let previous = tails[pid], !previous.isFinished {
             operation.addDependency(previous)
         }

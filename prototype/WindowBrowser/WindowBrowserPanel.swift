@@ -151,7 +151,7 @@ final class WindowBrowserPanel: NSPanel {
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             animator().alphaValue = 0
-        }, completionHandler: completion)
+        }, thenOnMain: completion)
     }
 
     /// 面板出现约 140–180 ms；减少动态效果时直接显示，不做位移或缩放。
@@ -186,7 +186,7 @@ final class WindowBrowserPanel: NSPanel {
             context.duration = animationParams.panelResizeDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             animator().setFrame(frame, display: true)
-        }, completionHandler: { [weak self] in
+        }, thenOnMain: { [weak self] in
             guard let self, self.resizeGeneration == token else { return }
             self.settle(to: frame)
         })

@@ -103,8 +103,10 @@ final class WindowBrowserListRowView: NSView {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             keyObservers.append(NotificationCenter.default.addObserver(
                 forName: name, object: window, queue: .main) { [weak self] _ in
-                    guard let self, self.isSelected else { return }
-                    self.refreshAppearance(animated: false)
+                    MainActor.assumeIsolated {
+                        guard let self, self.isSelected else { return }
+                        self.refreshAppearance(animated: false)
+                    }
                 })
         }
     }

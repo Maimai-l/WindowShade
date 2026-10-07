@@ -150,7 +150,9 @@ struct WindowBrowserLayoutParams {
         params.footerHeight = max(params.footerHeight, detailLine + 5)
         params.cardImageHeight = params.imageMaxHeight
         // 搜索框高度取系统控件的固有高度（macOS 26 的控件比 15 及更早更高）。
-        let searchHeight = NSSearchField().intrinsicContentSize.height
+        // 不在主线程上（只有测试会这样）时退回默认高度。
+        let searchHeight = Thread.isMainThread
+            ? MainActor.assumeIsolated { NSSearchField().intrinsicContentSize.height } : 0
         if searchHeight.isFinite, searchHeight > 0 {
             params.searchFieldHeight = ceil(searchHeight)
         }

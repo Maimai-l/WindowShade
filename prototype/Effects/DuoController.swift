@@ -133,8 +133,11 @@ final class DuoController: NSObject {
         DistributedNotificationCenter.default().addObserver(
           forName: Notification.Name(name), object: nil, queue: .main
         ) { [weak self] note in
-          EffectEnvironment.refresh()
-          if note.name.rawValue.hasSuffix("IsLocked") { self?.suspend() } else { self?.resume() }
+          let locked = note.name.rawValue.hasSuffix("IsLocked")
+          MainActor.assumeIsolated {
+            EffectEnvironment.refresh()
+            if locked { self?.suspend() } else { self?.resume() }
+          }
         })
     }
     let mask: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]
@@ -158,8 +161,9 @@ final class DuoController: NSObject {
   private func observe(
     _ center: NotificationCenter, _ name: Notification.Name, action: @escaping () -> Void
   ) {
+    let work = MainThreadWork(action)
     observers.append(
-      (center, center.addObserver(forName: name, object: nil, queue: .main) { _ in action() }))
+      (center, center.addObserver(forName: name, object: nil, queue: .main) { _ in work.run() }))
   }
 
   private static let displayReconfigured: CGDisplayReconfigurationCallBack = { display, flags, context in

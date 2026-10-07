@@ -36,7 +36,7 @@ extension AppDelegate {
     // - 两轴都在停车带（主点 / (-12000,-12000)），或
     // - 单轴在停车带、另一轴是"像普通窗口坐标"的值（备选点），
     // 避免误救其他 app 自己放到极远坐标（如 -100000）的窗口。
-    func isAtWindowShadeParkingSpot(_ pos: CGPoint) -> Bool {
+    nonisolated func isAtWindowShadeParkingSpot(_ pos: CGPoint) -> Bool {
         func onParkingBand(_ v: CGFloat) -> Bool {
             abs(v + 12000) <= 96 || abs(v + 32000) <= 96
         }
@@ -50,9 +50,9 @@ extension AppDelegate {
             || (yParked && looksLikeWindowAxis(pos.x))
     }
 
-    func collectJournalRescueActions(targetTopLeft: CGPoint,
-                                             into result: inout JournalRescueResult) {
-        let entries = shadeJournalEntries()
+    /// 在后台队列上跑：恢复记录由调用方先在主线程读好传进来。
+    nonisolated func collectJournalRescueActions(entries: [[String: Any]], targetTopLeft: CGPoint,
+                                                 into result: inout JournalRescueResult) {
         guard !entries.isEmpty else { return }
         var rescued = 0
 
@@ -151,7 +151,7 @@ extension AppDelegate {
             wlog("journal: pruned \(entries.count - filtered.count) rescued entries")
         }
     }
-    func collectParkedWindowRescueActions(targetTopLeft: CGPoint,
+    nonisolated func collectParkedWindowRescueActions(targetTopLeft: CGPoint,
                                                   into actions: inout [OffscreenRescueAction]) -> Int {
         let allWindows = WindowListCache.shared.allWindows()
         var parkedPIDs: Set<pid_t> = []
@@ -212,6 +212,7 @@ extension AppDelegate {
                 }
             }
         }
+        let journalEntries = HandOff(shadeJournalEntries())
         rescueWorkQueue.async { [weak self] in
             guard let self else { return }
             guard AXIsProcessTrusted() else {
@@ -220,7 +221,7 @@ extension AppDelegate {
                 return
             }
             var result = JournalRescueResult()
-            self.collectJournalRescueActions(targetTopLeft: targetTopLeft, into: &result)
+            self.collectJournalRescueActions(entries: journalEntries.value, targetTopLeft: targetTopLeft, into: &result)
             var rescued = result.actions.count + result.alphaRestores.count
             if rescued == 0 {
                 rescued += self.collectParkedWindowRescueActions(targetTopLeft: targetTopLeft,

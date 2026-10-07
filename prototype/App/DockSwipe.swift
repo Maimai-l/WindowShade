@@ -239,8 +239,8 @@ final class DockSwipeController {
             wlog("dock-swipe: \(name) has no windows, just brought it forward")
             return
         }
-        whenFrontmost(pid) { [weak self] in
-            guard let self, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+        whenFrontmost(pid) {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
             DockOverview.applicationWindows()
             wlog("dock-swipe: all windows of \(name)")
         }

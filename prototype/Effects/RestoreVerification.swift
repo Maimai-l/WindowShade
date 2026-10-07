@@ -46,9 +46,7 @@ extension AppDelegate {
     }
     RestoreVerifier(
       now: CACurrentMediaTime,
-      schedule: { delay, action in
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: action)
-      }, isCurrent: { [weak self] in self?.duoRestoreVerificationTokens[id] == token },
+      schedule: { delay, action in runOnMainQueue(after: delay, action) }, isCurrent: { [weak self] in self?.duoRestoreVerificationTokens[id] == token },
       observe: { [weak self] in self?.observeRestoredWindow(state, to: position) ?? .pending },
       acknowledge: { [weak self] in self?.clearShadeJournal(id: id) },
       completion: { [weak self] success in

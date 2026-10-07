@@ -46,7 +46,7 @@ protocol WindowBrowserScheduler: AnyObject {
 
 final class WindowBrowserMainQueueScheduler: WindowBrowserScheduler {
     func async(_ work: @escaping () -> Void) {
-        DispatchQueue.main.async(execute: work)
+        runOnMainQueue(work)
     }
 
     func schedule(after delay: TimeInterval,

@@ -109,7 +109,7 @@ extension AppDelegate {
         guard let installed = shaded[id] else { return }
         let expected = foldCallbackStamp(id: id, state: installed)
         FoldVerifier(
-            schedule: { delay, action in DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: action) },
+            schedule: { delay, action in runOnMainQueue(after: delay, action) },
             isCurrent: { [weak self] in self?.foldCallbackIsCurrent(expected) == true },
             observation: { [weak self] in
                 guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return .unknown }

@@ -544,9 +544,10 @@ final class TrackpadGestureController {
                 settle(cached)
                 return
             }
+            let deliver = HandOff(settle)
             DispatchQueue.global(qos: .userInteractive).async {
                 let bar = measuredTitlebarHitHeight(of: win, winTop: pos.y, winSize: size, pid: pid)
-                DispatchQueue.main.async { MainActor.assumeIsolated { settle(bar) } }
+                runOnMainQueue { deliver.value(bar) }
             }
         }
     }

@@ -255,15 +255,15 @@ extension AppDelegate {
         }
     }
 
-    func visibleFrame(for frame: NSRect) -> NSRect {
+    nonisolated func visibleFrame(for frame: NSRect) -> NSRect {
         (screenForCocoaFrame(frame)?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame)
     }
 
-    func visibleFrame(for frame: NSRect, preferredDisplayID: CGDirectDisplayID?) -> NSRect {
+    nonisolated func visibleFrame(for frame: NSRect, preferredDisplayID: CGDirectDisplayID?) -> NSRect {
         screenForDisplayID(preferredDisplayID)?.visibleFrame ?? visibleFrame(for: frame)
     }
 
-    func clampedFrame(_ frame: NSRect, margin: CGFloat = 8,
+    nonisolated func clampedFrame(_ frame: NSRect, margin: CGFloat = 8,
                               preferredDisplayID: CGDirectDisplayID? = nil) -> NSRect {
         var visible = visibleFrame(for: frame, preferredDisplayID: preferredDisplayID).insetBy(dx: margin, dy: margin)
         if visible.width <= 1 || visible.height <= 1 {

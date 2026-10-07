@@ -463,7 +463,7 @@ private enum SMJobCalls: LegacyLaunchdJobCalls {
 
 enum UpdateJobs {
     private static var domain: CFString { kSMDomainUserLaunchd }
-    private static let calls: any LegacyLaunchdJobCalls.Type = SMJobCalls.self
+    private static var calls: any LegacyLaunchdJobCalls.Type { SMJobCalls.self }
 
     static func dictionary(label: String) -> [String: Any]? {
         guard let unmanaged = calls.copyDictionary(domain, label as CFString) else { return nil }

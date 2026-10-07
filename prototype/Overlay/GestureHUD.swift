@@ -228,7 +228,7 @@ final class GestureHUD {
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
             panel.animator().alphaValue = alpha
-        }, completionHandler: completion)
+        }, thenOnMain: completion ?? {})
     }
 
     private func makePanel() -> GestureHUDPanel {

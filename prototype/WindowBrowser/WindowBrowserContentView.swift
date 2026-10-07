@@ -203,7 +203,7 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
         boundsObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
             object: scrollView.contentView, queue: .main) { [weak self] _ in
-                self?.notifyVisibleKeys()
+                MainActor.assumeIsolated { self?.notifyVisibleKeys() }
             }
 
         footerStatusField.font = WindowBrowserTypography.detail
@@ -889,7 +889,7 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration
             captionField.animator().alphaValue = target
-        }, completionHandler: { [weak self] in
+        }, thenOnMain: { [weak self] in
             guard let self else { return }
             self.captionField.isHidden = self.captionField.alphaValue < 0.5
         })

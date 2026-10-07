@@ -132,11 +132,6 @@ final class WindowBrowserController: NSObject {
     private var keyboardPanelPreviousAppPID: pid_t?
     /// 面板页脚的临时说明（例如实时预览失败后回到快照），随选中项变化清除。
     private var statusOverride: String?
-    /// 诊断计数：逻辑发现请求次数与真实 AX 调用次数分开统计，且用锁保护，
-    /// 因为后台队列会并发写入。
-    private let counterLock = NSLock()
-    private var discoveryRequestTotal = 0
-    private var axCallTotal = 0
     private var environmentSuspended = false
     /// 面板开着时定时看一眼列表里的窗口还在不在；关掉的窗口靠一次成功的重新查询移出列表。
     private var livenessTimer: Timer?
@@ -175,23 +170,6 @@ final class WindowBrowserController: NSObject {
         return made
     }
 
-    var axDiagnostics: (discoveryRequests: Int, axCalls: Int) {
-        counterLock.lock()
-        defer { counterLock.unlock() }
-        return (discoveryRequestTotal, axCallTotal)
-    }
-
-    private func noteDiscoveryRequest() {
-        counterLock.lock()
-        discoveryRequestTotal += 1
-        counterLock.unlock()
-    }
-
-    private func noteAXCall() {
-        counterLock.lock()
-        axCallTotal += 1
-        counterLock.unlock()
-    }
 
     // MARK: 阶段计时（§17.1）
 
@@ -334,8 +312,9 @@ final class WindowBrowserController: NSObject {
         let workspace = NSWorkspace.shared.notificationCenter
         func observe(_ center: NotificationCenter, _ name: NSNotification.Name,
                      _ body: @escaping () -> Void) {
+            let work = MainThreadWork(body)
             workspaceTokens.append(center.addObserver(forName: name, object: nil,
-                                                      queue: .main) { _ in body() })
+                                                      queue: .main) { _ in work.run() })
         }
         observe(workspace, NSWorkspace.willSleepNotification) { [weak self] in
             self?.environmentDidSuspend(reason: "will-sleep")
@@ -360,10 +339,13 @@ final class WindowBrowserController: NSObject {
         for name in ["com.apple.screenIsLocked", "com.apple.screenIsUnlocked"] {
             distributedTokens.append(distributed.addObserver(
                 forName: Notification.Name(name), object: nil, queue: .main) { [weak self] note in
-                    if note.name.rawValue.hasSuffix("IsLocked") {
-                        self?.environmentDidSuspend(reason: "screen-locked")
-                    } else {
-                        self?.environmentDidResume(reason: "screen-unlocked")
+                    let locked = note.name.rawValue.hasSuffix("IsLocked")
+                    MainActor.assumeIsolated {
+                        if locked {
+                            self?.environmentDidSuspend(reason: "screen-locked")
+                        } else {
+                            self?.environmentDidResume(reason: "screen-unlocked")
+                        }
                     }
                 })
         }
@@ -497,14 +479,14 @@ final class WindowBrowserController: NSObject {
             return
         }
         let candidate = owner.windowBrowserTargetCandidate(key: key)
+        let batch = HandOff(batch)
         axResolverQueue.async { [weak self] in
-            self?.noteAXCall()
             var resolved: WindowBrowserResolvedTarget?
             if let candidate,
                let checked = WindowBrowserTargetResolver.inspect(candidate, key: key,
                                                                  options: options) {
                 resolved = checked
-            } else if let batch {
+            } else if let batch = batch.value {
                 resolved = batch.resolve(key: key,
                     load: { WindowBrowserTargetResolver.candidates(pid: key.application.pid) },
                     inspect: { WindowBrowserTargetResolver.inspect($0, key: key, options: options) })
@@ -1222,7 +1204,6 @@ final class WindowBrowserController: NSObject {
                                   requestID: WindowBrowserRequestID,
                                   appInstance: ApplicationInstanceKey?,
                                   usesTargetQueue: Bool) {
-        noteDiscoveryRequest()
         let overlays = owner?.overlayIDs ?? []
         let parent = helperParents[pid]
         guard let demand = metadataScheduler.state(pid: pid).inFlight,
@@ -1236,7 +1217,6 @@ final class WindowBrowserController: NSObject {
                     // 没有普通窗口的辅助进程（Chrome、Electron 的 Helper）不去问 AX。
                     result = .empty
                 } else {
-                    self.noteAXCall()
                     result = self.discoverWindows(pid: pid, overlayIDs: overlays, groupedUnder: parent)
                 }
             } else {
@@ -1311,7 +1291,7 @@ final class WindowBrowserController: NSObject {
     private func startLivenessSweep() {
         livenessAsked.removeAll()
         let timer = Timer(timeInterval: 0.6, repeats: true) { [weak self] _ in
-            self?.sweepClosedWindows()
+            MainActor.assumeIsolated { self?.sweepClosedWindows() }
         }
         RunLoop.main.add(timer, forMode: .common)
         livenessTimer = timer
@@ -2718,8 +2698,7 @@ extension WindowBrowserController: @preconcurrency WindowBrowserActionBackend {
     /// AX 读取在专用串行队列执行，主线程不阻塞。
     private func resolveFocusedWindowMatches(key: WindowKey,
                                              completion: @escaping @MainActor (Bool) -> Void) {
-        axResolverQueue.async { [weak self] in
-            self?.noteAXCall()
+        axResolverQueue.async {
             let app = AXUIElementCreateApplication(key.application.pid)
             var value: CFTypeRef?
             var matches = false
@@ -2866,10 +2845,8 @@ extension WindowBrowserController: @preconcurrency WindowBrowserActionBackend {
                 DispatchQueue.main.async { completion(.failed(reason: "控制器已释放")) }
                 return
             }
-            self.noteAXCall()
             // 属性名在 WindowShade.swift 里已经有一份（AXHelpers 的容量判断也用它）。
             let before = axBoolAttribute(element, axFullScreenAttribute)
-            self.noteAXCall()
             guard isAXAttributeSettable(element, axFullScreenAttribute) else {
                 DispatchQueue.main.async { completion(.unsupported(reason: "这个窗口不能全屏")) }
                 return
@@ -2884,21 +2861,18 @@ extension WindowBrowserController: @preconcurrency WindowBrowserActionBackend {
                 DispatchQueue.main.async { completion(.unsupported(reason: "这个窗口不能全屏")) }
                 return
             }
-            _ = self.scheduler.schedule(after: 0.4) { [weak self] in
-                guard let self else {
-                    completion(.uncertain(reason: "全屏状态没变"))
-                    return
-                }
-                self.axResolverQueue.async { [weak self] in
+            DispatchQueue.main.async {
+                _ = self.scheduler.schedule(after: 0.4) { [weak self] in
                     guard let self else {
-                        DispatchQueue.main.async { completion(.uncertain(reason: "全屏状态没变")) }
+                        completion(.uncertain(reason: "全屏状态没变"))
                         return
                     }
-                    self.noteAXCall()
-                    let after = axBoolAttribute(element, axFullScreenAttribute)
-                    DispatchQueue.main.async {
-                        completion(after != before ? .completed
-                                   : .uncertain(reason: "全屏状态没变"))
+                    self.axResolverQueue.async {
+                        let after = axBoolAttribute(element, axFullScreenAttribute)
+                        DispatchQueue.main.async {
+                            completion(after != before ? .completed
+                                       : .uncertain(reason: "全屏状态没变"))
+                        }
                     }
                 }
             }
@@ -2921,7 +2895,6 @@ extension WindowBrowserController: @preconcurrency WindowBrowserActionBackend {
                 DispatchQueue.main.async { completion(.failed(reason: "控制器已释放")) }
                 return
             }
-            self.noteAXCall()
             let resolution = WindowBrowserNewWindow.resolve(pid: pid)
             DispatchQueue.main.async {
                 wlog("window-browser: new window pid=\(pid) menu=\(resolution.label)")
@@ -2954,7 +2927,6 @@ extension WindowBrowserController: @preconcurrency WindowBrowserActionBackend {
                 return
             }
             let before = WindowBrowserNewWindow.layerZeroWindowIDs(pid: pid)
-            self.noteAXCall()
             let pressed = WindowBrowserNewWindow.press(item)
             DispatchQueue.main.async {
                 wlog("window-browser: new window pid=\(pid) pressed=\(pressed)")

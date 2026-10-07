@@ -395,8 +395,9 @@ import MetalKit
     command.present(drawable)
     busy = true
     dirty = false
+    let retained = HandOff(retainedFrame)
     command.addCompletedHandler { [weak self] result in
-      withExtendedLifetime((retainedFrame, gpu)) {}
+      withExtendedLifetime((retained, gpu)) {}
       let gpuMilliseconds = (result.gpuEndTime - result.gpuStartTime) * 1000
       let completed = result.status == .completed
       let failure = result.error

@@ -84,6 +84,7 @@ func framesAlmostEqual(_ a: NSRect, _ b: NSRect, tolerance: CGFloat = 0.5) -> Bo
     abs(a.height - b.height) <= tolerance
 }
 
+@MainActor
 func cgWindowID(for window: NSWindow) -> CGWindowID? {
     let number = window.windowNumber
     guard number > 0, number <= Int(UInt32.max) else { return nil }

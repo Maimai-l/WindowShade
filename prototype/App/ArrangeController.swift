@@ -44,7 +44,7 @@ extension AppDelegate {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 for move in moves { move.window.animator().setFrame(move.frame, display: true) }
-            } completionHandler: {
+            } thenOnMain: {
                 for (proxy, handler) in savedHandlers { proxy.onResize = handler }
             }
         }
