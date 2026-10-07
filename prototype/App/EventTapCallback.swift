@@ -26,6 +26,10 @@ func pointMayLieInTitlebarBand(_ point: CGPoint) -> Bool {
 /// 要不要吞掉（标题栏双击收起、三击铺满本来就要问那个 App）。
 nonisolated(unsafe) var mouseDownTapPort: CFMachPort?
 
+/// 吞掉了一次按下，就把跟它配对的那次松开也吞掉：macOS 26 起，系统在第二次松开时执行“双击标题栏缩放”，
+/// 只吞按下的话窗口照样被放大，卷帘条截到的就是放大后的窗口。只在钩子线程上读写。
+nonisolated(unsafe) private var swallowNextMouseUp = false
+
 /// 双击、三击时问主线程的结果。主线程 0.5 秒内还没开始处理（比如正在跟踪菜单）就放行，那边也不再处理，
 /// 免得既放行又收起；已经开始处理了就等它做完。
 private final class TapDecision: @unchecked Sendable {
@@ -48,7 +52,13 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
         DispatchQueue.main.async { MainActor.assumeIsolated { appDelegate?.scheduleEventTapReenable(delay: 1.5) } }
         return Unmanaged.passUnretained(event)
     }
+    if type == .leftMouseUp {
+        guard swallowNextMouseUp else { return Unmanaged.passUnretained(event) }
+        swallowNextMouseUp = false
+        return nil
+    }
     guard type == .leftMouseDown else { return Unmanaged.passUnretained(event) }
+    swallowNextMouseUp = false
     let clickState = event.getIntegerValueField(.mouseEventClickState)
     guard clickState >= 2 else { return Unmanaged.passUnretained(event) }   // 单击：不问主线程
     let location = event.location
@@ -78,5 +88,7 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
         guard started else { return Unmanaged.passUnretained(event) }
         decision.done.wait()
     }
-    return decision.swallow ? nil : Unmanaged.passUnretained(event)
+    guard decision.swallow else { return Unmanaged.passUnretained(event) }
+    swallowNextMouseUp = true
+    return nil
 }
