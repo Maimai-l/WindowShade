@@ -110,7 +110,12 @@ extension AppDelegate {
         let expected = foldCallbackStamp(id: id, state: installed)
         FoldVerifier(
             schedule: { delay, action in runOnMainQueue(after: delay, action) },
-            isCurrent: { [weak self] in self?.foldCallbackIsCurrent(expected) == true },
+            isCurrent: { [weak self] in
+                guard let self else { return false }
+                let current = self.foldCallbackIsCurrent(expected)
+                if !current { wlog("shade: hide verification dropped as stale id=\(id)") }
+                return current
+            },
             observation: { [weak self] in
                 guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return .unknown }
                 return self.observeFoldHide(state.hide, win: state.element, pid: state.pid, id: id)
@@ -132,6 +137,7 @@ extension AppDelegate {
             },
             result: { [weak self] result in
                 guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return }
+                wlog("shade: hide verification id=\(id) hide=\(state.hide) result=\(result)")
                 switch result {
                 case .hidden:
                     self.revealOverlayAfterVerification(id: id, state: state)
