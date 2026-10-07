@@ -691,7 +691,7 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
     diagnostics.bezelStyle = .rounded
     diagnostics.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "诊断日志")
     diagnostics.imagePosition = .imageLeading
-    let welcome = NSButton(title: "欢迎使用 WindowShade…", target: controller?.owner,
+    let welcome = NSButton(title: "欢迎使用 WindowShade…", target: controller.owner,
                            action: #selector(AppDelegate.showWelcomeGuide))
     welcome.bezelStyle = .rounded
     let actionCard = makeSettingsCard([
