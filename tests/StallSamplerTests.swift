@@ -19,19 +19,26 @@ struct StallSamplerTests {
         let path = directory.appendingPathComponent("windowshade.log").path
         setenv("WINDOWSHADE_LOG_PATH", path, 1)
 
+        wlog("stall-test: log is writable")
         MainThreadSampler.shared.start()
         MainThreadSampler.shared.beat(waiting: false)
         Thread.sleep(forTimeInterval: 1.1)          // 主线程真的卡住
         MainThreadSampler.shared.beat(waiting: false)
-        Thread.sleep(forTimeInterval: 0.4)          // 等日志队列落盘
+        Thread.sleep(forTimeInterval: 0.4)          // 等采样线程把最后一张交给日志
+        WindowShadeLogger.shared.flushAndClose()    // 排空日志队列再读
 
         let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
         let lines = text.split(separator: "\n").map(String.init)
         let samples = lines.filter { $0.contains("main-thread stall sample") }
+        expect(lines.contains { $0.contains("stall-test: log is writable") }, "the log file can be written at \(path)")
         expect(!samples.isEmpty, "a 1.1s block gets sampled at all (lines=\(samples.count))")
         expect(samples.count >= 2, "a long block is sampled more than once (lines=\(samples.count))")
         expect(samples.allSatisfy { $0.contains("/4") }, "each sample line carries its index, e.g. 1/4")
         if let first = samples.first { print("     first: \(first.prefix(120))") }
+        if samples.count < 2 {
+            print("     log (\(lines.count) lines):")
+            lines.forEach { print("       \($0.prefix(200))") }
+        }
 
         if failures == 0 { print("PASS: the stall sampler takes several samples across one long block") }
         else { print("FAILED \(failures)"); exit(1) }

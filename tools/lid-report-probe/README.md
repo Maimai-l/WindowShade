@@ -15,8 +15,8 @@ CPU」之后，解锁状态下最大的一笔常驻开销。如果设备会推�
 ## 跑法
 
 ```sh
-bash tests/run-lid-report-probe.sh              # 默认 15 秒
-bash tests/run-lid-report-probe.sh --seconds 30
+bash tools/lid-report-probe/run.sh              # 默认 15 秒
+bash tools/lid-report-probe/run.sh --seconds 30
 ```
 
 跑起来后**慢慢把屏幕合上再打开**（别合到底休眠）。探针会同时订阅推送、每 250ms 读一次 feature 对照，

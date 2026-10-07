@@ -563,7 +563,10 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
             bounds: NSRect(origin: .zero, size: bounds.size),
             style: style, recordCount: records.count, mode: mode, params: params,
             maximumColumns: maximumColumns)
-        let documentWidth = max(2, plan.listRect.width)
+        // “始终显示滚动条”时竖滚动条占掉一条宽度；不扣掉的话行会伸到滚动条底下。
+        let scrollerWidth = scrollView.scrollerStyle == .legacy
+            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        let documentWidth = max(2, plan.listRect.width - scrollerWidth)
         let documentHeight = max(2, plan.documentHeight)
         collectionView.frame = NSRect(x: 0, y: 0, width: documentWidth, height: documentHeight)
         tableView.frame = NSRect(x: 0, y: 0, width: documentWidth, height: documentHeight)

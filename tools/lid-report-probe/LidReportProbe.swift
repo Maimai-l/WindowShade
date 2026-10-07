@@ -3,9 +3,9 @@
 // （input report）？会的话，App 里那条 4Hz 的 feature 轮询就能改成事件驱动——
 // 一次 feature 读实测 0.914ms，静止 4Hz 就是常驻约 0.37% 单核（Mac17,4 / macOS 27.0）。
 //
-// 用法（经 tests/run-lid-report-probe.sh）：
-//   bash tests/run-lid-report-probe.sh               默认 15 秒
-//   bash tests/run-lid-report-probe.sh --seconds 30
+// 用法（经 tools/lid-report-probe/run.sh）：
+//   bash tools/lid-report-probe/run.sh               默认 15 秒
+//   bash tools/lid-report-probe/run.sh --seconds 30
 // 跑的时候**请慢慢把屏幕合上再打开**（别真合到底休眠）。探针同时做两件事：
 //   1) 订阅 input report（推送，如果有）；
 //   2) 每 250ms 读一次 feature report（轮询，既当对照也是角度真值）。

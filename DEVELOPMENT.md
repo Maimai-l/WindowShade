@@ -141,7 +141,7 @@ cd prototype
 ## 测试
 
 每个 `tests/run-*.sh` 编一个小的测试程序并运行，只用到它列出的源文件；CI（`.github/workflows/ci.yml`）在 macOS 上逐个跑一遍，结果表在 job summary 里。
-需要签名构建或解锁的图形会话的（`run-update-integration.sh`、`run-lid-report-probe.sh`）只在本机跑。
+需要签名构建或解锁的图形会话的（`run-update-integration.sh`、`tools/lid-report-probe/run.sh`）只在本机跑。
 
 | 范围 | 命令 |
 |---|---|
