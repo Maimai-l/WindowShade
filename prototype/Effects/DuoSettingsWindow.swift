@@ -674,7 +674,7 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
       stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor),
     ])
     let header = makePageHeader(
-      title: "高级", subtitle: "恢复默认值，或打开诊断日志排查问题。",
+      title: "高级", subtitle: "重看欢迎窗口、恢复默认值，或打开诊断日志。",
       symbolName: "slider.horizontal.3")
     stack.addArrangedSubview(header)
     stack.setCustomSpacing(16, after: header)
@@ -691,7 +691,14 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
     diagnostics.bezelStyle = .rounded
     diagnostics.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "诊断日志")
     diagnostics.imagePosition = .imageLeading
+    let welcome = NSButton(title: "欢迎使用 WindowShade…", target: controller?.owner,
+                           action: #selector(AppDelegate.showWelcomeGuide))
+    welcome.bezelStyle = .rounded
     let actionCard = makeSettingsCard([
+      makeActionRow(
+        title: "欢迎使用",
+        subtitle: "重新看一遍欢迎窗口和授权说明。",
+        button: welcome),
       makeActionRow(
         title: "恢复动态效果默认值",
         subtitle: "把桌面、窗口和样式都恢复默认。",

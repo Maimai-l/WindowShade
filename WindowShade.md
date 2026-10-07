@@ -2,7 +2,7 @@
 
 > 这是保留的早期设计与研究笔记。后续核实：1994 年 1 月的 Mini’app’les 通讯记录了 Rob Johnston / Interactive Technologies 的 WindowShade 1.2，1989–92 是版权区间而非已证实的首发日期；Exposé 于 2003 年随 Panther 引入，不是 2001 年初版 Mac OS X 的功能。便笺至今保留卷起行为，因此下文“已找不到”应理解为通用窗口管理能力的变化。更新后的史料、出处与交互演示见[互动考古](https://windowshade.pages.dev/history/)。今天的项目是独立实现，不延续早期同名软件的源码。
 
-与现有窗口工具的完整对比在分享页[《为什么不用最小化》](https://claude.ai/artifact/RkLPV8yCJNhuYYoH636TrT)，Wins 的调研底稿见[竞品调研：Wins](docs/competitive-analysis.md)。
+与现有窗口工具的对比见[竞品调研：Wins](docs/competitive-analysis.md)和[竞品调研：DockDoor / DockMate / Swish / WindowMizer](docs/competitors.md)。
 
 这篇文章分两部分：前半是设计说明（面向普通人），后半是**历史考据**（也是大白话，读者不需要任何背景知识，遇到专业词会解释）。想写文章时，考据部分文末的参考资料可以直接引用。
 
@@ -166,7 +166,7 @@ macOS 的窗口差异很大，不是每个窗口都像标准文档窗口：
 - TidBITS Talk. [Alternate apps for 'WindowShade' effect?](https://talk.tidbits.com/t/alternate-apps-for-windowshade-effect/14614/10). 讨论开始于 2021-01-07，最后可见帖为 2021-11-09。读取 WindowMizer 稳定性抱怨、替代工具寻找和用户退而求其次的做法。
 - 23mac / 爱上MAC. [WindowMizer for Mac 窗口管理大师：核心详解与高效操作指南](https://www.23mac.com/blogs/jiaocheng/21522/). 页面元数据显示 2026-06-07 发布。作为中文二手教程，读取 WindowMizer 的标题栏按钮、手势、快捷键、按应用配置和权限故障排查。
 - Neomobili. [Deskovery](https://www.neomobili.com/products/deskovery/), [Documentation](https://www.neomobili.com/products/deskovery/deskovery-documentation/), [Changelog](https://www.neomobili.com/products/deskovery/deskovery-changelog/), [F.A.Q.](https://www.neomobili.com/products/deskovery/deskovery-f-a-q/). 读取 minimize in place/window shading 定义、标题栏/缩略图两种模式、权限需求、代理实现说明、版本记录和授权信息。
-- RGB World. `Introduction to WindowMizer for macOS.mp4` 与同名 `.srt` 字幕，本地文件。读取视频元数据、关键帧和字幕时间轴；详细分析见 [WindowMizer-video-analysis.md](WindowMizer-video-analysis.md)。
+- RGB World. `Introduction to WindowMizer for macOS.mp4` 与同名 `.srt` 字幕，本地文件。读取视频元数据、关键帧和字幕时间轴。
 - Internet Archive / Wayback Machine. [Macintosh Garden WindowShade 2009-06-16 快照](https://web.archive.org/web/20090616131955/http://macintoshgarden.org:80/apps/windowshade). 用于核验 Macintosh Garden 归档页至少在 2009 年已被存档。
 - Internet Archive / Wayback Machine. [Interactive Technologies 1998-12-05 快照](https://web.archive.org/web/19981205010646/http://www.interactive-online.com:80/), [1999-11-17 快照](https://web.archive.org/web/19991117142936/http://interactive-online.com:80/) 与 [2010-01-07 快照](https://web.archive.org/web/20100107092125/http://www.interactive-online.com/). 已读快照主要描述舞台、建筑和娱乐照明控制产品，未发现 WindowShade、Rob Johnston 或 classic Mac 软件线索。
 - Internet Archive / Wayback Availability API. [MacGUI 1989 WindowShade 1.1 链接核验查询](https://archive.org/wayback/available?url=https://macgui.com/usenet/?author=Robert+George+Johnston+Jr.%26group=14%26id=40850). 本次查询没有返回可用快照。

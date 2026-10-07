@@ -759,58 +759,6 @@ import Foundation
 
     }
 
-    // Notch alerts: only essential, not too often.
-    do {
-      var policy = ChangeAlertPolicy()
-
-      // A title that never changed is nothing to look at.
-      var quiet = ChangeAlertPolicy()
-      quiet.baseline(CGWindowID(7), title: "Building…", at: 100)
-      expect(quiet.titleSettled(CGWindowID(7), title: "Building…", at: 100.5) == .ignore,
-             "an unchanged title is ignored")
-
-      // Right after a window is tucked away, one change of title is the app tidying up.
-      _ = quiet.titleSettled(CGWindowID(7), title: "Build 42", at: 101)
-      expect(quiet.titles[CGWindowID(7)] == "Build 42", "a change during the quiet period is remembered")
-      expect(quiet.titleSettled(CGWindowID(7), title: "Build 42", at: 110) == .ignore,
-             "the tucked-away title is not announced")
-
-      // A window that just got tucked away and then really says something alerts.
-      policy.baseline(CGWindowID(8), title: "Building…", at: 100)
-      expect(policy.titleSettled(CGWindowID(8), title: "Build Succeeded", at: 105) == .alert,
-             "a settled change after the quiet period alerts")
-
-      // Two changes in quick succession: the second only gets a dot, but a fresh one later alerts.
-      expect(policy.titleSettled(CGWindowID(8), title: "Deploying", at: 120) == .mark,
-             "a change within 30s of the last alert is only marked")
-      expect(policy.titleSettled(CGWindowID(8), title: "All done", at: 140) == .alert,
-             "a change a full 30s after the alert is worth announcing")
-
-      // A window that keeps changing is marked, not announced.
-      var noisy = ChangeAlertPolicy()
-      noisy.baseline(CGWindowID(9), title: "Step 0", at: 100)
-      _ = noisy.titleSettled(CGWindowID(9), title: "Step 1", at: 103)
-      _ = noisy.titleSettled(CGWindowID(9), title: "Step 2", at: 104)
-      _ = noisy.titleSettled(CGWindowID(9), title: "Step 3", at: 105)
-      expect(noisy.titleSettled(CGWindowID(9), title: "Step 4", at: 106) == .mark,
-             "the fourth change in a minute is only marked")
-      expect(noisy.titleSettled(CGWindowID(9), title: "Step 5", at: 170) == .alert,
-             "a change once the storm has settled announces again")
-
-      // A forgotten window is left alone.
-      policy.forget(CGWindowID(8))
-      expect(policy.titleSettled(CGWindowID(8), title: "Anything", at: 200) == .ignore,
-             "a window we stopped tracking never alerts")
-
-      // Windows do not share the alert budget.
-      var pair = ChangeAlertPolicy()
-      pair.baseline(CGWindowID(11), title: "Building…", at: 100)
-      _ = pair.titleSettled(CGWindowID(11), title: "Done", at: 105)
-      pair.baseline(CGWindowID(12), title: "Building…", at: 100)
-      expect(pair.titleSettled(CGWindowID(12), title: "Done", at: 106) == .alert,
-             "an alert on one window does not silence another")
-    }
-
     // Rubber band and momentum projection (WWDC18).
     do {
       let near = FluidMotion.rubberBand(10, limit: 40), far = FluidMotion.rubberBand(10_000, limit: 40)

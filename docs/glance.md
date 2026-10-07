@@ -78,23 +78,6 @@ macOS 不让别的 App 把窗口画成只剩标题栏，收起时真窗口被藏
 代码：`prototype/App/Carry.swift`（卷帘条面板、`CarryController`），看一眼复用
 `GlanceController`（`GlanceTarget` 描述两种来源的画面位置与来源）。
 
-## 卷轴边上那一条
-
-魔法平铺放不下、接成卷轴时，停在屏幕外的那一列在屏幕边露出一条。指针停在那一条上约 0.3 秒，
-旁边出现那扇窗此刻的样子：整扇按比例缩小，最宽占半屏，上下对着那扇窗；离开那一条就收回。
-跟着同一个“看一眼”开关，真窗口不动、不激活。
-
-- 和卷帘条上的看一眼不同，这张卡片只供看、不接点击：它盖着屏幕边那一列的一部分（比如滚动条），
-  点下去照旧落在底下的窗口上。要那一列就单击那一条本身，卷轴把它整列滑出来。
-- 换桌面、切到别的 App、锁屏、屏幕睡了就收。
-- 那一条被别的窗口盖着时不出。窗口之间不留缝（默认）时常被挨着的那一列盖住，见 [niri 对照](niri.md)。
-
-画面：打开前先在后台截一张垫底，同时开一路只有卡片那么大的实时流接替；0.6 秒内实时画面还没到，右下角写
-“不是实时画面”。卡片一收，流立刻停。没有屏幕录制权限时不出。
-
-代码：`prototype/App/ScrollStripPeek.swift`（`StripPeek`，卡片复用看一眼的 `GlancePanel`）。
-真机探针 `--strip-peek` 已写好，还没在真机上跑。
-
 ## 收起有多快（与“卡顿”有关）
 
 收起时给窗口截图原来用 ScreenCaptureKit，放在收起途中要 229ms 以上、还会超时退回代理
@@ -118,7 +101,6 @@ macOS 不让别的 App 把窗口画成只剩标题栏，收起时真窗口被藏
 | `prototype/Capture/FastCapture.swift` | 快速截图：整窗与“去掉某些窗口后的屏幕区域” |
 | `prototype/App/Glance.swift` | 控制器：悬停跟踪、会话、实时流、几何、展开交接、盖住再取消隐藏 |
 | `prototype/App/Carry.swift` | 带到每张桌面：卷帘条面板、可见性、回到那扇窗 |
-| `prototype/App/GlanceProbe.swift` | 真机探针 `--glance-probe` |
 
 接线：`ShadeController.installOverlay` 挂悬停跟踪；`unshadeReturningElement`、
 `forceCleanup`、`removeProxyForAction` 撤掉；`peekHoverPreview` 在开关打开时改走看一眼；
@@ -131,17 +113,9 @@ macOS 不让别的 App 把窗口画成只剩标题栏，收起时真窗口被藏
 bash tests/run-glance-tests.sh          # 状态机：路过、停留、菜单交接、宽限、切换、单击、撤销
 bash tests/run-appkit-tests.sh CarryControllerTests # 多条排布、菜单、窄屏、来源失效、焦点
 cd prototype && ./build.sh --stage      # 签名隔离构建，不碰日常运行的应用
-cd .. && bash tests/run-glance-probe.sh # 真机探针：两扇窗的独立临时 App
-bash tests/run-glance-probe.sh --single # 单窗口：整体隐藏路径
-bash tests/run-glance-probe.sh --carry  # 带到每张桌面（同一张桌面，强制显示卷帘条）
-bash tests/run-glance-probe.sh --carry --other-space  # 临时 App 把窗口挪到另一张桌面；不切换你的桌面
-bash tests/run-glance-probe.sh --strip-peek           # 卷轴边上那一条：路过不开、停够才开、离开就收、卡片不接点击（未在真机跑过）
 ```
 
-真机探针会在屏幕上短暂出现测试窗口，只操作它自己启动的临时 App。锁屏时辅助功能
-返回的窗口元素不完整，探针会在“fixture window”一步超时，不能当作结果。
-
-2026-09-24 解锁状态下的运行结果（Mac17,4，macOS 27.0）：
+2026-09-24 解锁状态下真机探针的运行结果（Mac17,4，macOS 27.0；探针只操作它自己启动的临时 App）：
 
 ```
 # --single：整个 App 被隐藏 → 盖住再取消隐藏，实时画面
@@ -159,6 +133,5 @@ PASS glance: click expands in place (window back in 295ms, no gap)
 
 实时那一次在显示期间隔 1.2 秒截了两张屏幕图，临时 App 的计数从 72 走到 101，
 真窗口没有从画面和卷帘条之外露出来。“收回”包括 0.16 秒离开宽限和卷上动画。
-探针运行期间如果有人切换 App，“前台不变”这一项会失败，需要重跑。
 
 2026-09-25 整合复检补充：用户主动切回临时显示的 App 时，释放看一眼的隐藏所有权并正常展开，不再把 App 藏回去；关闭后立即回入会重新准备已停流的会话；携带窗口被最小化后，点击返回先取消最小化。`bash tests/run-appkit-tests.sh GlanceLifecycleTests` 使用生产控制器和注入的 AX 操作验证这些路径，不操作用户窗口。
