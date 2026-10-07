@@ -43,6 +43,25 @@ echo "==> grant permissions"
 sudo python3 .github/demo/grant-tcc.py \
   "com.windowshade.prototype=$APP" "com.windowshade.demo-driver=$DRIVER"
 sudo killall tccd 2>/dev/null || true
+# macOS 15 起，屏幕录制另有一层“要不要绕过系统窗口选择器”的确认框；预先批准，免得挡住画面。
+python3 - "$APP/Contents/MacOS/WindowShade" "$DRIVER/Contents/MacOS/DemoDriver" <<'PY'
+import datetime, os, plistlib, sys
+path = os.path.expanduser("~/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+approvals = {}
+if os.path.exists(path):
+    with open(path, "rb") as f:
+        approvals = plistlib.load(f)
+until = datetime.datetime(2099, 1, 1)
+for executable in sys.argv[1:]:
+    approvals[executable] = until
+for bundle in ["com.windowshade.prototype", "com.windowshade.demo-driver"]:
+    approvals[bundle] = until
+with open(path, "wb") as f:
+    plistlib.dump(approvals, f)
+print("approved", sorted(approvals))
+PY
+killall replayd 2>/dev/null || true
 
 echo "==> launch"
 defaults write com.windowshade.prototype ShadeOnboardingShown -bool true
