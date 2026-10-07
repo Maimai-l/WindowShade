@@ -24,7 +24,9 @@ DATABASES = [
 
 def code_requirement(app_path):
     result = subprocess.run(["codesign", "-d", "-r-", app_path], capture_output=True, text=True)
-    text = (result.stdout + result.stderr).split("designated =>", 1)[-1].strip()
+    line = next(l for l in (result.stdout + "\n" + result.stderr).splitlines() if "designated =>" in l)
+    text = line.split("designated =>", 1)[1].strip()
+    print(f"{app_path}: {text}")
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as out:
         path = out.name
     subprocess.run(["csreq", "-r-", "-b", path], input=text, text=True, check=True)
