@@ -41,7 +41,7 @@ import Foundation
 
     func settleFoldWaiters(id: CGWindowID, tokens: [UUID], success: Bool) {
         guard var waiting = foldWaiters[id] else { return }
-        var callbacks: [(callback: (Bool) -> Void, stamp: WS2FoldCallbackStamp?)] = []
+        var callbacks: [(callback: (Bool) -> Void, stamp: FoldCallbackStamp?)] = []
         for token in tokens {
             guard let callback = waiting.removeValue(forKey: token) else { continue }
             let transaction = foldWaiterTransactions.removeValue(forKey: token)

@@ -2359,26 +2359,15 @@ final class WindowBrowserController: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
         guard var drag = cardDrag, drag.key == key else { return }
         let zone = dropZone(at: point)
-        let owner = self.owner
-        let id = key.originalWindowID
-        if zone == .slideOver {
-            // 侧拉那一块和拖标题栏进侧拉是同一个提示：边上的玻璃片，停一下出现窗口将落下的虚影。
-            dragPreview?.dismiss()
-            MainActor.assumeIsolated { owner?.slideOver.dropHint.update(id: id, at: point) }
-        } else {
-            if drag.zone == .slideOver {
-                MainActor.assumeIsolated { owner?.slideOver.dropHint.cancel() }
-            }
-            if zone != drag.zone || drag.zone == nil {
-                if let action = zone?.placementAction,
-                   let plan = placementPlan(for: key, action: action,
-                                            on: NSScreen.screens.first(where: { $0.frame.contains(point) })) {
-                    let preview = dragPreview ?? WindowPlacementPreviewWindow()
-                    dragPreview = preview
-                    preview.show(plan: plan)
-                } else {
-                    dragPreview?.dismiss()
-                }
+        if zone != drag.zone || drag.zone == nil {
+            if let action = zone?.placementAction,
+               let plan = placementPlan(for: key, action: action,
+                                        on: NSScreen.screens.first(where: { $0.frame.contains(point) })) {
+                let preview = dragPreview ?? WindowPlacementPreviewWindow()
+                dragPreview = preview
+                preview.show(plan: plan)
+            } else {
+                dragPreview?.dismiss()
             }
         }
         drag.zone = zone
@@ -2389,20 +2378,12 @@ final class WindowBrowserController: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
         guard let drag = cardDrag, drag.key == key else { return }
         let zone = dropZone(at: point)
-        let owner = self.owner
         let id = key.originalWindowID
-        // 侧拉要停够才算（和拖标题栏一样）：没停够就松手，什么都不做。
-        let slideLeft: Bool? = zone == .slideOver
-            ? MainActor.assumeIsolated { owner?.slideOver.dropHint.take(id: id, at: point).map { $0.side == .left } }
-            : nil
         finishCardDrag()
         let screen = NSScreen.screens.first { $0.frame.contains(point) }
-        if let slideLeft, let screen {
-            wlog("window-browser: card dropped into slide-over id=\(id)")
-            dropIntoSlideOver(key: key, left: slideLeft, screen: screen)
-        } else if let action = zone?.placementAction {
+        if let action = zone?.placementAction {
             wlog("window-browser: card dropped on \(action.rawValue) id=\(id)")
-            prepareForDrop(key, unfoldFolded: false) { [weak self] ready in
+            prepareForDrop(key) { [weak self] ready in
                 guard let self else { return }
                 guard ready else {
                     self.owner?.quietNotice("没能把窗口放过去", log: "window-browser: drop prepare failed id=\(id)")
@@ -2433,70 +2414,29 @@ final class WindowBrowserController: NSObject {
         cardDrag = nil
         for token in drag.keyMonitors { NSEvent.removeMonitor(token) }
         dragPreview?.dismiss()
-        let owner = self.owner
-        MainActor.assumeIsolated { owner?.slideOver.dropHint.cancel() }
     }
 
     private func dropZone(at point: NSPoint) -> WindowBrowserDropZone? {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) else { return nil }
-        let edgeHit = MainActor.assumeIsolated { SlideOverDropHint.target(at: point) != nil }
         return WindowBrowserCardDragPolicy.zone(
             pointer: point, screenFrame: screen.frame, visibleFrame: screen.visibleFrame,
-            panelFrame: panel?.isVisible == true ? panel?.frame : nil,
-            slideOverEdgeHit: edgeHit)
+            panelFrame: panel?.isVisible == true ? panel?.frame : nil)
     }
 
-    /// 落下之前先让窗口能被挪：收起的先展开（侧拉要；排布自己会展开），最小化的先还原。
-    private func prepareForDrop(_ key: WindowKey, unfoldFolded: Bool,
-                                completion: @escaping (Bool) -> Void) {
+    /// 落下之前先让窗口能被挪：最小化的先还原（收起的不用管，排布自己会展开）。
+    private func prepareForDrop(_ key: WindowKey, completion: @escaping (Bool) -> Void) {
         guard let record = record(for: key) else {
             completion(false)
             return
         }
-        let step: WindowBrowserAction?
-        if record.shadeState == .folded {
-            step = unfoldFolded ? .unfold : nil
-        } else if record.isMinimized {
-            step = .activate
-        } else {
-            step = nil
-        }
-        guard let step else {
+        guard record.shadeState != .folded, record.isMinimized else {
             completion(true)
             return
         }
-        performAction(step, key: key) { outcome in
+        performAction(.activate, key: key) { outcome in
             switch outcome {
             case .completed, .uncertain: completion(true)
             default: completion(false)
-            }
-        }
-    }
-
-    /// 侧拉走侧拉自己的入口（owner.slideOver.enter），这里只负责认准是哪一扇。
-    private func dropIntoSlideOver(key: WindowKey, left: Bool, screen: NSScreen) {
-        let id = key.originalWindowID
-        let pid = key.application.pid
-        prepareForDrop(key, unfoldFolded: true) { [weak self] ready in
-            guard let self else { return }
-            guard ready else {
-                self.owner?.quietNotice("没能把窗口放过去", log: "window-browser: slide-over prepare failed id=\(id)")
-                return
-            }
-            self.resolveBrowserTarget(key) { [weak self] resolved in
-                guard let self else { return }
-                guard let element = resolved?.element else {
-                    self.owner?.quietNotice("没能确认是哪一扇窗口",
-                                            log: "window-browser: slide-over target unresolved id=\(id)")
-                    return
-                }
-                let owner = self.owner
-                let entered = MainActor.assumeIsolated { () -> Bool in
-                    guard let owner else { return false }
-                    owner.slideOver.enter(element, id: id, pid: pid, side: left ? .left : .right, on: screen)
-                    return owner.slideOver.isSlideOver(id)
-                }
-                wlog("window-browser: slide-over from card id=\(id) entered=\(entered)")
             }
         }
     }

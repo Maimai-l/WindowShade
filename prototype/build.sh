@@ -131,13 +131,6 @@ for source in Watchdog/main.swift Watchdog/GuardIcon.swift Core/UpdateVersion.sw
 done
 GUARD_FRAMEWORKS=(-framework AppKit -framework Security -framework ServiceManagement)
 
-# Original C process supervisor is compiled from the SAME isolated snapshot as Swift.
-mkdir -p "$WORK/Native"
-cp Native/WS2Child.c Native/WS2Child.h Native/module.modulemap "$WORK/Native/"
-xcrun -sdk macosx clang -std=c11 -O2 -Wall -Wextra -Werror -target "$ARCH-apple-macosx14.0" \
-  -c "$WORK/Native/WS2Child.c" -o "$WORK/WS2Child.o"
-NATIVE_FLAGS=(-I "$WORK/Native" "$WORK/WS2Child.o")
-
 # Shader checks and normal builds use the same source and deployment target.
 METAL_BUILD="$(cd .. && pwd)/.build/duo-metal"
 mkdir -p "$METAL_BUILD"
@@ -153,7 +146,7 @@ if [ "$check_only" = "1" ]; then
   mkdir -p "$MODULE_CACHE"
   env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
     swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -whole-module-optimization ${GLASS_DEFINE} -o "$WORK/windowshade-check" \
-      "${COMPILE_SOURCES[@]}" "${NATIVE_FLAGS[@]}" "${FRAMEWORKS[@]}" \
+      "${COMPILE_SOURCES[@]}" "${FRAMEWORKS[@]}" \
       "${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"}" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
   env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
     swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -o "$WORK/WindowShadeUpdateGuard-check" \
@@ -198,7 +191,7 @@ mkdir -p "$MODULE_CACHE"
 mkdir -p "$WORK/compiler-tmp"
 env TMPDIR="$WORK/compiler-tmp" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
   swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" "${OPTIMIZATION_FLAGS[@]}" ${GLASS_DEFINE} -o "$TMP_BIN" \
-    "${COMPILE_SOURCES[@]}" "${NATIVE_FLAGS[@]}" "${FRAMEWORKS[@]}" \
+    "${COMPILE_SOURCES[@]}" "${FRAMEWORKS[@]}" \
     "${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"}" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 echo "==> 编译看护（WindowShadeUpdateGuard）"
 env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
@@ -215,7 +208,7 @@ fi
 echo "==> 替换 Mach-O（保留 bundle、Info.plist、Resources）"
 cp "$TMP_BIN" "$BIN"
 cp "$WORK/Duo.metallib" "$APP/Contents/Resources/Duo.metallib"
-cp ../docs/third-party-lock-overlay.txt "$APP/Contents/Resources/LockOverlay-LICENSE.txt"
+rm -f "$APP/Contents/Resources/LockOverlay-LICENSE.txt"
 rm -rf "$APP/Contents/Resources/ThirdParty"
 # The released bundle historically carries the Swift concurrency runtime in
 # Contents/Frameworks. Preserve that runtime in isolated stage builds too;

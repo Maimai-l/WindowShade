@@ -458,11 +458,11 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
   // 只保留一行说明。符号只使用 §4.11 里有的名字。
   private func makePageHeader(title: String, subtitle: String, symbolName: String?) -> NSView {
     _ = title
-    return WS2SettingsCopy.content(name: nil, subtitle: subtitle, symbol: WS2SettingsCopy.tableSymbol(symbolName)).view
+    return SettingsRowContent.content(name: nil, subtitle: subtitle, symbol: SettingsRowContent.tableSymbol(symbolName)).view
   }
 
   private func settingsContent(title: String, subtitle: String) -> NSStackView {
-    WS2SettingsCopy.content(name: title, subtitle: subtitle, symbol: WS2SettingsCopy.symbol(for: title)).view
+    SettingsRowContent.content(name: title, subtitle: subtitle, symbol: SettingsRowContent.symbol(for: title)).view
   }
 
   private func makeSectionLabel(_ title: String) -> NSView {

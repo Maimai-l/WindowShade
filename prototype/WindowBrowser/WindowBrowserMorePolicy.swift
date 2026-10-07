@@ -222,15 +222,12 @@ enum WindowBrowserDropZone: Equatable {
     case leftHalf
     case rightHalf
     case fill
-    /// 屏幕左右边上那一小块（和拖标题栏进侧拉是同一块，要停一下才算数）。
-    case slideOver
 
     var placementAction: WindowPlacementAction? {
         switch self {
         case .leftHalf: return .leftHalf
         case .rightHalf: return .rightHalf
         case .fill: return .fill
-        case .slideOver: return nil
         }
     }
 }
@@ -253,10 +250,9 @@ enum WindowBrowserCardDragPolicy {
 
     /// 指针所在位置对应的落点（Cocoa 坐标，y 向上）。
     /// - 离面板不到一条取消带、落在 Dock 那一侧（可用区域以外）、或没贴着屏幕边：没有落点，松手就是取消；
-    /// - 屏幕左右边上的侧拉那一块由调用方判定（`slideOverEdgeHit`，要停够才算），优先于半屏；
     /// - 贴着左边 / 右边：左半屏 / 右半屏；贴着顶边（含菜单栏）：铺满屏幕。
     static func zone(pointer: CGPoint, screenFrame: CGRect, visibleFrame: CGRect,
-                     panelFrame: CGRect?, slideOverEdgeHit: Bool) -> WindowBrowserDropZone? {
+                     panelFrame: CGRect?) -> WindowBrowserDropZone? {
         if let panelFrame, panelFrame.insetBy(dx: -cancelBand, dy: -cancelBand).contains(pointer) {
             return nil
         }
@@ -265,7 +261,6 @@ enum WindowBrowserCardDragPolicy {
                           width: visibleFrame.width,
                           height: max(visibleFrame.height, screenFrame.maxY - visibleFrame.minY))
         guard area.width > edgeBand * 4, area.height > edgeBand * 4, area.contains(pointer) else { return nil }
-        if slideOverEdgeHit { return .slideOver }
         if pointer.x <= visibleFrame.minX + edgeBand { return .leftHalf }
         if pointer.x >= visibleFrame.maxX - edgeBand { return .rightHalf }
         if pointer.y >= visibleFrame.maxY - edgeBand { return .fill }

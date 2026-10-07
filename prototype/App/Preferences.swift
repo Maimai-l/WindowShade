@@ -177,7 +177,7 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
     // 与效果页一致：页内不重复大标题，只留一行说明。
     private func makeSettingsHeader(title: String, subtitle: String, symbolName: String? = nil) -> NSView {
         _ = title
-        return WS2SettingsCopy.content(name: nil, subtitle: subtitle, symbol: WS2SettingsCopy.tableSymbol(symbolName)).view
+        return SettingsRowContent.content(name: nil, subtitle: subtitle, symbol: SettingsRowContent.tableSymbol(symbolName)).view
     }
 
     func makeShadeSettingsPage() -> NSView {
@@ -359,7 +359,7 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
     }
 
     private func makeUnifiedLabels(name: String, subtitle: String?, symbol: String? = nil) -> NSStackView {
-        WS2SettingsCopy.content(name: name, subtitle: subtitle, symbol: symbol ?? WS2SettingsCopy.symbol(for: name)).view
+        SettingsRowContent.content(name: name, subtitle: subtitle, symbol: symbol ?? SettingsRowContent.symbol(for: name)).view
     }
 
     private func makeUnifiedToggleRow(name: String, subtitle: String?, isOn: Bool,

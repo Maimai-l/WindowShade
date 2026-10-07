@@ -146,9 +146,6 @@ extension AppDelegate {
 
     func revealOverlayAfterVerification(id: CGWindowID, state: ShadeState) {
         guard shaded[id]?.foldTransactionID == state.foldTransactionID else { return }
-        publishFoldObservation(id: id, state: state)
-        guard shaded[id]?.foldTransactionID == state.foldTransactionID,
-              MainActor.assumeIsolated({ AuthorizationService.shared.lockState() == .unlocked }) else { return }
         if let overlay = state.overlay,
            enforceOverlaySpaceInvariant(id: id, state: state, reason: "hide-verified") {
             overlay.contentView?.toolTip = nil
@@ -156,9 +153,7 @@ extension AppDelegate {
             duoController.windowEffects.didVerifyFold(id: id, state: state)
         }
         // The exact transaction settles even when its proxy is on another Space.
-        MainActor.assumeIsolated {
-            settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: true)
-        }
+        settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: true)
     }
 
     // 回滚折叠事务：按已尝试的隐藏方式逐项逆操作（此前的回滚漏了这步，
@@ -866,7 +861,7 @@ extension AppDelegate {
         guard AXObserverCreate(pid, axWindowCallback, &observer) == .success, let obs = observer else { return nil }
         foldObserverSerial += 1
         let serial = foldObserverSerial
-        let route = WS2FoldObserverRoute(window: id, pid: pid, transaction: transaction)
+        let route = FoldObserverRoute(window: id, pid: pid, transaction: transaction)
         foldObserverRoutes[serial] = route
         let app = AXUIElementCreateApplication(pid)
         let refcon = UnsafeMutableRawPointer(bitPattern: serial)
@@ -893,7 +888,7 @@ extension AppDelegate {
         }
     }
 
-    func handleAXNotification(_ id: CGWindowID, _ notification: String, expected: WS2FoldCallbackStamp) {
+    func handleAXNotification(_ id: CGWindowID, _ notification: String, expected: FoldCallbackStamp) {
         guard foldCallbackIsCurrent(expected), let state = shaded[id] else { return }
         if notification == (kAXUIElementDestroyedNotification as String) {
             if state.hide == .quickLookClosed {

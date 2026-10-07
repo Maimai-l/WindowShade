@@ -77,7 +77,7 @@ extension AppDelegate {
         (control as? NSControl)?.sizeToFit()
         control.setContentHuggingPriority(.required, for: .horizontal)
         control.setContentCompressionResistancePriority(.required, for: .horizontal)
-        let labels = WS2SettingsCopy.content(name: name, subtitle: subtitle, symbol: WS2SettingsCopy.symbol(for: name)).view
+        let labels = SettingsRowContent.content(name: name, subtitle: subtitle, symbol: SettingsRowContent.symbol(for: name)).view
         labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let row = NSStackView(views: [labels, control])

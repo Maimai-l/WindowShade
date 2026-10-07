@@ -3,14 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TEST_NAME="${1:-SettingsNavigationTests}"
 case "$TEST_NAME" in
-  all|SettingsNavigationTests|ClassicStripTests|WindowFoldEffectsTests|GlanceLifecycleTests|CarryControllerTests|NotchActivityViewTests|NotchAuthenticationTests|NotchLeaseHostTests) ;;
+  all|SettingsNavigationTests|ClassicStripTests|WindowFoldEffectsTests|GlanceLifecycleTests|CarryControllerTests) ;;
   *) echo "Unknown AppKit test: $TEST_NAME" >&2; exit 2 ;;
 esac
 mkdir -p .build/appkit-tests
-# 第七份起进程通道走原生 C 监督端口：先编成对象，Swift 侧才能 import WS2ProcessNative。
-NATIVE_DIR=".build/native"
-mkdir -p "$NATIVE_DIR"
-cc -std=c11 -O2 -Wall -Wextra -Werror -mmacosx-version-min=14.0 -c prototype/Native/WS2Child.c -o "$NATIVE_DIR/WS2Child.o"
 # Compile the production AppKit views with a separate test entry point.
 WORK="$(mktemp -d "$(pwd)/.build/appkit-tests.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
@@ -22,7 +18,7 @@ while IFS= read -r source; do
 done < <(rg --files prototype -g '*.swift' -g '!main.swift' -g '!*.app/**' | sort)
 TEST_SOURCE=()
 if [ "$TEST_NAME" = all ]; then
-  TESTS=(SettingsNavigationTests ClassicStripTests WindowFoldEffectsTests GlanceLifecycleTests CarryControllerTests NotchActivityViewTests NotchAuthenticationTests NotchLeaseHostTests)
+  TESTS=(SettingsNavigationTests ClassicStripTests WindowFoldEffectsTests GlanceLifecycleTests CarryControllerTests)
 else
   TESTS=("$TEST_NAME")
 fi
@@ -38,7 +34,6 @@ for name in "${TESTS[@]}"; do
     WindowFoldEffectsTests) cat "$WORK/$name.swift" >> "$WORK/prototype/Effects/WindowFoldEffects.swift" ;;
     CarryControllerTests) cat "$WORK/$name.swift" >> "$WORK/prototype/App/Carry.swift" ;;
     GlanceLifecycleTests) cat "$WORK/$name.swift" >> "$WORK/prototype/App/Glance.swift" ;;
-    NotchAuthenticationTests) cat "$WORK/$name.swift" >> "$WORK/prototype/App/NotchAuthentication.swift" ;;
     *) TEST_SOURCE+=("$WORK/$name.swift") ;;
   esac
 done
@@ -53,9 +48,6 @@ import Cocoa
     case "WindowFoldEffectsTests": await WindowFoldEffectsTests.main()
     case "GlanceLifecycleTests": GlanceLifecycleTests.main()
     case "CarryControllerTests": CarryControllerTests.main()
-    case "NotchActivityViewTests": await NotchActivityViewTests.main()
-    case "NotchAuthenticationTests": NotchAuthenticationTests.main()
-    case "NotchLeaseHostTests": await NotchLeaseHostTests.main()
     default: preconditionFailure("Choose an AppKit test suite")
     }
   }
@@ -68,7 +60,6 @@ if [ -f "$(xcrun --show-sdk-path --sdk macosx)/System/Library/Frameworks/AppKit.
   GLASS_DEFINE=(-DWINDOWSHADE_SDK_HAS_GLASS)
 fi
 swiftc -module-cache-path "$(pwd)/.build/module-cache" -whole-module-optimization -target "$(uname -m)-apple-macosx14.0" ${GLASS_DEFINE[@]+"${GLASS_DEFINE[@]}"} \
-  -I prototype/Native "$NATIVE_DIR/WS2Child.o" \
   "${SOURCES[@]}" ${TEST_SOURCE[@]+"${TEST_SOURCE[@]}"} \
   -framework Cocoa -framework Carbon -framework ApplicationServices -framework LocalAuthentication -framework LocalAuthenticationEmbeddedUI \
   -framework ScreenCaptureKit -framework QuartzCore -framework CoreText \

@@ -80,9 +80,6 @@ final class TrackpadGestureController {
         /// 窗口本体正在跟手（收起时是窗口的盖板，展开时是卷帘条下的画面）。
         var following = false
         var followFailed = false
-        /// 卷轴里的窗口：先走 8 点定方向，左右就是整条卷轴跟手（true），上下照常走手势表（false）。
-        var stripHorizontal: Bool?
-        var stripTravel = CGVector.zero
         /// 卷帘条上往下拉：看一眼的卡片跟着手指卷下（拉满松手才展开）。
         var glancePulling = false
         var glancePullFailed = false
@@ -136,28 +133,7 @@ final class TrackpadGestureController {
     /// 松手时还没确认的那一下（见 finish）：新手势开始、手势被取消时作废，和进行中的手势一样。
     private var unconfirmed: Session?
     var undoRecords: [CGWindowID: PlacementUndo] = [:]
-    /// 一次拖分屏把手同时改了两扇：两边互相登记，撤销其中一扇时另一扇也回去（见 SplitView.swift）。
-    var undoPartners: [CGWindowID: CGWindowID] = [:]
-    /// 最近一次魔法平铺：捏合其中任何一扇都整批撤回（见 MagicTilingRun.swift）。
-    var magicGroup: MagicGroup?
-    /// 晃一晃收走的窗口：再晃一下放回来（见 MagicTilingRun.swift）。
-    var shaken: ShakeAway?
-    /// 探针用：魔法平铺、晃一晃只动这个进程的窗口（不碰用户自己的窗口）。
-    var arrangeOnlyPID: pid_t?
     private var toldAboutConflict = false
-
-    /// 用户自己用了手势：刘海上那条教学永远不再出。
-    func noteUsed(_ action: GestureAction) {
-        switch action {
-        case .leftHalf, .rightHalf, .leftTwoThirds, .rightTwoThirds, .leftThird, .rightThird, .centerThird:
-            owner.notch.coachUsed(.halves)
-        case .shade, .expand: owner.notch.coachUsed(.shade)
-        case .magicTile: owner.notch.coachUsed(.magic)
-        default: break
-        }
-    }
-    /// 卷轴（见 ScrollStripRun.swift）：放不下的窗口往右接成一条，标题栏上左右滑整条跟手。
-    lazy var strips = ScrollStripController(gestures: self)
     private var pressureMonitor: Any?
     private var flickMonitor: Any?
     /// 正在被拖着的标题栏（见 FlickDrag）。
@@ -189,10 +165,6 @@ final class TrackpadGestureController {
     private var lastCommit: (id: CGWindowID, at: TimeInterval, direction: GestureDirection?)?
     private var wheelEnd: DispatchWorkItem?
 
-    /// 诊断：最近一次执行的动作与窗口。
-    private(set) var lastPerformed: (action: GestureAction, windowID: CGWindowID)?
-    /// 诊断：当前手势是否已确认在标题栏/卷帘条上。
-    var sessionVerified: Bool? { session.map { $0.verified } }
     /// 两指手势还没结束、甩出去的窗口还在滑：这时主线程上别做慢事（见 ScreenBezel.swift 第一次读 bezelPath）。
     /// 拖标题栏看按没按着鼠标就够了，不看 flickDrag：漏了“松开”时它会一直留到下次按下。
     var isTracking: Bool {
@@ -280,12 +252,10 @@ final class TrackpadGestureController {
 
     /// 换桌面、设置关闭等：丢掉进行中的手势，不执行。
     func cancel(reason: String) {
-        owner.slideOver.dropHint.cancel(); owner.pip.dropHint.cancel()
         dropFlickDrag()
         stopCheck?.cancel()
         dropUnconfirmed(reason: reason)
         guard let current = session else { return }
-        if current.stripHorizontal == true { strips.endScroll() }
         wlog("gesture: cancel reason=\(reason)")
         stopFollowing(current)
         session?.recognizer.cancel()
@@ -306,23 +276,6 @@ final class TrackpadGestureController {
     /// 窗口被别的途径移动或关闭后，撤销记录作废。
     func forgetPlacement(for id: CGWindowID) {
         undoRecords.removeValue(forKey: id)
-        unlinkPartner(id)
-    }
-
-    /// 断开拖分屏把手时和它一起动的另一扇（两边都断）；返回原来连着的那扇。
-    @discardableResult
-    func unlinkPartner(_ id: CGWindowID) -> CGWindowID? {
-        guard let partner = undoPartners.removeValue(forKey: id) else { return nil }
-        if undoPartners[partner] == id { undoPartners.removeValue(forKey: partner) }
-        return partner
-    }
-
-    /// 这扇窗刚被单独排了一次（记了新的撤销）：撤销时不再跟着魔法平铺那一批，也不再跟拖把手时的另一扇一起回去。
-    func noteReplaced(_ id: CGWindowID) {
-        noteLeft(id)
-        // 侧拉的那扇不从这一批里拿掉：整批撤回时照样退出侧拉，只是撤它自己时先撤这一步。
-        if magicGroup?.slideOver == id { magicGroup?.slideOverPlaced = true }
-        unlinkPartner(id)
     }
 
     // MARK: - 事件入口
@@ -363,12 +316,10 @@ final class TrackpadGestureController {
     @discardableResult
     func scroll(phase: Phase, delta: CGVector, location: CGPoint, ownWindow: NSWindow?,
                 windowNumber: Int = 0) -> Bool {
-        if phase != .began, let session, let handled = stripScroll(session, phase: phase, delta: delta) { return handled }
         switch phase {
         case .began:
             begin(at: location, ownWindow: ownWindow, windowNumber: windowNumber)
             guard let session else { return false }
-            if let handled = stripScroll(session, phase: phase, delta: delta) { return handled }
             feed(session, session.recognizer.scroll(delta, at: clock()))
             return session.consumes
         case .changed:
@@ -384,42 +335,6 @@ final class TrackpadGestureController {
             cancel(reason: "system-cancelled")
             return consumes
         }
-    }
-
-    /// 卷轴里的窗口的标题栏：前 8 点定方向。左右：整条卷轴跟着手指走，松手按惯性停在列边上（不经过手势表和浮窗）；
-    /// 上下：返回 nil，照常走手势表（宽一档、窄一档）。不是卷轴里的窗口也返回 nil。
-    private func stripScroll(_ session: Session, phase: Phase, delta: CGVector) -> Bool? {
-        guard session.zone == .titleBar, !session.isWheel, strips.contains(session.windowID) else { return nil }
-        if session.stripHorizontal == false { return nil }
-        session.stripTravel.dx += delta.dx
-        session.stripTravel.dy += delta.dy
-        if session.stripHorizontal == nil {
-            guard phase == .changed || phase == .began else { return nil }
-            let travel = session.stripTravel
-            guard max(abs(travel.dx), abs(travel.dy)) >= 8 else { return false }
-            session.stripHorizontal = abs(travel.dx) > abs(travel.dy)
-            guard session.stripHorizontal == true else {
-                // 上下：把定方向时攒下的位移补给手势表（这一下的位移由调用方接着喂）。
-                let earlier = CGVector(dx: travel.dx - delta.dx, dy: travel.dy - delta.dy)
-                if earlier != .zero { feed(session, session.recognizer.scroll(earlier, at: clock())) }
-                return nil
-            }
-            session.recognizer.cancel()
-            hud.cancel()
-            strips.beginScroll()
-            wlog("gesture: strip scroll begins on id=\(session.windowID)")
-        }
-        switch phase {
-        case .began, .changed:
-            strips.scroll(fingerDX: session.stripTravel.dx, at: clock())
-        case .ended:
-            self.session = nil
-            strips.endScroll()
-        case .cancelled:
-            self.session = nil
-            strips.endScroll()
-        }
-        return session.consumes
     }
 
     /// 鼠标滚轮的一格。一串滚动（间隔不到 0.3 秒）算一次手势：第一格落在标题栏或卷帘条上
@@ -462,16 +377,11 @@ final class TrackpadGestureController {
             return session.consumes
         case .changed:
             guard let session else { return false }
-            // 卷轴里的窗口张开原本不做事：卷轴自己记账，张开走满松手打开概览（见 ScrollStripRun.swift）。
-            if session.zone == .titleBar { strips.noteSpread(on: session.windowID, delta: delta) }
             feed(session, session.recognizer.magnify(delta, at: clock()))
             return session.consumes
         case .ended:
             let consumes = session?.consumes ?? false
-            finish { [weak self] ended in
-                guard ended.zone == .titleBar else { return }
-                self?.strips.endSpread(on: ended.windowID, confirmed: ended.verified && !ended.rejected && !ended.suppressed)
-            }
+            finish()
             return consumes
         case .cancelled:
             let consumes = session?.consumes ?? false
@@ -493,7 +403,8 @@ final class TrackpadGestureController {
             // 一次会话只说一次：标题栏手势让给了它，别让人以为坏了。
             if !toldAboutConflict {
                 toldAboutConflict = true
-                owner.notch.announce("\(other.localizedName ?? "Swish") 在运行，标题栏手势让给它", detail: "退出它，这里的手势就回来", tone: .info)
+                owner.quietNotice("\(other.localizedName ?? "Swish") 在运行，标题栏手势让给它",
+                                  log: "gesture: title bar gestures yield to \(other.bundleIdentifier ?? "Swish")")
             }
             return
         }
@@ -747,11 +658,6 @@ final class TrackpadGestureController {
         keyHalf = nil
         let focused = focusedWindow()
         let focusedID = focused.flatMap { windowID(of: $0) }
-        // 卷轴里的窗口：⌃⌘←→ 走到左右那一列（滑出来、焦点给它）。
-        if direction == .left || direction == .right, let id = focusedID, strips.contains(id) {
-            if !strips.step(id, toward: direction) { wlog("key-step: strip end reached toward \(direction)") }
-            return
-        }
         let recent = keyShaded.flatMap { direction == .down && clock() - $0.at < Self.keyShadeMemory
             && owner.shaded[$0.id] != nil ? $0.id : nil }
         // 焦点还停在已经收起的那扇上（App 只有这一扇窗时常见）：和在卷帘条上一样，往下展开，别的方向不动它。
@@ -768,8 +674,7 @@ final class TrackpadGestureController {
             return
         }
         if let id = focusedID, let step = awayStep(id) {
-            owner.notch.announce("\(step)，再排", tone: .problem)
-            wlog("key-step: \(direction) refused, id=\(id) is not in its place")
+            owner.quietNotice("\(step)，再排", log: "key-step: \(direction) refused, id=\(id) is not in its place")
             return
         }
         guard let win = focused, let id = focusedID, cgWindowIsCurrentlyOnScreen(id),
@@ -804,14 +709,12 @@ final class TrackpadGestureController {
         let focused = focusedWindow()
         let focusedID = focused.flatMap { windowID(of: $0) }
         if let id = focusedID, let step = awayStep(id) {
-            owner.notch.announce("\(step)，再排", tone: .problem)
-            wlog("key-place: \(action.rawValue) refused, id=\(id) is not in its place")
+            owner.quietNotice("\(step)，再排", log: "key-place: \(action.rawValue) refused, id=\(id) is not in its place")
             return
         }
         guard let win = focused, let id = focusedID, cgWindowIsCurrentlyOnScreen(id),
               !isSettling(id), let pos = axPosition(win), let size = axSize(win) else {
-            owner.notch.announce("没有可以排的窗口", tone: .problem)
-            wlog("key-place: no window for \(action.rawValue)")
+            owner.quietNotice("没有可以排的窗口", log: "key-place: no window for \(action.rawValue)")
             return
         }
         var pid: pid_t = 0
@@ -829,13 +732,10 @@ final class TrackpadGestureController {
             location: top, anchor: CGPoint(x: barBottom.x, y: barBottom.y - 10))
     }
 
-    /// 这扇窗此刻不在它自己的位置上：在画中画里、收起了、收进了刘海、侧拉收到了屏幕边外。
-    /// 这时去挪它，只会把真窗口拉回屏幕，画中画或卷帘条却还在。返回要先做的那一步（浮窗上说）；在原处返回 nil。
+    /// 这扇窗此刻不在它自己的位置上：收起了。这时去挪它，只会把真窗口拉回屏幕，卷帘条却还在。
+    /// 返回要先做的那一步（浮窗上说）；在原处返回 nil。
     func awayStep(_ id: CGWindowID) -> String? {
-        if owner.pip.isInPictureInPicture(id) { return "先让这扇窗回到原处" }
         if owner.shaded[id] != nil { return "先展开这扇窗" }
-        if owner.notch.isTucked(id) { return "先把这扇窗从刘海放回来" }
-        if owner.slideOver.isSlideOver(id), owner.slideOver.isHidden { return "先拉出侧拉的窗口" }
         return nil
     }
 
@@ -846,7 +746,6 @@ final class TrackpadGestureController {
         guard let win = appWindows(pid: pid).first(where: { windowID(of: $0) == id }),
               let screen = screenForAXWindow(pos: after.origin, size: after.size) else { return }
         let visible = screen.visibleFrame
-        noteReplaced(id)
         undoRecords[id] = PlacementUndo(before: before, after: after, element: win,
                                         layout: RefitLayout(rawValue: action.rawValue),
                                         area: CGRect(origin: axPosition(fromCocoaFrame: visible), size: visible.size))
@@ -864,11 +763,8 @@ final class TrackpadGestureController {
             return false
         }
         if perform(action, in: once) {
-            noteUsed(action)
-            lastPerformed = (action, id)
             lastCommit = (id, clock(), nil)
             hud.commit()
-            owner.splitView.soon()
             return true
         }
         hud.cancel()
@@ -883,17 +779,11 @@ final class TrackpadGestureController {
         return state == .capturing || state == .restoring
     }
 
-    /// 指针下的元素，以及从它往上到窗口的（角色, 子角色）链。只读查询（探针用）。
-    func elementChain(at point: CGPoint) -> (AXUIElement, [GestureOwnership.Element])? {
-        axElementChain(at: point)
-    }
-
     private func canUndoPlacement(id: CGWindowID, currentFrame: CGRect) -> Bool {
         guard let record = undoRecords[id] else { return false }
         guard sameFrame(currentFrame, record.after) else {
             // 窗口已经被别的方式挪过：旧记录作废。
             undoRecords.removeValue(forKey: id)
-            unlinkPartner(id)
             return false
         }
         return true
@@ -935,8 +825,8 @@ final class TrackpadGestureController {
                    animated: animated || session.isWheel)
     }
 
-    /// time：结算用的时刻（滚轮传一个“很久以后”，速度按 0 算）。then：结算完再做的事（确认晚到时跟着晚到）。
-    private func finish(at time: TimeInterval? = nil, then after: ((Session) -> Void)? = nil) {
+    /// time：结算用的时刻（滚轮传一个“很久以后”，速度按 0 算）。
+    private func finish(at time: TimeInterval? = nil) {
         guard let session else { return }
         self.session = nil
         wheelEnd?.cancel()
@@ -949,13 +839,11 @@ final class TrackpadGestureController {
                 guard let self, let session else { return }
                 self.unconfirmed = nil
                 self.settle(session, at: endedAt)
-                after?(session)
             }
             verify(session)
             return
         }
         settle(session, at: endedAt)
-        after?(session)
     }
 
     private func settle(_ session: Session, at time: TimeInterval) {
@@ -970,7 +858,6 @@ final class TrackpadGestureController {
         }
         if session.following, action != .shade, action != .expand { stopFollowing(session) }
         if perform(action, in: session) {
-            lastPerformed = (action, session.windowID)
             lastCommit = (session.windowID, clock(), direction)
             hud.commit()
         } else {
@@ -1103,10 +990,6 @@ final class TrackpadGestureController {
         case .center, .larger, .smaller, .fullHeight:
             guard let win = session.element else { return false }
             return resize(win, id: id, action: action, screen: session.screen)
-        case .magicTile:
-            return magicTile(main: id, element: session.element, announce: false)
-        case .widerColumn, .narrowerColumn:
-            return strips.resize(id, wider: action == .widerColumn)
         }
     }
 
@@ -1141,11 +1024,9 @@ final class TrackpadGestureController {
         var pictures = DragPictures()
         var picturesRequested = false
         /// 按下点在顶边的调整大小区里时，这一下其实是在拖边改尺寸：窗口大小变了就认定，
-        /// 之后不出刘海的落点小岛、不出侧拉提示、也不当成甩一下（Wins 修过同样的坑）。
+        /// 之后不当成甩一下（Wins 修过同样的坑）。
         var resizing = false
-        /// 这一下拖动里已经晃过一次（晃一晃只算一次，松手也不再当成甩一下）。
-        var shook = false
-        /// 窗口确实整个跟着指针挪了（大小没变）：这之后才给落点提示。
+        /// 窗口确实整个跟着指针挪了（大小没变）：认定之后不再查外框。
         var moving = false
         var sizeCheckedAt: TimeInterval = 0
 
@@ -1172,8 +1053,7 @@ final class TrackpadGestureController {
         let point = cocoaMousePoint(fromAXPoint: event.cgEvent?.location ?? axPoint(fromCocoa: NSEvent.mouseLocation))
         switch event.type {
         case .leftMouseDown:
-            owner.slideOver.dropHint.cancel(); owner.pip.dropHint.cancel()
-            // 上一下没收到“松开”（被别的事件吞了）：它按下时侧拉那边收起的东西先还回去。
+            // 上一下没收到“松开”（被别的事件吞了）：先丢下它。
             dropFlickDrag()
             let id = CGWindowID(event.windowNumber)
             // 又按住了正在滑的窗口：停在当下的位置，交给这一次拖动（动画随时可以被抓住）。
@@ -1191,7 +1071,6 @@ final class TrackpadGestureController {
             let axPoint = CGPoint(x: point.x, y: coordinateBaselineY() - point.y)
             guard axPoint.y >= bounds.minY, axPoint.y - bounds.minY <= Self.flickBand,
                   !isSettling(id) else { return }
-            owner.slideOver.grabbed(id)
             let drag = FlickDrag(id: id, pid: pid, frameAtDown: bounds, start: event.timestamp, down: point,
                                  touches: touchesNow)
             drag.direct = touchesNow > 0 && touchesDirect
@@ -1227,20 +1106,6 @@ final class TrackpadGestureController {
             if drag.samples.count > 48 { drag.samples.removeFirst(drag.samples.count - 48) }
             classifyDrag(drag, at: point, time: event.timestamp)
             guard !drag.resizing else { return }
-            // 拖着标题栏晃一晃（Windows 的 Aero Shake）：别的窗口收走，再晃一下放回来。一次拖动只算一次。
-            if drag.moving, !drag.shook, WindowShake.detected(in: drag.samples) {
-                drag.shook = true
-                owner.notch.cancelDrag()
-                owner.slideOver.dropHint.cancel(); owner.pip.dropHint.cancel()
-                shake(keeping: drag.id, pid: drag.pid)
-            }
-            if drag.moving {
-                owner.notch.dragMoved(to: point)
-                if hypot(point.x - drag.down.x, point.y - drag.down.y) > 16, !owner.slideOver.isSlideOver(drag.id) {
-                    owner.slideOver.dropHint.update(id: drag.id, at: point)
-                    owner.pip.dropHint.update(id: drag.id, at: point)
-                }
-            }
             // 真的拖起来了（不是点一下标题栏）：在后台截好窗口和背景，抬手时替身滑行用得上。
             if !drag.picturesRequested, hypot(point.x - drag.down.x, point.y - drag.down.y) > 16,
                let screen = NSScreen.screens.first(where: { $0.frame.contains(drag.down) }) {
@@ -1263,11 +1128,7 @@ final class TrackpadGestureController {
             stopCheck?.cancel()
             guard let drag = flickDrag else { return }
             flickDrag = nil
-            guard !drag.decided else {
-                owner.slideOver.dropHint.cancel(); owner.pip.dropHint.cancel()
-                owner.notch.cancelDrag()
-                return
-            }
+            guard !drag.decided else { return }
             // 点击次数为 0 的松开：三指拖移结束时系统补发的那一下，比手指离开晚 0.2–0.7 秒。
             let source: FlickLiftSource = event.clickCount == 0 ? .lateUp : .buttonUp
             // 手动拖完一扇窗不再“反过来”教我们的手势：拖窗口在 Mac 上本来就是对的（docs/direction.md）。
@@ -1287,26 +1148,15 @@ final class TrackpadGestureController {
         let frame = drag.frameAtDown
         if abs(now.width - frame.width) > 2 || abs(now.height - frame.height) > 2 {
             drag.resizing = true
-            owner.notch.cancelDrag()
-            owner.slideOver.dropHint.cancel(); owner.pip.dropHint.cancel()
-            wlog("gesture: drag id=\(drag.id) is a resize, not a move: no drop hints, no flick")
+            wlog("gesture: drag id=\(drag.id) is a resize, not a move: no flick")
         } else if abs(now.minX - frame.minX) > 2 || abs(now.minY - frame.minY) > 2 {
             drag.moving = true
-            // 侧拉的窗口真的被拖走了：这时才收起它的玻璃边框、取消置顶（只是点一下标题栏不动它）。不是侧拉的窗口它不管。
-            owner.slideOver.dragMoved(drag.id)
         }
     }
 
-    /// 按下后没走到侧拉的 dragEnded 就结束了（改了大小、晃了一晃、拖到了小岛上、这一下被丢下）：
-    /// 侧拉的窗口按下、拖动时收起的边框和置顶还回去。不是侧拉的窗口它不管。
-    private func releaseGrab(_ drag: FlickDrag) {
-        owner.slideOver.released(drag.id)
-    }
-
-    /// 丢下正在拖的标题栏、不再判它（又按下了一次、手势被取消、设置关掉）。已经判过的由判的那一步收尾。
+    /// 丢下正在拖的标题栏、不再判它（又按下了一次、手势被取消、设置关掉）。
     private func dropFlickDrag() {
         titleHold?.invalidate(); titleHold = nil
-        if let drag = flickDrag, !drag.decided { releaseGrab(drag) }
         flickDrag = nil
     }
 
@@ -1322,7 +1172,7 @@ final class TrackpadGestureController {
                   hypot(NSEvent.mouseLocation.x - drag.down.x, NSEvent.mouseLocation.y - drag.down.y) < 6,
                   let info = self.freshWindowInfo(drag.id), let current = cgWindowBounds(info),
                   current == drag.frameAtDown else { return }
-            let choices: [(String, GestureAction)] = [("收起窗口", .shade), ("左半屏", .leftHalf), ("右半屏", .rightHalf), ("铺满屏幕", .fill), ("魔法平铺", .magicTile)]
+            let choices: [(String, GestureAction)] = [("收起窗口", .shade), ("左半屏", .leftHalf), ("右半屏", .rightHalf), ("铺满屏幕", .fill)]
             let target = TitlebarHoldMenuTarget { [weak self] action in
                 guard let self, let info = self.freshWindowInfo(drag.id),
                       info[kCGWindowOwnerPID as String] as? pid_t == drag.pid,
@@ -1345,7 +1195,7 @@ final class TrackpadGestureController {
     /// 拖着标题栏的指针 40 毫秒没动了：若是在高速中突然停住（甩的样子），就当手已经离开，
     /// 不等三指拖移迟到 0.2–0.7 秒的“松开”。只看系统里真的没有新拖动事件（不是本进程收得慢）。
     private func pointerMaybeStopped(_ drag: FlickDrag) {
-        guard flickDrag === drag, !drag.decided, !drag.resizing, !owner.slideOver.dropHint.isTracking(drag.id), !owner.pip.dropHint.isTracking(drag.id), let last = drag.samples.last,
+        guard flickDrag === drag, !drag.decided, !drag.resizing, let last = drag.samples.last,
               CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDragged) >= 0.035,
               let measured = FlickRelease.measure(drag.samples, lift: last.time), measured.isThrow,
               measured.speed >= (drag.direct ? FlickClassifier.directMinimumSpeed : FlickClassifier.minimumSpeed)

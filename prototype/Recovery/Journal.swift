@@ -114,7 +114,7 @@ extension AppDelegate {
         ]
         if let displayID = sourceDisplayID { entry["displayID"] = Double(displayID) }
         if let spaceID = sourceSpaceID { entry["spaceID"] = Double(spaceID) }
-        entries.append(WS2JournalWrite.omitTitle(entry))
+        entries.append(journalEntryWithoutTitle(entry))
         saveShadeJournalEntries(entries)
         wlog("journal: record \(hide.rawValue) id=\(id) app=\(appName) parked=(\(Int(parked.x)),\(Int(parked.y)))")
     }
@@ -149,7 +149,7 @@ extension AppDelegate {
         ]
         if let displayID = sourceDisplayID { entry["displayID"] = Double(displayID) }
         if let spaceID = sourceSpaceID { entry["spaceID"] = Double(spaceID) }
-        entries.append(WS2JournalWrite.omitTitle(entry))
+        entries.append(journalEntryWithoutTitle(entry))
         guard saveShadeJournalEntries(entries) else { return false }
         wlog("journal: intent id=\(id) app=\(appName) preparing")
         return true
@@ -163,7 +163,7 @@ extension AppDelegate {
         mutate(&entry)
         entry["updatedAt"] = Date().timeIntervalSince1970
         entry["lastReason"] = reason
-        entries[index] = WS2JournalWrite.omitTitle(entry)
+        entries[index] = journalEntryWithoutTitle(entry)
         saveShadeJournalEntries(entries)
     }
 
@@ -233,4 +233,11 @@ extension AppDelegate {
         }
         return false
     }
+}
+
+/// 新的恢复记录不写窗口标题；旧档里已有的标题读的时候仍可取到。
+private func journalEntryWithoutTitle(_ entry: [String: Any]) -> [String: Any] {
+    var copy = entry
+    copy.removeValue(forKey: "title")
+    return copy
 }

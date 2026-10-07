@@ -94,11 +94,6 @@ extension AppDelegate {
         isReconcilingShadedWindows = true
         defer { isReconcilingShadedWindows = false }
 
-        guard MainActor.assumeIsolated({ AuthorizationService.shared.lockState() == .unlocked }) else {
-            axReadGate.setEnabled(false)
-            updateReconcileTimer()
-            return
-        }
         pruneShadeJournal(reason: "reconcile-\(reason)")
 
         guard AXIsProcessTrusted() else {
@@ -140,13 +135,12 @@ extension AppDelegate {
     func pumpReconcileAXReads(reason: String, refreshWanted: Bool) {
         let now = ProcessInfo.processInfo.systemUptime
         guard now.isFinite else { return }
-        let unlocked = MainActor.assumeIsolated({ AuthorizationService.shared.lockState() == .unlocked })
-        guard unlocked, AXIsProcessTrusted() else {
+        guard AXIsProcessTrusted() else {
             axReadGate.setEnabled(false)
             return
         }
         axReadGate.setEnabled(true)
-        let voided = axReadGate.voidExpired(now: now, lifetime: AXReadGate<pid_t, [WS2FoldCallbackStamp]>.resultLifetime)
+        let voided = axReadGate.voidExpired(now: now, lifetime: AXReadGate<pid_t, [FoldCallbackStamp]>.resultLifetime)
         for ticket in voided {
             let age = Int((now - ticket.admittedAt) * 1000)
             wlog("reconcile: ax result void pid=\(ticket.app) occupied=\(axReadGate.occupiedCount) remaining=\(axReadGate.occupiedCount) ageMs=\(age) discard=void returned=0")
@@ -177,7 +171,7 @@ extension AppDelegate {
         }
     }
 
-    func startReconcileAXRead(_ ticket: AXReadGate<pid_t, [WS2FoldCallbackStamp]>.Ticket,
+    func startReconcileAXRead(_ ticket: AXReadGate<pid_t, [FoldCallbackStamp]>.Ticket,
                               targets: [ReconcileAXTarget], reason: String) {
         // 每个已准入的 App 自己读自己的窗口。不在这里等待其他 App，也不提前放开名额。
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -220,7 +214,6 @@ extension AppDelegate {
         if elapsedMilliseconds >= 50 {
             wlog("slow: reconcile-ax reason=\(reason) took \(elapsedMilliseconds)ms windows=\(snapshots.count)")
         }
-        guard MainActor.assumeIsolated({ AuthorizationService.shared.lockState() == .unlocked }) else { return }
         // Observe screen membership at application time, not before a possibly slow AX batch.
         let onScreenIDs = currentOnScreenWindowIDs()
         for snapshot in snapshots {
