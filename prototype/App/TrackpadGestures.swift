@@ -1224,74 +1224,8 @@ final class TrackpadGestureController {
     @discardableResult
     private func decideFlick(_ drag: FlickDrag, source: FlickLiftSource, signal: TimeInterval,
                              release: CGPoint, lifted: [CGPoint] = []) -> String? {
-        if drag.resizing || drag.shook {
-            owner.notch.cancelDrag()
-            owner.slideOver.dropHint.cancel(); owner.pip.dropHint.cancel()
-            releaseGrab(drag)
-            return drag.shook ? "shaken, not flicked" : "resized, not moved"
-        }
-        // 只有真实松手才接收侧拉落点；停住指针不能替用户提交。
-        let drop = source == .pointerStopped ? nil : owner.slideOver.dropHint.take(id: drag.id, at: release)
-        if let drop, let info = freshWindowInfo(drag.id), let landed = cgWindowBounds(info),
-           (info[kCGWindowOwnerPID as String] as? pid_t) == drag.pid,
-           FlickClassifier.windowFollowed(
-               moved: CGVector(dx: landed.minX - drag.frameAtDown.minX, dy: landed.minY - drag.frameAtDown.minY),
-               pointer: CGVector(dx: release.x - drag.down.x, dy: -(release.y - drag.down.y))),
-           let win = drag.element ?? appWindows(pid: drag.pid).first(where: { windowID(of: $0) == drag.id }) {
-            owner.notch.cancelDrag()
-            owner.slideOver.enter(win, id: drag.id, pid: drag.pid, side: drop.side, on: drop.screen)
-            wlog("gesture: dropped title bar into slide-over id=\(drag.id)")
-            return nil
-        }
-        // 拖到屏幕角落停一下松手：进画中画（和拖到边上进侧拉对称）。
-        let pipDrop = source == .pointerStopped ? nil : owner.pip.dropHint.take(id: drag.id, at: release)
-        if let pipDrop, let info = freshWindowInfo(drag.id), (info[kCGWindowOwnerPID as String] as? pid_t) == drag.pid,
-           let win = drag.element ?? appWindows(pid: drag.pid).first(where: { windowID(of: $0) == drag.id }) {
-            owner.notch.cancelDrag()
-            // 回到原处回的是按住标题栏之前的地方，不是拖到角落的落点。
-            owner.pip.enter(win, id: drag.id, pid: drag.pid, corner: pipDrop.corner, on: pipDrop.screen,
-                            home: drag.frameAtDown)
-            wlog("gesture: dropped title bar into picture in picture id=\(drag.id)")
-            return nil
-        }
-        // 拖到刘海下面的小岛上松手：停在哪一格就去哪（不看快慢）——收进刘海、左右半屏、铺满、魔法平铺。
-        if let choice = owner.notch.dragEnded(at: release),
-           let info = freshWindowInfo(drag.id), let landed = cgWindowBounds(info),
-           let win = drag.element ?? appWindows(pid: drag.pid).first(where: { windowID(of: $0) == drag.id }) {
-            // 侧拉的窗口拖到了小岛上：先退出侧拉（窗口留在松手的地方），再照那一格去做。
-            if owner.slideOver.isSlideOver(drag.id) {
-                owner.slideOver.exit(reason: "dropped on the notch island", restoringPosition: false)
-            }
-            releaseGrab(drag)
-            switch choice {
-            case .tuck:
-                owner.notch.tuck(win, id: drag.id, pid: drag.pid, landed: landed, home: drag.frameAtDown, velocity: .zero,
-                                 pictures: Self.dragStillOpen(source) ? drag.pictures : nil)
-            case .leftHalf, .rightHalf, .fill:
-                let action: GestureAction = choice == .leftHalf ? .leftHalf : choice == .rightHalf ? .rightHalf : .fill
-                guard let plan = placementTarget(action, current: landed, screen: owner.notch.screen(containing: release)) else { break }
-                let target = Self.fitting(plan.target, window: win, size: landed.size, area: plan.area)
-                owner.cancelRestorePin(for: drag.id)
-                announceFlick(action, id: drag.id, at: target, screen: plan.screen,
-                              note: target.size != plan.target.size ? "这个窗口不能改大小，放在了正中" : nil)
-                moveWindow(win, drag: drag, source: source, from: landed, to: target, velocity: .zero) { [weak self] observed in
-                    self?.noteReplaced(drag.id)
-                    self?.undoRecords[drag.id] = PlacementUndo(before: drag.frameAtDown, after: observed, element: win,
-                                                               layout: plan.layout, area: plan.area)
-                }
-            case .magic:
-                // 拖动可能还没真正结束（三指拖移要再等一会儿），这时 App 不理挪窗口：等它放手再排。
-                let delay = Self.dragStillOpen(source) ? 0.45 : 0.05
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    MainActor.assumeIsolated { _ = self?.magicTile(main: drag.id, element: win, announce: true) }
-                }
-            }
-            wlog("gesture: flick id=\(drag.id) source=\(source.rawValue) → dropped on the notch island: \(choice.title)")
-            return nil
-        }
+        if drag.resizing { return "resized, not moved" }
         let (outcome, measured) = judgeFlick(drag, source: source, signal: signal, release: release, lifted: lifted)
-        // 侧拉的窗口被拖着放下（不是甩）：靠回边上、换边，或者拖到中间就退出侧拉。
-        if outcome != nil, owner.slideOver.isSlideOver(drag.id) { owner.slideOver.dragEnded(id: drag.id, moved: hypot(release.x - drag.down.x, release.y - drag.down.y) > 4) }
         let gap = signal - (drag.samples.last?.time ?? signal)
         wlog(String(format: "gesture: flick id=%d source=%@ gap=%.0fms speed=%.0f peak=%.0f v=(%.0f,%.0f) fingers=%d%@ → %@",
                     drag.id, source.rawValue, gap * 1000, measured?.speed ?? 0, measured?.peakSpeed ?? 0,
@@ -1333,13 +1267,6 @@ final class TrackpadGestureController {
         guard FlickClassifier.windowFollowed(moved: moved, pointer: pointer) else {
             return ("window did not follow: moved=\(moved) pointer=\(pointer)", measured)
         }
-        // 侧拉的窗口：朝它靠的那一边甩是收到屏幕边外；朝别处甩先退出侧拉，再照常排。
-        if owner.slideOver.isSlideOver(drag.id),
-           let direction = FlickClassifier.direction(velocity: measured.velocity, minimumSpeed: floor),
-           owner.slideOver.flicked(id: drag.id, direction: direction.primary,
-                                   velocity: carry ? CGVector(dx: measured.velocity.dx, dy: -measured.velocity.dy) : .zero) {
-            return (nil, measured)
-        }
         // 梯子按拖之前的样子算（甩这一下本身已经把窗口挪开了）：铺满的窗口往上甩是撤销那次铺满。
         let map = titleBarMap(id: drag.id, frame: drag.frameAtDown, screen: nil, appOwnsHorizontal: false)
         guard let action = FlickClassifier.action(release: measured, map: map, direct: drag.direct) else {
@@ -1380,7 +1307,6 @@ final class TrackpadGestureController {
             moveWindow(win, drag: drag, source: source, from: landed, to: target, velocity: velocity) { [weak self] observed in
                 guard let self else { return }
                 // 撤销回到按住标题栏之前的样子，不是松手的地方。
-                self.noteReplaced(id)
                 self.undoRecords[id] = PlacementUndo(before: drag.frameAtDown, after: observed, element: win,
                                                      layout: plan.layout, area: plan.area)
                 wlog("gesture: placed id=\(id) \(plan.layout.rawValue) by flick target=(\(Int(plan.target.minX)),\(Int(plan.target.minY)) \(Int(plan.target.width))x\(Int(plan.target.height))) observed=(\(Int(observed.minX)),\(Int(observed.minY)) \(Int(observed.width))x\(Int(observed.height)))")
@@ -1392,21 +1318,13 @@ final class TrackpadGestureController {
             announceFlick(action, id: id, at: record.before, screen: screenForAXWindow(pos: record.before.origin,
                                                                                            size: record.before.size))
             moveWindow(win, drag: drag, source: source, from: landed, to: record.before, velocity: velocity) { _ in }
-            if let partner = unlinkPartner(id) { undoPartner(partner) }
-            return true
-        case .shade where owner.notch.aims(from: drag.samples.last?.point ?? drag.down,
-                                           velocity: CGVector(dx: velocity.dx, dy: -velocity.dy)):
-            // 朝着刘海往上甩：窗口飞进刘海，原处不留卷帘条。
-            owner.notch.tuck(win, id: id, pid: drag.pid, landed: landed, home: drag.frameAtDown, velocity: velocity,
-                             pictures: Self.dragStillOpen(source) ? drag.pictures : nil)
-            lastPerformed = (action, id)
             return true
         case .shade, .expand:
             let frame = GestureFrame(action: action, progress: 1, available: true)
             return run(frame, zone: .titleBar, id: id, pid: drag.pid, element: win,
                        location: CGPoint(x: landed.midX, y: landed.minY + 14), anchor: flickAnchor(landed))
-        case .magicTile, .widerColumn, .narrowerColumn, .center, .larger, .smaller, .fullHeight:
-            // 甩一下只走梯子，不会甩出魔法平铺、列宽。
+        case .center, .larger, .smaller, .fullHeight:
+            // 甩一下只走梯子，不会甩出居中、大一点这些。
             return false
         }
     }
@@ -1417,7 +1335,6 @@ final class TrackpadGestureController {
         hud.update(GestureFrame(action: action, progress: 1, available: true), anchor: flickAnchor(target), screen: screen)
         if let note { hud.note(note) }
         hud.commit()
-        lastPerformed = (action, id)
         lastCommit = (id, clock(), nil)
     }
 
