@@ -152,6 +152,12 @@ if [ "$check_only" = "1" ]; then
     swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -o "$WORK/WindowShadeUpdateGuard-check" \
       "${GUARD_SOURCES[@]}" "${GUARD_FRAMEWORKS[@]}"
   echo "==> 编译验证通过"
+  # CI 的演示录屏要用这次编出来的程序：设了 WINDOWSHADE_CHECK_OUTPUT 就把它留下来。
+  if [ -n "${WINDOWSHADE_CHECK_OUTPUT:-}" ]; then
+    mkdir -p "$WINDOWSHADE_CHECK_OUTPUT"
+    cp "$WORK/windowshade-check" "$WINDOWSHADE_CHECK_OUTPUT/WindowShade"
+    cp "$WORK/Duo.metallib" "$WINDOWSHADE_CHECK_OUTPUT/Duo.metallib"
+  fi
   exit 0
 fi
 
@@ -284,8 +290,8 @@ for version_key in CFBundleShortVersionString CFBundleVersion; do
   /usr/libexec/PlistBuddy -c "Set :$version_key $release_value" "$APP/Contents/Info.plist"
 done
 # 更新器的设置同样以源码树为准（SUFeedURL 除外：只有 --stage 写，开发版不写就不启动更新器）。
-music_usage=$(plutil -extract NSAppleEventsUsageDescription xml1 -o - Info.plist)
-plutil -replace NSAppleEventsUsageDescription -xml "$music_usage" "$APP/Contents/Info.plist"
+plutil -remove NSAppleEventsUsageDescription "$APP/Contents/Info.plist" 2>/dev/null || true
+plutil -remove NSCameraUsageDescription "$APP/Contents/Info.plist" 2>/dev/null || true
 for su_key in SUPublicEDKey SUVerifyUpdateBeforeExtraction SURequireSignedFeed SUEnableAutomaticChecks \
   SUScheduledCheckInterval SUAllowsAutomaticUpdates SUAutomaticallyUpdate SUEnableSystemProfiling; do
   su_value=$(plutil -extract "$su_key" xml1 -o - Info.plist)
