@@ -994,7 +994,9 @@ extension AppDelegate {
         let visibleChanged = visibleFrames != lastVisibleFrames
         lastDisplayLayout = layout
         lastVisibleFrames = visibleFrames
-        if displaysChanged || visibleChanged { foldPresentationID = UUID() }
+        // 只有显示器本身变了，进行中的收起确认才作废。可用区域变化不算：收起时把窗口最小化，
+        // Dock 多一个图标就可能缩放、改变可用区域，若因此作废，卷帘条就再也等不到显示。
+        if displaysChanged { foldPresentationID = UUID() }
         if displaysChanged {
             wlog("screen: displays changed count=\(layout.screens.count)")
             windowBrowserController?.screensDidChange()

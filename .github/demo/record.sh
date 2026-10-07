@@ -76,7 +76,7 @@ open -W --stderr "$OUT/driver.log" "$DRIVER" --args "$OUT/demo.mp4"
 cat "$OUT/driver.log" || true
 
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
-grep -E "tap|>>> shade|overlay|glance|trusted|accessibility" "$OUT/windowshade.log" | tail -60 || true
+grep -E "tap|>>> shade|overlay|glance|verification|space:|screen:" "$OUT/windowshade.log" | tail -60 || true
 screencapture -x "$OUT/end.png" 2>/dev/null || true
 ls -la "$OUT"
 test -s "$OUT/demo.mp4"
