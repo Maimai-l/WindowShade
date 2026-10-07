@@ -600,11 +600,6 @@ final class PinnedPreviewController {
         }
     }
 
-    /// 探针用：置顶面板此刻在不在屏幕上。
-    func panelVisibleForProbe(id: CGWindowID) -> Bool {
-        sessions[id]?.panel.isVisible ?? false
-    }
-
     // MARK: 暂时取消全部置顶
 
     /// 有被暂时取消的置顶（菜单显示“恢复全部置顶”）。

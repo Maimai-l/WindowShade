@@ -8,11 +8,11 @@
 // - 单击：截图从缩略图飞回原处（弹簧 0.38 / 0.1），快到时真窗口在那里放回（走原来的展开）；
 //   截图一直盖着，等真窗口回到原处再淡掉。按住拖：挪到别处，展开时窗口跟到那里。
 // - ⌃⌘0（整理缩略图）：排到屏幕下边一排，再按放回原位（ArrangeController）。整理过的缩略图展开时
-//   也回到整理前的原位（FoldExit 的 unshadeReturningElement）。收进刘海的不参加整理。
+//   也回到整理前的原位（FoldExit 的 unshadeReturningElement）。
 // - 透明度跟设置里的滑块走（ShadeTranslucency），指针停上去就不透明；打开“减少透明度”时一直不透明；
 //   打开“减少动态效果”时不飞，只淡入淡出（SnapshotFlight 自己处理）。
 //
-// 缩略图也是一扇“卷帘条”：ShadeState.overlay 就是它，收进刘海、⌘ 键转发、恢复日志、VoiceOver 名称、
+// 缩略图也是一扇“卷帘条”：ShadeState.overlay 就是它，⌘ 键转发、恢复日志、VoiceOver 名称、
 // 按空间归属显示隐藏这些都照卷帘条原样工作。外框的左上角就是窗口的左上角（见 ThumbnailLayout）。
 
 import Cocoa
@@ -176,8 +176,6 @@ final class ShadeThumbnailView: NSView {
     /// 按住拖动开始：看一眼先让开。
     var onDragBegan: (() -> Void)?
     var onMoveEnded: ((NSRect) -> Void)?
-    /// 指针停上去了（看一眼会给实时画面）：右上角的点算看过了。
-    var onSeen: (() -> Void)?
 
     /// 藏起来但还接得住点击：像素全透明的地方，单击会穿到下面别人的窗口上。
     private static let hiddenOpacity: CGFloat = 0.02
@@ -185,8 +183,6 @@ final class ShadeThumbnailView: NSView {
     private let pictureClip = CALayer()
     private let pictureLayer = CALayer()
     private let iconLayer = CALayer()
-    /// 有变化时的点：收起后标题变了（编译完成、来了新消息），右上角亮一个强调色的点，刘海不开口（小样 A）。
-    private let changeDot = CALayer()
     private var hoverArea: NSTrackingArea?
     // 只在主线程写；deinit 里移除时已没有别的引用。
     nonisolated(unsafe) private var displayOptionsObserver: NSObjectProtocol?
@@ -226,9 +222,6 @@ final class ShadeThumbnailView: NSView {
         iconLayer.shadowOffset = CGSize(width: 0, height: -1)
         iconLayer.isHidden = icon == nil
         root.addSublayer(iconLayer)
-        changeDot.isHidden = true
-        changeDot.borderWidth = 1.5
-        root.addSublayer(changeDot)
         placeLayers()
         applySystemAppearance()
         displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -264,11 +257,6 @@ final class ShadeThumbnailView: NSView {
         pictureClip.frame = ThumbnailLayout.thumbnailInView(overlaySize: bounds.size)
         pictureLayer.frame = pictureClip.bounds
         iconLayer.frame = ThumbnailLayout.iconInView(overlaySize: bounds.size)
-        // 点压在缩略图右上角（和刘海下巴上的点同样大小），描一圈底色，放在什么画面上都看得出来。
-        let picture = pictureClip.frame
-        let size: CGFloat = 9
-        changeDot.frame = CGRect(x: picture.maxX - size * 0.75, y: picture.maxY - size * 0.75, width: size, height: size)
-        changeDot.cornerRadius = size / 2
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         iconLayer.contentsScale = scale
         pictureLayer.contentsScale = scale
@@ -295,30 +283,7 @@ final class ShadeThumbnailView: NSView {
             capabilities.increaseContrast ? NSColor.labelColor.withAlphaComponent(0.5) : NSColor.separatorColor, for: self)
         pictureClip.backgroundColor = hasPicture ? nil
             : SystemAppearancePolicy.cgColor(NSColor.windowBackgroundColor, for: self)
-        changeDot.backgroundColor = SystemAppearancePolicy.cgColor(NSColor.controlAccentColor, for: self)
-        changeDot.borderColor = SystemAppearancePolicy.cgColor(NSColor.windowBackgroundColor, for: self)
         CATransaction.commit()
-    }
-
-    /// 收起后标题变了：亮点（弹一下出来，减少动态效果时直接出现）；看过、展开后熄掉。
-    var showsChange = false {
-        didSet {
-            guard showsChange != oldValue else { return }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            changeDot.isHidden = !showsChange
-            if showsChange, !Motion.reduced {
-                // pop：0.9 → 1。小东西确认一下，不从几乎看不见的地方长出来。
-                let pop = CASpringAnimation(perceptualDuration: Motion.Spring.pop.response, bounce: Motion.Spring.pop.bounce)
-                pop.keyPath = "transform.scale"
-                pop.fromValue = 0.9
-                pop.toValue = 1
-                pop.duration = pop.settlingDuration
-                changeDot.add(pop, forKey: "change-pop")
-            }
-            CATransaction.commit()
-            setAccessibilityValue(showsChange ? "有变化" : nil)
-        }
     }
 
     // MARK: 透明度
@@ -351,9 +316,6 @@ final class ShadeThumbnailView: NSView {
         (window as? ShadeThumbnailWindow)?.contentOpacity = CGFloat(target)
     }
 
-    /// 探针用：此刻的不透明度（不算动画中途）。
-    var restingOpacity: CGFloat { CGFloat(layer?.opacity ?? 1) }
-
     // MARK: 指针
 
     override func updateTrackingAreas() {
@@ -368,7 +330,6 @@ final class ShadeThumbnailView: NSView {
     override func mouseEntered(with event: NSEvent) {
         hovered = true
         refreshOpacity(animated: true)
-        if showsChange { showsChange = false; onSeen?() }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -459,7 +420,7 @@ final class ShadeThumbnailView: NSView {
         }
     }
 
-    /// 不飞了（收进刘海、系统在播自己的收起动画、过了太久）：直接露面，盖着的截图淡掉。
+    /// 不飞了（系统在播自己的收起动画、过了太久）：直接露面，盖着的截图淡掉。
     func discardEntrance() {
         pendingEntrance = nil
         dropEntranceCover(fade: true)
@@ -593,9 +554,8 @@ extension AppDelegate {
         let overlay = ShadeThumbnailWindow(frame: frame)
         let view = ShadeThumbnailView(frame: NSRect(origin: .zero, size: frame.size),
                                       picture: picture, icon: runningApp(pid: pid)?.icon)
-        // 收进刘海的（刘海自己在飞）、手势跟手的收起动画还在播的，不盖、也不飞（见 playThumbnailEntranceIfNeeded）。
-        let tucked = MainActor.assumeIsolated { notch.isTucked(id) }
-        let cover = !tucked && !duoController.windowEffects.hasActiveTransition(for: id)
+        // 手势跟手的收起动画还在播的，不盖、也不飞（见 playThumbnailEntranceIfNeeded）。
+        let cover = !duoController.windowEffects.hasActiveTransition(for: id)
         view.prepareEntrance(image: snapshot, from: windowFrame, to: thumbnail, cover: cover)
         // 看一眼关着时，指针停久一点能看到是哪扇窗（和截图卷帘条一样）。
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -608,10 +568,6 @@ extension AppDelegate {
         view.onMoveEnded = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
         }
-        view.onSeen = { [weak self] in
-            guard let self else { return }
-            MainActor.assumeIsolated { self.notch.clearChange(id) }
-        }
         overlay.contentView = view
         overlay.installShadow()
         applyOverlayPresentation(overlay, bringForward: false)
@@ -619,7 +575,7 @@ extension AppDelegate {
     }
 
     /// 缩略图第一次亮出来时（revealPreparedOverlay）：截图从窗口原处缩进去。
-    /// 收进刘海的（刘海自己在飞）、系统正播着收起动画的，不再飞一次。
+    /// 系统正播着收起动画的，不再飞一次。
     func playThumbnailEntranceIfNeeded(_ overlay: NSWindow) {
         guard let view = overlay.contentView as? ShadeThumbnailView else { return }
         guard view.hasPendingEntrance else {
@@ -630,8 +586,7 @@ extension AppDelegate {
             view.discardEntrance()
             return
         }
-        let tucked = MainActor.assumeIsolated { notch.isTucked(id) }
-        if tucked || overlay.ignoresMouseEvents || duoController.windowEffects.hasActiveTransition(for: id) {
+        if overlay.ignoresMouseEvents || duoController.windowEffects.hasActiveTransition(for: id) {
             view.discardEntrance()
             return
         }
@@ -698,13 +653,11 @@ extension AppDelegate {
     }
 
     /// ⌃⌘0：缩略图按原来的左右次序排到各自那块屏的下边一排；再按一次由 restoreArrangedOverlayFrames 放回。
-    /// 收进刘海的不排：它们藏着、不接指针，挪到下边只会露出一张点不动的图。
+    /// 藏着、不接指针的不排：挪到下边只会露出一张点不动的图。
     @discardableResult
     func arrangeThumbnailEntries(_ all: [(CGWindowID, ShadeState, NSWindow)]) -> Bool {
         guard !all.isEmpty else { return false }
-        let entries = all.filter { id, _, overlay in
-            !overlay.ignoresMouseEvents && !MainActor.assumeIsolated { notch.isTucked(id) }
-        }
+        let entries = all.filter { _, _, overlay in !overlay.ignoresMouseEvents }
         guard !entries.isEmpty else { return true }
         var grouped: [NSScreen: [(CGWindowID, NSWindow)]] = [:]
         for (id, _, overlay) in entries {
@@ -751,7 +704,7 @@ extension AppDelegate {
         return true
     }
 
-    /// 设置里的滑块动了：留在屏幕上的卷帘条、缩略图马上换透明度。收进刘海藏着的不动。
+    /// 设置里的滑块动了：留在屏幕上的卷帘条、缩略图马上换透明度。藏着的不动。
     func applyShadeTranslucencyToOverlays() {
         let alpha = overlayAlpha
         for state in shaded.values {

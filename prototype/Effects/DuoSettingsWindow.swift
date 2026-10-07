@@ -2,7 +2,7 @@ import Cocoa
 import ScreenCaptureKit
 
 enum WindowShadeSettingsSection: Int, CaseIterable {
-  case effects, shade, browser, shortcuts, permissions, advanced, pointer, remote, conductor
+  case effects, shade, browser, shortcuts, permissions, advanced
 
   private static let lastViewedKey = "WindowShade.Settings.LastViewedSection"
 
@@ -22,11 +22,8 @@ enum WindowShadeSettingsSection: Int, CaseIterable {
     case .shade: return "卷帘"
     case .browser: return "窗口浏览"
     case .shortcuts: return "快捷键"
-    case .permissions: return "隐私"
+    case .permissions: return "权限与启动"
     case .advanced: return "高级"
-    case .pointer: return "鼠标与触控板"
-    case .remote: return "遥控器"
-    case .conductor: return "指挥模式"
     }
   }
 
@@ -38,9 +35,6 @@ enum WindowShadeSettingsSection: Int, CaseIterable {
     case .shortcuts: return "command"
     case .permissions: return "lock.shield"
     case .advanced: return "slider.horizontal.3"
-    case .pointer: return ""
-    case .remote: return "appletvremote.gen4"
-    case .conductor: return ""
     }
   }
 }
@@ -208,9 +202,6 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
     pages[.browser] = controller.owner?.makeWindowBrowserSettingsPage()
     pages[.shortcuts] = controller.owner?.makeShortcutsSettingsPage()
     pages[.permissions] = controller.owner?.makePermissionsSettingsPage()
-    pages[.pointer] = controller.owner?.makePointerSettingsPage()
-    pages[.remote] = controller.owner?.makeRemoteSettingsPage()
-    pages[.conductor] = controller.owner?.makeConductorSettingsPage()
     select(section: controller.isDesignPreview ? .effects : .lastViewed())
 
     // 时钟只为实时预览的推帧服务。静态示意图不会自己变化，参数一改就已经
@@ -259,20 +250,6 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
     item.target = splitController
     item.action = #selector(NSSplitViewController.toggleSidebar(_:))
     return item
-  }
-
-  func resetReviewLayout() {
-    splitController.splitView.setPosition(214, ofDividerAt: 0)
-    scrollToTop()
-    if let window {
-      print("DESIGN layout window=\(window.frame) min=\(window.minSize) split=\(splitController.splitView.frame) panes=\(splitController.splitView.arrangedSubviews.map { $0.frame })")
-      print("DESIGN fitting \(splitController.view.fittingSize) layout=\(window.contentLayoutRect)")
-    }
-  }
-
-  func windowDidEndLiveResize(_ notification: Notification) {
-    guard controller?.isDesignPreview == true, let window else { return }
-    print("DESIGN live resize window=\(window.frame) fitting=\(splitController.view.fittingSize)")
   }
 
   private func makeSidebar() -> NSView {
@@ -408,26 +385,6 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
     pageScroll.reflectScrolledClipView(pageScroll.contentView)
   }
 
-  /// 诊断：当前分页的内容列中心相对详情区中心的偏移（0 表示居中）。
-  /// 收起侧栏或把窗口拉宽之后，内容列必须仍在详情区里居中——贴左会在右半边留下
-  /// 一大片空白（截图探针每次都会打这一行，见 `SettingsShotProbe`）。
-  var contentColumnOffsetForDiagnostics: CGFloat? {
-    guard let pageHost, let page = pageHost.subviews.first else { return nil }
-    pageHost.layoutSubtreeIfNeeded()
-    return page.frame.midX - pageHost.bounds.midX
-  }
-
-  /// 诊断：收起 / 展开侧栏（截图探针用它验证"切换侧栏不改变窗口尺寸"）。
-  /// 收起侧栏只是把宽度还给详情区，不应该让窗口本身变大或变小。
-  var sidebarCollapsedForDiagnostics: Bool {
-    get { splitController.splitViewItems.first?.isCollapsed ?? false }
-    set {
-      guard let item = splitController.splitViewItems.first, item.isCollapsed != newValue else { return }
-      item.isCollapsed = newValue
-      window?.layoutIfNeeded()
-    }
-  }
-
   func refreshSettings() {
     if currentSection == .effects {
       load(controller?.settings ?? DuoSettings())
@@ -438,9 +395,6 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
       pages[.browser] = owner.makeWindowBrowserSettingsPage()
       pages[.shortcuts] = owner.makeShortcutsSettingsPage()
       pages[.permissions] = owner.makePermissionsSettingsPage()
-      pages[.pointer] = owner.makePointerSettingsPage()
-      pages[.remote] = owner.makeRemoteSettingsPage()
-      pages[.conductor] = owner.makeConductorSettingsPage()
       select(section: currentSection)
     }
   }

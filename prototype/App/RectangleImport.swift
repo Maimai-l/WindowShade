@@ -91,7 +91,7 @@ extension GlobalShortcut {
 }
 
 extension AppDelegate {
-    /// 设置里“用 Rectangle 的快捷键”（只在这里，刘海不主动推荐）。Rectangle 还开着时它占着这些组合：说一声，等它退出再注册一遍。
+    /// 设置里“用 Rectangle 的快捷键”（只在这里，不主动推荐）。Rectangle 还开着时它占着这些组合：说一声，等它退出再注册一遍。
     @MainActor @objc func prefUseRectangleShortcuts() {
         let (combos, source) = RectangleImport.current()
         let result = RectangleImport.apply(combos)
@@ -100,7 +100,7 @@ extension AppDelegate {
         refreshPreferencesWindowIfOpen()
         wlog("rectangle-import: \(result.count) shortcuts from \(source), yielded=\(result.yielded)")
         if RectangleImport.isRectangleRunning {
-            notch.announce("退出 Rectangle 后就能用", detail: "它还开着，这些快捷键暂时归它", tone: .info)
+            quietNotice("退出 Rectangle 后，这些快捷键就能用", log: "rectangle-import: waiting for Rectangle to quit")
             let observer = RectangleExitObserver()
             observer.token = NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] note in
@@ -111,13 +111,13 @@ extension AppDelegate {
                 MainActor.assumeIsolated {
                     self?.registerGlobalShortcuts()
                     self?.rebuildMenu()
-                    self?.notch.announce("Rectangle 的快捷键现在归 WindowShade 了", tone: .done)
+                    self?.quietNotice("Rectangle 的快捷键现在归 WindowShade 了", log: "rectangle-import: Rectangle quit, shortcuts registered")
                 }
             }
             return
         }
-        var detail = source == .recommended ? "用的是 Rectangle 推荐的那一套" : "照你在 Rectangle 里的设置"
-        if !result.yielded.isEmpty { detail += "；\(result.yielded.joined(separator: "、"))的快捷键让给了它" }
-        notch.announce("换成了 Rectangle 的快捷键", detail: detail, tone: .done)
+        var message = "换成了 Rectangle 的快捷键"
+        if !result.yielded.isEmpty { message += "，\(result.yielded.joined(separator: "、"))的快捷键让给了它" }
+        quietNotice(message, log: "rectangle-import: applied from \(source)")
     }
 }

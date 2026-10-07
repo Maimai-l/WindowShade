@@ -55,9 +55,6 @@ extension GestureAction {
         case .bottomLeftNinth: return "左下九分之一"
         case .bottomCenterNinth: return "中下九分之一"
         case .bottomRightNinth: return "右下九分之一"
-        case .magicTile: return "魔法平铺"
-        case .widerColumn: return "这一列宽一档"
-        case .narrowerColumn: return "这一列窄一档"
         }
     }
 
@@ -106,12 +103,6 @@ extension GestureAction {
         case .topLeftNinth, .topCenterNinth, .topRightNinth, .middleLeftNinth, .middleCenterNinth, .middleRightNinth,
              .bottomLeftNinth, .bottomCenterNinth, .bottomRightNinth:
             return (.symbol("macwindow"), .symbol("square.grid.3x3"))
-        case .magicTile:
-            return (.symbol("macwindow"), .symbol("rectangle.split.3x1"))
-        case .widerColumn:
-            return (.symbol("rectangle.portrait"), .symbol("rectangle"))
-        case .narrowerColumn:
-            return (.symbol("rectangle"), .symbol("rectangle.portrait"))
         }
     }
 
@@ -184,7 +175,7 @@ final class GestureHUD {
                              userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
-    /// 不是手势触发的（快捷键、菜单、晃一晃）：直接亮出执行完的样子，说一句结果，停一会儿淡出。
+    /// 不是手势触发的（快捷键、菜单）：直接亮出执行完的样子，说一句结果，停一会儿淡出。
     func announce(_ action: GestureAction, note text: String?, anchor: CGPoint, screen: NSScreen?) {
         update(GestureFrame(action: action, progress: 1), anchor: anchor, screen: screen)
         if let text { note(text) }

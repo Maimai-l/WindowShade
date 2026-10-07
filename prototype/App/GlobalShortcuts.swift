@@ -17,20 +17,10 @@ enum GlobalShortcut: String, CaseIterable {
     case stepLarger
     case leftHalf
     case rightHalf
-    /// 侧拉：把当前窗口靠到屏幕边、浮在前面；再按一次收到屏幕边外或拉回来。
-    case slideOver
-    /// 启动台：列出所有 App，拖出去能直接侧拉或开在半屏。
-    case launchpad
     /// 暂时取消全部置顶 / 恢复（老板键）：默认不占快捷键，需要的人在设置里录一个。
     case suspendPins
-    /// 魔法平铺：按各自要的地方把这块屏上的窗口一次排好（和标题栏上两指张开是同一件事）。
-    case magicTile
     /// 当前窗口移到下一块屏幕，排法不变（显示器上下摆时，左右梯子走不过去）。
     case nextDisplay
-    /// 这块屏上的窗口全部收进刘海，再按一下放回来（和在刘海上往上推是同一件事）。
-    case tuckAll
-    /// 只把当前窗口收进刘海（和甩一下标题栏、拖到落点小岛是同一件事）。默认不占快捷键。
-    case tuckCurrent
     /// Rectangle、Raycast 里有的那些排法：默认不占快捷键，在设置里录一个，或一键换成 Rectangle 的那一套。
     case topHalf
     case bottomHalf
@@ -50,13 +40,10 @@ enum GlobalShortcut: String, CaseIterable {
     case center
     case undoPlacement
     case previousDisplay
-    /// 画中画：当前窗口缩成一张实时画面浮在屏幕角落；再按一下回到原处。默认不占快捷键。
-    case pictureInPicture
-    case focusTimer
 
     typealias HotKey = WindowBrowserSettings.HotKey
 
-    /// Carbon 热键编号：事件处理按它分派，与 1.0 起的编号一致。
+    /// Carbon 热键编号：事件处理按它分派，与 1.0 起的编号一致；拿掉的动作空出的编号不再复用。
     var hotKeyID: UInt32 {
         switch self {
         case .toggleShade: return 1
@@ -68,13 +55,8 @@ enum GlobalShortcut: String, CaseIterable {
         case .stepLarger: return 7
         case .leftHalf: return 8
         case .rightHalf: return 9
-        case .slideOver: return 10
-        case .launchpad: return 11
         case .suspendPins: return 12
-        case .magicTile: return 13
         case .nextDisplay: return 14
-        case .tuckAll: return 15
-        case .tuckCurrent: return 35
         case .topHalf: return 16
         case .bottomHalf: return 17
         case .topLeft: return 18
@@ -93,8 +75,6 @@ enum GlobalShortcut: String, CaseIterable {
         case .center: return 31
         case .undoPlacement: return 32
         case .previousDisplay: return 33
-        case .pictureInPicture: return 34
-        case .focusTimer: return 36
         }
     }
 
@@ -110,13 +90,8 @@ enum GlobalShortcut: String, CaseIterable {
         case .stepLarger: return "变大一级"
         case .leftHalf: return "左半屏"
         case .rightHalf: return "右半屏"
-        case .slideOver: return "侧拉当前窗口"
-        case .launchpad: return "打开启动台"
         case .suspendPins: return "暂时取消全部置顶"
-        case .magicTile: return "魔法平铺"
         case .nextDisplay: return "移到另一块屏幕"
-        case .tuckAll: return "全部收进刘海"
-        case .tuckCurrent: return "收进刘海"
         case .topHalf: return "上半屏"
         case .bottomHalf: return "下半屏"
         case .topLeft: return "左上角"
@@ -135,13 +110,11 @@ enum GlobalShortcut: String, CaseIterable {
         case .center: return "居中"
         case .undoPlacement: return "撤销上次排布"
         case .previousDisplay: return "移到上一块屏幕"
-        case .pictureInPicture: return "画中画当前窗口"
-        case .focusTimer: return "开始或暂停番茄钟"
         }
     }
 
     /// 各版本出厂就占着的组合：新装的一个都不占；1.0.15 及以前是 ⌃⌘C、0、P、G 和四个方向键；
-    /// 1.0.16 测试版另占 ⌃⌘S、L、M、N、H。只用来让升级上来的人照原样用下去，不再给新装的。
+    /// 1.0.16 测试版另占 ⌃⌘N。只用来让升级上来的人照原样用下去，不再给新装的。
     func factoryHotKey(for history: InstallHistory) -> HotKey? {
         guard history.hadFactoryShortcuts else { return nil }
         let controlCommand = UInt32(controlKey | cmdKey)
@@ -155,15 +128,10 @@ enum GlobalShortcut: String, CaseIterable {
         case .stepLarger: return key(kVK_DownArrow)
         case .leftHalf: return key(kVK_LeftArrow)
         case .rightHalf: return key(kVK_RightArrow)
-        case .slideOver: return history == .preview ? key(kVK_ANSI_S) : nil
-        case .launchpad: return history == .preview ? key(kVK_ANSI_L) : nil
-        case .magicTile: return history == .preview ? key(kVK_ANSI_M) : nil
         case .nextDisplay: return history == .preview ? key(kVK_ANSI_N) : nil
-        case .tuckAll: return history == .preview ? key(kVK_ANSI_H) : nil
-        case .tuckCurrent, .focusTimer: return nil
         case .windowBrowser, .suspendPins, .topHalf, .bottomHalf, .topLeft, .topRight, .bottomLeft, .bottomRight, .leftThird,
              .centerThird, .rightThird, .leftTwoThirds, .rightTwoThirds, .fill, .fullHeight, .larger, .smaller, .center,
-             .undoPlacement, .previousDisplay, .pictureInPicture: return nil
+             .undoPlacement, .previousDisplay: return nil
         }
     }
 

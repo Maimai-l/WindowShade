@@ -138,10 +138,6 @@ extension AppDelegate {
         }
     }
     func handleHotKey(id: UInt32) {
-        if id == GlobalShortcut.focusTimer.hotKeyID {
-            MainActor.assumeIsolated { ws2Runtime.toggleFocus() }
-            return
-        }
         if id == 1 {
             toggle()
             return
@@ -154,10 +150,6 @@ extension AppDelegate {
             pinnedPreviewController.pinCurrentTargetPreview()
             return
         }
-        if id == GlobalShortcut.pictureInPicture.hotKeyID {
-            MainActor.assumeIsolated { pip.toggleCurrentWindow() }
-            return
-        }
         if id == 4 {
             windowBrowserController?.toggleKeyboardPanel()
             return
@@ -166,21 +158,9 @@ extension AppDelegate {
             MainActor.assumeIsolated { carry.toggleCurrentWindow() }
             return
         }
-        if id == GlobalShortcut.slideOver.hotKeyID {
-            MainActor.assumeIsolated { slideOver.toggleCurrentWindow() }
-            return
-        }
         if id == GlobalShortcut.suspendPins.hotKeyID {
             pinnedPreviewController.toggleSuspendAll()
             rebuildMenu()
-            return
-        }
-        if id == GlobalShortcut.launchpad.hotKeyID {
-            MainActor.assumeIsolated { launchpad.toggle() }
-            return
-        }
-        if id == GlobalShortcut.magicTile.hotKeyID {
-            MainActor.assumeIsolated { _ = gestures.magicTile() }
             return
         }
         if id == GlobalShortcut.nextDisplay.hotKeyID {
@@ -193,14 +173,6 @@ extension AppDelegate {
         }
         if let action = GlobalShortcut.allCases.first(where: { $0.hotKeyID == id })?.placement {
             MainActor.assumeIsolated { gestures.keyPlace(action) }
-            return
-        }
-        if id == GlobalShortcut.tuckAll.hotKeyID {
-            MainActor.assumeIsolated { _ = notch.tuckAll() }
-            return
-        }
-        if id == GlobalShortcut.tuckCurrent.hotKeyID {
-            MainActor.assumeIsolated { _ = notch.tuckFocused() }
             return
         }
         // 排布这一组：和手势同向，往上变小、往下变大。
@@ -635,8 +607,7 @@ extension AppDelegate {
                 unshade(id)
             } else {
                 let options = focusRejoinEntries[id] != nil ? focusShadeOptions : nil
-                // 收起了就是顺利：刘海不开口（docs/direction.md，顺利的时候一声不吐）。
-                // 想要的其实是铺满的人，由卡住时的提示接（HabitContext 的双击标题栏那一条）。
+                // 收起了就是顺利：不另外提示（docs/direction.md，顺利的时候一声不吐）。
                 shade(win, id, options: options, trustElement: true)
             }
         }

@@ -54,8 +54,6 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
     private(set) var plan: WindowBrowserContentPlan
     /// 宿主（控制器）需要的排版参数：实时预览挂载时要和卡片用同一份圆角刻度。
     var layoutParamsForHosting: WindowBrowserLayoutParams { params }
-    /// 诊断：面板背景当前实际生效的圆角（视觉回归与截图核对用）。
-    var panelCornerRadiusForDiagnostics: CGFloat { materialHost.layer?.cornerRadius ?? -1 }
 
     let materialHost = WindowBrowserMaterialView()
     private let iconView = NSImageView()
@@ -109,8 +107,7 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
     private var gridItemsSeen: Set<ObjectIdentifier> = []
     /// 刚关掉、下一次刷新会移出列表的窗口（记下标记的时刻）：移出时卡片缩小淡出，其余卡片顺势补位。
     private var departingMarks: [WindowKey: CFTimeInterval] = [:]
-    /// 诊断：做过几次退场动画；上一次更新有没有做（控制器据此让面板尺寸也走动画）。
-    private(set) var departureAnimationCount = 0
+    /// 上一次更新有没有做退场动画（控制器据此让面板尺寸也走动画）。
     private(set) var lastUpdateAnimatedDeparture = false
 
     override init(frame frameRect: NSRect) {
@@ -393,16 +390,6 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
         return nsColor.brightnessComponent
     }
 
-    /// 诊断：强制卡片用实色或内容层材质（探针做同机对照；真机由材质自动决定）。
-    func setCardSurfaceForDiagnostics(_ surface: WindowBrowserCardSurface) {
-        for target in materialHost.contentHost.browserAppearanceTargets() {
-            target.adoptCardSurface(surface)
-        }
-    }
-
-    /// 诊断：面板背景材质宿主。
-    var materialHostForDiagnostics: WindowBrowserMaterialView { materialHost }
-
     private func detailStatus(for records: [WindowRecord]) -> String {
         if records.isEmpty { return "" }
         return records.count == 1 ? "1 个窗口" : "\(records.count) 个窗口"
@@ -494,7 +481,6 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
     /// 动画期间不拦任何输入：再来一次刷新，集合视图会从当前位置接着排，不必等它做完。
     private func animateDeparture(_ diff: ItemDiff, isList: Bool) {
         lastUpdateAnimatedDeparture = true
-        departureAnimationCount += 1
         let reduceMotion = SystemAppearanceCapabilities.current.reduceMotion
         let duration = WindowBrowserDepartureMotion.duration(reduceMotion: reduceMotion)
         if reduceMotion {
@@ -769,9 +755,6 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
     }
 
     var searchFieldVisible: Bool { !searchField.isHidden && searchField.frame.height > 0 }
-
-    /// 诊断：搜索框当前的可访问性名称（探针校验面板结构用）。
-    var searchFieldAccessibilityLabel: String? { searchField.accessibilityLabel() }
 
     var searchText: String { searchField.stringValue }
 
@@ -1117,16 +1100,6 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
     func hasThumbnailImage(for key: WindowKey) -> Bool {
         if let card = cardView(for: key) { return card.thumbnailImageForTesting != nil }
         return thumbnailImages[key] != nil
-    }
-
-    /// 诊断：第一张可见卡片的 frame 摘要（隔离展示入口排查布局用）。
-    func debugFirstCardFrames()
-        -> (bounds: NSRect, thumbnailHostFrame: NSRect, titleFrame: NSRect,
-            actionFrame: NSRect)? {
-        guard let key = records.first?.key, let card = cardView(for: key) else { return nil }
-        card.layoutSubtreeIfNeeded()
-        return (card.bounds, card.thumbnailHostFrameForDiagnostics,
-                card.titleFrameForDiagnostics, card.actionFrameForDiagnostics)
     }
 
     /// 复用检查：可见卡片视图的对象身份。

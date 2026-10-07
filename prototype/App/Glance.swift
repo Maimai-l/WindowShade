@@ -56,15 +56,6 @@ protocol GlanceCarrySource: AnyObject {
     func openCarriedWindow(_ id: CGWindowID)
 }
 
-/// 别的桌面上的窗口：由刘海那一排提供（停在那一格上看一眼，点一下过去）。
-@MainActor
-protocol GlanceElsewhereSource: AnyObject {
-    /// 指着的那一格在屏幕上的位置（画面从这里长出来、缩回这里）；不是正在指着的就返回 nil。
-    func elsewhereAnchorFrame(_ id: CGWindowID) -> NSRect?
-    func glanceTarget(forElsewhere id: CGWindowID) -> GlanceTarget?
-    func openElsewhereWindow(_ id: CGWindowID)
-}
-
 /// 探针与日志读的数字：从指针决定打开到画面出现、到第一帧实时画面各用了多久。
 struct GlanceDiagnostics {
     var opens = 0
@@ -137,7 +128,6 @@ private final class GlanceSession {
     var rehiddenAt: TimeInterval?
     /// 卡片在屏幕上的位置：“指针在画面上”只看卡片，不算投影边距。
     var cardScreen: NSRect?
-    var hasBackdrop = false
     /// 缩略图：卡片从这里（面板坐标）长出来、缩回这里。
     var growFrom: NSRect?
 
@@ -197,13 +187,10 @@ final class GlanceController {
 
     unowned let owner: AppDelegate
     weak var carrySource: GlanceCarrySource?
-    weak var elsewhereSource: GlanceElsewhereSource?
     let intent = GlanceIntent()
     /// 探针替换这两个入口来模拟指针与时钟；平时读真实的指针位置。
     var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
     var clock: () -> TimeInterval = { CACurrentMediaTime() }
-    /// 探针的临时窗口可能被别的窗口挡住：只按几何判断指针在哪。
-    var hitTestsByGeometry = false
     private(set) var diagnostics = GlanceDiagnostics()
 
     private var relays: [CGWindowID: GlanceHoverRelay] = [:]
@@ -314,31 +301,6 @@ final class GlanceController {
         return true
     }
 
-    // MARK: 从别处按住的看一眼（刘海里停在一格上）
-
-    /// 别处按住的那一个：指针不在卷帘条上也不收，直到 releaseHeld。
-    private var held: CGWindowID?
-
-    /// 刘海里指着一扇收进去的窗口：在它原处开看一眼（实时画面，被隐藏的 App 也照常先盖住再临时显示）。
-    /// 返回 false：看一眼关着或这里放不下，调用方退回截图。
-    func showHeld(_ id: CGWindowID) -> Bool {
-        guard Self.isEnabled, stripFrame(id) != nil else { return false }
-        if let previous = held, previous != id { releaseHeld(previous) }
-        held = id
-        apply(intent.clicked(id, at: clock()))
-        guard let session = sessions[id], session.stage != .closing, session.stage != .expanding else {
-            held = nil
-            return false
-        }
-        return true
-    }
-
-    func releaseHeld(_ id: CGWindowID) {
-        guard held == id else { return }
-        held = nil
-        apply(intent.cancel())
-    }
-
     /// 单击卷帘条：不等计时，马上看。
     func stripClicked(_ id: CGWindowID) {
         guard Self.isEnabled, stripFrame(id) != nil else { return }
@@ -387,21 +349,6 @@ final class GlanceController {
         ensureTimer()
     }
 
-    /// 探针用：这一扇的看一眼正在用的流（没开流时为 nil）。
-    func captureForProbe(_ id: CGWindowID) -> WindowStreamCapture? {
-        sessions[id]?.capture
-    }
-
-    /// 探针用：这一扇的卡片右下角此刻看得见“收起时的画面”。
-    func showsStaleNoticeForProbe(_ id: CGWindowID) -> Bool {
-        sessions[id]?.content?.showsStaleNotice == true
-    }
-
-    /// 探针用：这一扇的卡片正在收回（卷上或缩回缩略图）。
-    func isClosingForProbe(_ id: CGWindowID) -> Bool {
-        sessions[id]?.stage == .closing
-    }
-
     /// “App 又显示出来 / 窗口在屏幕上”是不是看一眼自己造成的。
     func holdsReveal(_ id: CGWindowID) -> Bool {
         if let session = sessions[id], session.viaUnhide, session.unhideAt != nil,
@@ -418,34 +365,11 @@ final class GlanceController {
         sessions.values.contains { $0.stage == .shown || $0.stage == .waitingForFrame }
     }
 
-    func panelFrame(for id: CGWindowID) -> NSRect? {
-        sessions[id]?.panel?.frame
-    }
-
-    /// 卡片在屏幕上的位置。
-    func cardFrame(for id: CGWindowID) -> NSRect? {
-        sessions[id]?.cardScreen
-    }
-
-    func hasBackdrop(_ id: CGWindowID) -> Bool {
-        sessions[id]?.hasBackdrop == true
-    }
-
-    /// 实时画面真的显示在看一眼里：收到了带像素的帧，而且视频层挂在画面上。
-    func isLive(_ id: CGWindowID) -> Bool {
-        guard let session = sessions[id] else { return false }
-        return session.hasLiveFrame && session.content?.showsVideo == true
-    }
-
-    func pixelFrames(_ id: CGWindowID) -> UInt64 {
-        sessions[id]?.capture?.pixelFrameCount ?? 0
-    }
-
     // MARK: 目标
 
     private func stripFrame(_ id: CGWindowID) -> NSRect? {
         if let overlay = owner.shaded[id]?.overlay { return overlay.frame }
-        return carrySource?.carriedStripFrame(id) ?? elsewhereSource?.elsewhereAnchorFrame(id)
+        return carrySource?.carriedStripFrame(id)
     }
 
     private func target(for id: CGWindowID) -> GlanceTarget? {
@@ -456,8 +380,8 @@ final class GlanceController {
             }
             return shadedTarget(state: state, strip: overlay.frame)
         }
-        if carrySource?.carriedStripFrame(id) != nil { return carrySource?.glanceTarget(forCarried: id) }
-        return elsewhereSource?.glanceTarget(forElsewhere: id)
+        guard carrySource?.carriedStripFrame(id) != nil else { return nil }
+        return carrySource?.glanceTarget(forCarried: id)
     }
 
     /// 卡片和卷帘条之间的缝（点）。
@@ -593,8 +517,8 @@ final class GlanceController {
                 finish(existing, reason: "reenter-after-rehide")
             } else if existing.stage == .closing,
                       let frame = stripFrame(id), !framesAlmostEqual(frame, existing.stripFrame) {
-                // 收回途中，它的起点换了地方（刘海那一排重排过，同一扇窗的格子挪了）：旧画面的位置不对，
-                // 不能接着用，否则下一拍就被当成“卷帘条被拖走”撤掉。卷帘条的外框不会这样变，原有行为不受影响。
+                // 收回途中，它的起点换了地方：旧画面的位置不对，
+                // 不能接着用，否则下一拍就被当成“卷帘条被拖走”撤掉。
                 finish(existing, reason: "reenter-moved")
             } else {
                 if existing.stage == .closing {
@@ -692,7 +616,6 @@ final class GlanceController {
                 excluding: [], rect: CGRect(origin: axPosition(fromCocoaFrame: area), size: area.size)) {
                 content.setBackdrop(backdrop, frame: area.offsetBy(dx: -target.panel.minX,
                                                                    dy: -target.panel.minY))
-                session.hasBackdrop = true
             } else {
                 session.viaUnhide = false
                 session.captureFailed = true
@@ -815,9 +738,6 @@ final class GlanceController {
             if carrySource?.carriedStripFrame(id) != nil {
                 wlog("glance: open carried window id=\(id)")
                 carrySource?.openCarriedWindow(id)
-            } else {
-                wlog("glance: open window elsewhere id=\(id)")
-                elsewhereSource?.openElsewhereWindow(id)
             }
             finish(session, reason: "opened")
             return
@@ -961,8 +881,7 @@ final class GlanceController {
                 }
             }
         }
-        // 别处按住的看一眼不按指针收回（指针在刘海上，不在卷帘条上）。
-        if intent.needsSampling, held == nil {
+        if intent.needsSampling {
             apply(intent.sample(sample(at: point), at: now))
         }
         ensureTimer()
@@ -1023,12 +942,10 @@ final class GlanceController {
         let glanceFrame = active.flatMap { sessions[$0] }.flatMap { session in
             session.panel?.isVisible == true ? session.cardScreen : nil
         }
-        if !hitTestsByGeometry {
-            // 指针下最上层的窗口不是我们的：卷帘条或画面被别的窗口挡住了。
-            let top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
-            if NSApp.window(withWindowNumber: top) == nil {
-                return GlancePointerSample(strip: nil)
-            }
+        // 指针下最上层的窗口不是我们的：卷帘条或画面被别的窗口挡住了。
+        let top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
+        if NSApp.window(withWindowNumber: top) == nil {
+            return GlancePointerSample(strip: nil)
         }
         let overGlance = glanceFrame?.contains(point) == true
         let strip = stripUnder(point, preferring: active)

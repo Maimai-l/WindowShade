@@ -13,8 +13,7 @@
 import Cocoa
 
 /// 不是 @MainActor：调用方（DuoController 及其通知回调）不都在主线程隔离域里。
-/// 状态很小，用一把锁护住，和 AppleSPUAccelerometer 里 published 的做法一致；
-/// 拿锁的时候绝不调用 WindowServer（IPC 放在锁外面）。
+/// 状态很小，用一把锁护住；拿锁的时候绝不调用 WindowServer（IPC 放在锁外面）。
 enum EffectEnvironment {
     typealias LockState = SessionLockState
 
@@ -44,7 +43,7 @@ enum EffectEnvironment {
     static var displayAwake: Bool { read(\.displayAwake) }
     /// 每次重读 +1：调用方拿它判断“我读到的是不是新一轮状态”。
     static var generation: UInt64 { read(\.generation) }
-    /// 同步查询累计次数（探针和性能记录读它）。
+    /// 同步查询累计次数（性能记录读它）。
     static var queries: Int { read(\.queries) }
 
     /// 重读权威状态。只在启动、状态转换和按需复查时调用，不在渲染 tick 里同步问。
@@ -91,17 +90,5 @@ enum EffectEnvironment {
     static func displayWoke() {
         write { $0.displayAwake = true }
         refresh()
-    }
-
-    /// 探针与单测用：把状态摆到指定值（不写用户的任何设置）。
-    static func resetForProbe(lock: LockState = .unknown, asleep: Bool = false, displayAwake: Bool = true) {
-        let now = CACurrentMediaTime()
-        write {
-            $0.lock = lock
-            $0.asleep = asleep
-            $0.displayAwake = displayAwake
-            $0.lastQuery = now
-            $0.generation &+= 1
-        }
     }
 }

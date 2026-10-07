@@ -99,12 +99,12 @@ final class SnapshotFlight {
         area.contains(target)
     }
 
-    /// velocity：点/秒，Cocoa 坐标（y 向上）。fadeOut：一路缩小时最后一段淡掉（飞进刘海）。
+    /// velocity：点/秒，Cocoa 坐标（y 向上）。
     func fly(to target: NSRect, velocity: CGVector, response: Double = 0.42, bounce: CGFloat = 0.12,
-             cornerRadius: CGFloat? = nil, fadeOut: Bool = false, done: @escaping () -> Void) {
+             cornerRadius: CGFloat? = nil, done: @escaping () -> Void) {
         let end = target.offsetBy(dx: -area.minX, dy: -area.minY)
         if Motion.reduced {
-            dissolve(to: end, cornerRadius: cornerRadius, fadeOut: fadeOut, done: done)
+            dissolve(to: end, cornerRadius: cornerRadius, done: done)
             return
         }
         let start = picture.frame
@@ -142,24 +142,16 @@ final class SnapshotFlight {
             corner.duration = corner.settlingDuration
             animations.append(corner)
         }
-        if fadeOut {
-            let fade = CAKeyframeAnimation(keyPath: "opacity")
-            fade.values = [1, 1, 0]
-            fade.keyTimes = [0, 0.6, 1]
-            fade.duration = min(position.duration, 0.55)
-            animations.append(fade)
-        }
         CATransaction.setDisableActions(true)
         picture.position = CGPoint(x: end.midX, y: end.midY)
         picture.bounds = CGRect(origin: .zero, size: end.size)
         if let cornerRadius { picture.cornerRadius = cornerRadius }
-        if fadeOut { picture.opacity = 0 }
         for animation in animations { picture.add(animation, forKey: (animation as? CAPropertyAnimation)?.keyPath) }
         CATransaction.commit()
     }
 
-    /// 减少动态效果时不飞：原处淡出，目标处淡入（飞进刘海时只淡出）。
-    private func dissolve(to end: CGRect, cornerRadius: CGFloat?, fadeOut: Bool, done: @escaping () -> Void) {
+    /// 减少动态效果时不飞：原处淡出，目标处淡入。
+    private func dissolve(to end: CGRect, cornerRadius: CGFloat?, done: @escaping () -> Void) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         CATransaction.setCompletionBlock { done() }
@@ -169,20 +161,18 @@ final class SnapshotFlight {
         out.duration = 0.2
         picture.opacity = 0
         picture.add(out, forKey: "dissolve")
-        if !fadeOut {
-            let arrival = CALayer()
-            arrival.contents = picture.contents
-            arrival.contentsGravity = .resize
-            arrival.cornerRadius = cornerRadius ?? picture.cornerRadius
-            arrival.masksToBounds = true
-            arrival.frame = end
-            picture.superlayer?.addSublayer(arrival)
-            let fadeIn = CABasicAnimation(keyPath: "opacity")
-            fadeIn.fromValue = 0
-            fadeIn.toValue = 1
-            fadeIn.duration = 0.2
-            arrival.add(fadeIn, forKey: "dissolve")
-        }
+        let arrival = CALayer()
+        arrival.contents = picture.contents
+        arrival.contentsGravity = .resize
+        arrival.cornerRadius = cornerRadius ?? picture.cornerRadius
+        arrival.masksToBounds = true
+        arrival.frame = end
+        picture.superlayer?.addSublayer(arrival)
+        let fadeIn = CABasicAnimation(keyPath: "opacity")
+        fadeIn.fromValue = 0
+        fadeIn.toValue = 1
+        fadeIn.duration = 0.2
+        arrival.add(fadeIn, forKey: "dissolve")
         CATransaction.commit()
     }
 

@@ -273,11 +273,6 @@ final class TrackpadGestureController {
         wlog("gesture: cancel unconfirmed id=\(pending.windowID) reason=\(reason)")
     }
 
-    /// 窗口被别的途径移动或关闭后，撤销记录作废。
-    func forgetPlacement(for id: CGWindowID) {
-        undoRecords.removeValue(forKey: id)
-    }
-
     // MARK: - 事件入口
 
     /// 返回 true 表示这个事件被卷帘条手势用掉了（只对本地监听有意义）。
@@ -730,6 +725,54 @@ final class TrackpadGestureController {
         }
         run(GestureFrame(action: action, progress: 1), zone: .titleBar, id: id, pid: pid, element: win,
             location: top, anchor: CGPoint(x: barBottom.x, y: barBottom.y - 10))
+    }
+
+    /// 当前窗口移到下一块屏幕（按系统里屏幕的顺序转一圈），排法不变：半屏还是半屏、铺满还是铺满，
+    /// 没排过的按它在原来那块屏上的相对位置和大小放过去。上下摆的显示器也行（左右梯子只走得到左右两边）。
+    @discardableResult
+    func moveToNextDisplay(backward: Bool = false) -> Bool {
+        let screens = NSScreen.screens
+        guard screens.count > 1 else {
+            owner.quietNotice("只有一块屏幕", log: "display-move: only one screen")
+            return false
+        }
+        let focused = focusedWindow()
+        let focusedID = focused.flatMap { windowID(of: $0) }
+        if let id = focusedID, let step = awayStep(id) {
+            owner.quietNotice("\(step)，\(backward ? "再移到上一块屏幕" : "再移到另一块屏幕")",
+                              log: "display-move: refused, id=\(id) is not in its place")
+            return false
+        }
+        guard let win = focused, let id = focusedID, cgWindowIsCurrentlyOnScreen(id), !isSettling(id),
+              let pos = axPosition(win), let size = axSize(win),
+              let current = screenForAXWindow(pos: pos, size: size),
+              let index = screens.firstIndex(of: current) else {
+            owner.quietNotice("没有可以移的窗口", log: "display-move: no window")
+            return false
+        }
+        let next = screens[(index + (backward ? screens.count - 1 : 1)) % screens.count]
+        func area(_ screen: NSScreen) -> CGRect {
+            CGRect(origin: axPosition(fromCocoaFrame: screen.visibleFrame), size: screen.visibleFrame.size)
+        }
+        let from = area(current), to = area(next)
+        let frame = CGRect(origin: pos, size: size)
+        let target: CGRect
+        if let tile = ScreenTile.all.first(where: { sameFrame(frame, $0.frame(in: from)) }) {
+            target = tile.frame(in: to)
+        } else if sameFrame(frame, from) || sameFrame(frame, ArrangeGap.apply(from, in: from)) {
+            target = ArrangeGap.apply(to, in: to)
+        } else {
+            target = DisplayRefit.mapped(frame, from: from, to: to)
+        }
+        owner.cancelRestorePin(for: id)
+        let fitted = Self.fitting(target, window: win, size: size, area: to)
+        setFrame(win, fitted)
+        let observed = CGRect(origin: axPosition(win) ?? fitted.origin, size: axSize(win) ?? fitted.size)
+        undoRecords[id] = PlacementUndo(before: frame, after: observed, element: win, layout: nil, area: to)
+        hud.announce(backward ? .toLeftDisplay : .toRightDisplay, note: "移到了\(next.localizedName)",
+                     anchor: cocoaMousePoint(fromAXPoint: CGPoint(x: observed.midX, y: observed.minY + 60)), screen: next)
+        wlog("display-move: id=\(id) \(current.localizedName) → \(next.localizedName)")
+        return true
     }
 
     /// 这扇窗此刻不在它自己的位置上：收起了。这时去挪它，只会把真窗口拉回屏幕，卷帘条却还在。
@@ -1389,27 +1432,6 @@ final class TrackpadGestureController {
         }
     }
 
-    /// 探针用：跳过事件采集，直接走离手时的判定与执行；没接住时返回原因。
-    func simulateFlick(windowID: CGWindowID, pid: pid_t, frameAtDown: CGRect, down: NSPoint,
-                       samples: [(TimeInterval, NSPoint)], release: NSPoint, at time: TimeInterval,
-                       source: FlickLiftSource = .buttonUp, fingers: Int = 0, lifted: [CGPoint] = [],
-                       capturePictures: Bool = false) -> String? {
-        let drag = FlickDrag(id: windowID, pid: pid, frameAtDown: frameAtDown, start: time - 0.3, down: down,
-                             touches: fingers)
-        drag.samples = samples.map { FlickSample(time: $0.0, point: $0.1) }
-        // 真拖动时这两张图在拖动中后台截好；探针直接截，好走替身滑行那条路。
-        if capturePictures, let screen = NSScreen.screens.first(where: { $0.frame.contains(down) }) {
-            drag.pictures = DragPictures.capture(id: windowID,
-                                                 screenAX: CGRect(origin: axPosition(fromCocoaFrame: screen.frame), size: screen.frame.size))
-        }
-        return decideFlick(drag, source: source, signal: time, release: release, lifted: lifted)
-    }
-
-    /// 窗口正在滑，或者正要滑（探针等它落定）。
-    func isGliding(_ id: CGWindowID) -> Bool { glides[id] != nil || proxies[id] != nil }
-    /// 探针用：这扇窗此刻是不是替身在滑。
-    func isProxyGliding(_ id: CGWindowID) -> Bool { proxies[id] != nil }
-
     private func flickAnchor(_ frameAX: CGRect) -> CGPoint {
         let barBottom = cocoaMousePoint(fromAXPoint: CGPoint(x: frameAX.midX, y: frameAX.minY + 28))
         return CGPoint(x: barBottom.x, y: barBottom.y - 10)
@@ -1499,45 +1521,6 @@ final class TrackpadGestureController {
         return (target, layout, visibleAX, screen)
     }
 
-    /// 从启动台拖到半屏、四角、顶上打开的窗口：摆到那里（撤销回到它刚打开时的样子）。
-    /// 居中不在分格表里，走原来「大小不变、放在可见区域正中」的那一条。
-    func placeFromLaunchpad(_ win: AXUIElement, id: CGWindowID, action: GestureAction, screen: NSScreen?) -> Bool {
-        if action == .center {
-            return resize(win, id: id, action: action, screen: screen)
-        }
-        return place(win, id: id, action: action, screen: screen)
-    }
-
-    /// 静音撤销：只撤这扇还停在自己那次排布上的窗口。被人挪过就不覆盖。
-    func undoOwnedPlacement(_ win: AXUIElement, id: CGWindowID) -> Bool {
-        undoPlacement(win, id: id)
-    }
-
-    /// 移到呼叫者给出的这块屏。不另找旁边一块，也不进系统全屏。
-    func moveToCallerScreen(_ win: AXUIElement, id: CGWindowID, screen: NSScreen) -> Bool {
-        if awayStep(id) != nil { return false }
-        glides.removeValue(forKey: id)?.cancelAndWait()
-        guard let pos = axPosition(win), let size = axSize(win) else { return false }
-        let current = CGRect(origin: pos, size: size)
-        guard let source = screenForAXWindow(pos: pos, size: size) else { return false }
-        let sourceVisible = source.visibleFrame
-        let sourceArea = CGRect(origin: axPosition(fromCocoaFrame: sourceVisible), size: sourceVisible.size)
-        let targetVisible = screen.visibleFrame
-        let targetArea = CGRect(origin: axPosition(fromCocoaFrame: targetVisible), size: targetVisible.size)
-        guard let target = WindowPlacementGeometry.targetFrame(
-            action: .moveToDisplay,
-            visibleArea: sourceArea,
-            currentFrame: current,
-            targetArea: targetArea) else { return false }
-        owner.cancelRestorePin(for: id)
-        setFrame(win, target)
-        let observed = CGRect(origin: axPosition(win) ?? target.origin, size: axSize(win) ?? target.size)
-        noteReplaced(id)
-        undoRecords[id] = PlacementUndo(before: current, after: observed, element: win, layout: nil, area: targetArea)
-        wlog("gesture: move to caller screen id=\(id) screen=\(screen.localizedName)")
-        return true
-    }
-
     private func place(_ win: AXUIElement, id: CGWindowID, action: GestureAction,
                        screen: NSScreen?) -> Bool {
         glides.removeValue(forKey: id)?.cancelAndWait()
@@ -1563,7 +1546,6 @@ final class TrackpadGestureController {
             hud.note(note)
         }
         wlog("gesture: placed id=\(id) \(plan.layout.rawValue) target=(\(Int(target.minX)),\(Int(target.minY)) \(Int(target.width))x\(Int(target.height))) observed=(\(Int(observed.minX)),\(Int(observed.minY)) \(Int(observed.width))x\(Int(observed.height)))")
-        noteReplaced(id)
         undoRecords[id] = PlacementUndo(before: current, after: observed, element: win,
                                         layout: plan.layout, area: plan.area)
         return true
@@ -1624,7 +1606,6 @@ final class TrackpadGestureController {
             return true
         }
         if let note = Self.sizeNote(wanted: target, got: observed.size, centered: false) { hud.note(note) }
-        noteReplaced(id)
         undoRecords[id] = PlacementUndo(before: current, after: observed, element: win, layout: nil, area: area)
         wlog("gesture: \(action.rawValue) id=\(id) target=(\(Int(target.minX)),\(Int(target.minY)) \(Int(target.width))x\(Int(target.height))) observed=(\(Int(observed.minX)),\(Int(observed.minY)) \(Int(observed.width))x\(Int(observed.height)))")
         return true
@@ -1685,10 +1666,6 @@ final class TrackpadGestureController {
     /// 手势确认标题栏后和键盘都用它，两边给出的动作永远一样。
     private func titleBarMap(id: CGWindowID, frame: CGRect, screen: NSScreen?,
                              appOwnsHorizontal: Bool) -> GestureMap {
-        if strips.contains(id) {
-            return .stripTitleBar(canUndoPlacement: canUndoPlacement(id: id, currentFrame: frame) || magicGroup?.contains(id) == true,
-                                  canWiden: strips.canWiden(id), canNarrow: strips.canNarrow(id))
-        }
         let screen = screen ?? screenForAXWindow(pos: frame.origin, size: frame.size)
         var side: ScreenTile?
         var neighbors: Set<GestureDirection> = []
@@ -1714,10 +1691,10 @@ final class TrackpadGestureController {
     /// 屏幕上。系统换屏时会先自己挪窗口，等它挪完（1.5 秒）再看。
     /// 只有显示器本身变了（接上、拔下、分辨率、排列）才排回去。外接屏上的菜单栏时隐时现、
     /// Dock 高度差一点，也会发“屏幕参数变了”（实测一台接 Studio Display 的 Mac 每隔几秒一次），
-    /// 那时去排，铺满的窗口会跟着菜单栏上下跳。探针模拟换屏时传 force。
-    func screensChanged(force: Bool = false) {
+    /// 那时去排，铺满的窗口会跟着菜单栏上下跳。
+    func screensChanged() {
         let frames = NSScreen.screens.map(\.frame)
-        if !force, frames == displayFrames { return }
+        if frames == displayFrames { return }
         displayFrames = frames
         refitWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -1729,9 +1706,9 @@ final class TrackpadGestureController {
 
     private func refitPlacedWindows() {
         for (id, record) in undoRecords {
-            // 不在原处的（画中画、收起、收进刘海、侧拉）归它们自己管，这里去排会把真窗口拉回屏幕。
+            // 不在原处的（收起了）归卷帘条自己管，这里去排会把真窗口拉回屏幕。
             guard let win = record.element, let layout = record.layout,
-                  awayStep(id) == nil, !owner.slideOver.isSlideOver(id), cgWindowInfo(id) != nil,
+                  awayStep(id) == nil, cgWindowInfo(id) != nil,
                   let pos = axPosition(win), let size = axSize(win),
                   let screen = screenForAXWindow(pos: pos, size: size) else { continue }
             let current = CGRect(origin: pos, size: size)
@@ -1748,17 +1725,8 @@ final class TrackpadGestureController {
         }
     }
 
-    /// 探针用：和捏合一样撤销。
-    func undoPlacementForProbe(_ win: AXUIElement, id: CGWindowID) -> Bool { undoPlacement(win, id: id) }
-
     private func undoPlacement(_ win: AXUIElement, id: CGWindowID) -> Bool {
-        if let group = magicGroup, group.contains(id) {
-            // 侧拉的那扇平铺后又单独排过（那一步的记录还在）：这一次只撤它自己那一步。
-            guard group.slideOver == id, group.slideOverPlaced, undoRecords[id] != nil else { return undoMagic(group) }
-            magicGroup?.slideOverPlaced = false
-        }
         glides.removeValue(forKey: id)?.cancelAndWait()
-        let partner = unlinkPartner(id)
         guard let record = undoRecords.removeValue(forKey: id),
               let pos = axPosition(win), let size = axSize(win) else { return false }
         let current = CGRect(origin: pos, size: size)
@@ -1766,20 +1734,7 @@ final class TrackpadGestureController {
         guard sameFrame(current, record.after) else { return false }
         owner.cancelRestorePin(for: id)
         setFrame(win, record.before)
-        if let partner { undoPartner(partner) }
         return true
-    }
-
-    /// 拖分屏把手时和它一起动的另一扇：还停在拖完的位置就一起回去；被人挪过、收起了的不动（它的记录留给它自己撤）。
-    private func undoPartner(_ id: CGWindowID) {
-        guard let record = undoRecords[id], let element = record.element,
-              let pos = axPosition(element), let size = axSize(element),
-              sameFrame(CGRect(origin: pos, size: size), record.after) else { return }
-        undoRecords.removeValue(forKey: id)
-        glides.removeValue(forKey: id)?.cancelAndWait()
-        owner.cancelRestorePin(for: id)
-        setFrame(element, record.before)
-        wlog("gesture: undo partner id=\(id) with the other half of the split")
     }
 }
 

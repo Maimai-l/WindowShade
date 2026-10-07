@@ -1,6 +1,6 @@
 // 在 Dock 图标上两指上下滑（Swish 的 Dock 手势里，和我们说法对得上的两样）：
 // 往上滑：这个 App 的所有窗口（系统的 App 窗口，最小化的也在里面；和程序坞隐藏选项 scroll-to-open 往上滚是同一件事）；
-// 往下滑：让开这个 App（和 ⌘H、再点一下 Dock 图标是同一件事），点一下图标就回来。
+// 往下滑：让开这个 App（和 ⌘H 是同一件事），点一下图标就回来。
 // Swish 往下滑是把窗口最小化；这里不往 Dock 里塞缩略图，让开整个 App，回来也只要点一下。
 //
 // 默认关。只旁听滚动（被动监听），不拦截：Dock 自己不理图标上的滚动，照常收到也没事。
@@ -42,13 +42,6 @@ final class DockSwipeController {
     private var toldAboutConflict = false
     private let queue = DispatchQueue(label: "WindowShade.dock-swipe", qos: .userInitiated)
 
-    /// 探针用：只许对这个进程动手，别的一律不做（防止误伤用户自己的 App）；设了它，设置里关着也接。
-    var probeOnlyPID: pid_t?
-    /// 探针用：到了“铺开这个 App 的所有窗口”那一步只记下来，不真的铺开（那会盖住整块屏）。
-    var probeExpose: ((pid_t) -> Void)?
-    /// 探针用：最近一次做了什么。
-    private(set) var lastAction: (direction: DockSwipeDirection, pid: pid_t)?
-
     /// 按设置装上或拆掉监听。启动时、设置里开关时调用。
     func apply(owner: AppDelegate) {
         self.owner = owner
@@ -88,13 +81,13 @@ final class DockSwipeController {
     }
 
     /// 一下滑动的每一段。location 是 AX 坐标；windowNumber 是系统投递这个事件的目标窗口（合成的为 0）；
-    /// time 和 NSEvent.timestamp 同一个钟（开机以来的秒数）。探针直接从这里喂。
+    /// time 和 NSEvent.timestamp 同一个钟（开机以来的秒数）。
     func feed(_ phase: Phase, fingerUp: CGFloat, fingerRight: CGFloat, location: CGPoint,
               windowNumber: Int, at time: TimeInterval) {
         switch phase {
         case .began:
             session = nil
-            guard Self.isEnabled || probeOnlyPID != nil,
+            guard Self.isEnabled,
                   mayBeOverDock(location, windowNumber: windowNumber) else { return }
             var track = DockSwipeTrack(startedAt: time)
             track.add(fingerUp: fingerUp, fingerRight: fingerRight)
@@ -163,8 +156,8 @@ final class DockSwipeController {
         // Swish 也在 Dock 图标上认滑动：两边都做会对同一下各做一件事。一次运行只说一次。
         if !toldAboutConflict {
             toldAboutConflict = true
-            owner?.notch.announce("\(other.localizedName ?? "Swish") 在运行，Dock 上的手势让给它",
-                                  detail: "退出它，这里的手势就回来", tone: .info)
+            owner?.quietNotice("\(other.localizedName ?? "Swish") 在运行，Dock 上的手势让给它",
+                               log: "dock-swipe: Dock gestures yield to \(other.bundleIdentifier ?? "Swish")")
         }
         wlog("dock-swipe: \(direction.rawValue) left to \(other.localizedName ?? "Swish")")
         return true
@@ -211,13 +204,8 @@ final class DockSwipeController {
         }
         let pid = app.processIdentifier
         guard pid != getpid() else { return }
-        if let only = probeOnlyPID, pid != only {
-            wlog("dock-swipe: probe refused pid=\(pid) (only \(only) may be touched)")
-            return
-        }
         if let last = lastCommit, last.pid == pid, last.direction == direction, time - last.at < Self.cooldown { return }
         lastCommit = (pid, direction, time)
-        lastAction = (direction, pid)
         // 停在图标上时窗口浏览可能正开着这个 App 的面板：先收掉，别和接下来的事叠在一起。
         owner?.windowBrowserController?.closeTemporaryDockPanel(reason: "dock-swipe")
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
@@ -239,8 +227,6 @@ final class DockSwipeController {
             return
         }
         wlog("dock-swipe: hid \(name) (swiped down on its Dock icon)")
-        // 和再点一下 Dock 图标让开时说同样的话（第一次教怎么回来）。
-        owner?.dockClick.onHidden?(app)
     }
 
     /// 往上滑：把这个 App 叫到前面（让开了的先回来），再铺开它的所有窗口。它一扇窗口都没有，就只叫到前面。
@@ -255,11 +241,7 @@ final class DockSwipeController {
         }
         whenFrontmost(pid) { [weak self] in
             guard let self, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
-            if let probe = self.probeExpose {
-                probe(pid)
-            } else {
-                DockOverview.applicationWindows()
-            }
+            DockOverview.applicationWindows()
             wlog("dock-swipe: all windows of \(name)")
         }
         guard let waiting = activationWait?.timeout else { return }   // 本来就在最前面：不再激活一次

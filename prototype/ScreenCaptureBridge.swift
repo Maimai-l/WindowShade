@@ -24,7 +24,7 @@ enum ShareableContentLoader {
 }
 
 /// @unchecked Sendable：流、代数、帧计数、镜像层、交互标记都在 `stateLock` 里；`mirrorFrameIndex` 只在
-/// 串行的 `frameQueue` 上动。`filter`、`configuration`、`pipOutput`、`takesCleanPlate`、`onUnexpectedStop`
+/// 串行的 `frameQueue` 上动。`filter`、`configuration`、`takesCleanPlate`、`onUnexpectedStop`
 /// 不在锁里，依赖调用方从主线程串行地开流、改尺寸、停流（同一时刻不会有两个 start/restart）。
 final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @unchecked Sendable {
     let videoLayer = AVSampleBufferDisplayLayer()
@@ -91,10 +91,6 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
     // 计数器只在队列内访问，不需要额外同步。
     private let frameQueue = DispatchQueue(label: "WindowShade.pin-frames", qos: .userInteractive)
     private var mirrorFrameIndex: UInt32 = 0
-    /// 实际投递到显示层的采样帧计数：只用于诊断、性能对照与集成探针。
-    private var _deliveredFrameCount: UInt64 = 0
-    /// 实际投递到镜像层的采样帧计数（同一批帧的子集）。
-    private var _mirroredFrameCount: UInt64 = 0
     /// 带像素的帧：画面没变化时系统也会送来不带图像的状态帧，“已经是实时画面”只看这个。
     private var _pixelFrameCount: UInt64 = 0
     // 普通窗口的临时实时预览配置：初始 8fps、最大 640×400、无音频、无鼠标、
@@ -104,10 +100,6 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
     // 流被系统异常终止（源窗口变化、系统过渡等）时回调；由 PinnedPreviewController
     // 决定刷新 SCWindow、有限次数重启或结束会话。
     var onUnexpectedStop: ((Error) -> Void)?
-    /// 画中画：按画中画自己的小尺寸出画面（像素），可以只截窗口里的一块（窗口自己的坐标，点，左上角为原点）。
-    /// 只有画中画设它；置顶、侧拉、窗口浏览不设，行为不变。
-    private var pipOutput: (pixels: CGSize, source: CGRect?)?
-    private let defaultSourceRect = SCStreamConfiguration().sourceRect
 
     init(preview: Bool = false) {
         isPreviewStream = preview
@@ -117,12 +109,6 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
         super.init()
         videoLayer.videoGravity = .resize
         videoLayer.backgroundColor = NSColor.clear.cgColor
-    }
-
-    var deliveredFrameCount: UInt64 {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return _deliveredFrameCount
     }
 
     /// 源流是否真的在运行（已启动且未被 stop/restart/异常终止清空）。
@@ -136,19 +122,6 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
         stateLock.lock()
         defer { stateLock.unlock() }
         return _pixelFrameCount
-    }
-
-    var mirroredFrameCount: UInt64 {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return _mirroredFrameCount
-    }
-
-    /// 当前配置的目标帧率（普通预览 8；置顶预览 idle 15 / interactive 30）。
-    var configuredFrameRate: Int {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return _streamFPS
     }
 
     func start(window: SCWindow, display: SCDisplay?) async throws {
@@ -295,23 +268,6 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
         } else {
             configure(width: window.frame.width, height: window.frame.height, display: display)
         }
-        applyPictureInPictureOutput()
-    }
-
-    /// 画中画改了大小或“只看一块”：下一帧起按新的尺寸和范围出画面。
-    func setPictureInPictureOutput(pixels: CGSize, source: CGRect?) {
-        pipOutput = (pixels, source)
-        applyPictureInPictureOutput()
-        stream?.updateConfiguration(configuration) { error in
-            if let error { wlog("pip: capture update failed \(error.localizedDescription)") }
-        }
-    }
-
-    private func applyPictureInPictureOutput() {
-        guard let pip = pipOutput else { return }
-        configuration.width = max(1, Int(pip.pixels.width.rounded()))
-        configuration.height = max(1, Int(pip.pixels.height.rounded()))
-        configuration.sourceRect = pip.source ?? defaultSourceRect
     }
 
     private func configure(width: CGFloat, height: CGFloat, display: SCDisplay?) {
@@ -400,11 +356,7 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
         let deliverMirror = mirrorLayer != nil && mirrorFrameIndex % mirrorDivisor == 1
         guard deliverMain || deliverMirror else { return }
         let carriesPixels = CMSampleBufferGetImageBuffer(sampleBuffer) != nil
-        stateLock.lock()
-        _deliveredFrameCount &+= 1
-        if carriesPixels { _pixelFrameCount &+= 1 }
-        if deliverMirror { _mirroredFrameCount &+= 1 }
-        stateLock.unlock()
+        if carriesPixels { stateLock.withLock { _pixelFrameCount &+= 1 } }
         deliver(sampleBuffer, main: deliverMain, mirror: deliverMirror)
     }
 

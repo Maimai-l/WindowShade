@@ -22,36 +22,8 @@ extension AppDelegate {
         MainActor.assumeIsolated { carry.toggleCurrentWindow() }
     }
 
-@objc func toggleLaunchpadAction() {
-        MainActor.assumeIsolated { launchpad.toggle() }
-    }
-
-    @objc func magicTileAction() {
-        MainActor.assumeIsolated { _ = gestures.magicTile() }
-    }
-
-    @objc func tuckAllAction() {
-        MainActor.assumeIsolated { _ = notch.tuckAll() }
-    }
-
-    @objc func tuckCurrentAction() {
-        MainActor.assumeIsolated { _ = notch.tuckFocused() }
-    }
-
     @objc func nextDisplayAction() {
         MainActor.assumeIsolated { _ = gestures.moveToNextDisplay() }
-    }
-
-    @objc func pictureInPictureAction() {
-        MainActor.assumeIsolated { pip.toggleCurrentWindow() }
-    }
-
-    @objc func toggleSlideOverAction() {
-        MainActor.assumeIsolated { slideOver.toggleCurrentWindow() }
-    }
-
-@objc func exitSlideOverAction() {
-        MainActor.assumeIsolated { slideOver.exit(reason: "menu") }
     }
 
 @objc func cancelPinnedPreviewMenuItem(_ sender: NSMenuItem) {
@@ -111,14 +83,6 @@ extension AppDelegate {
 
     func quietNotice(_ message: String, log: String? = nil) {
         wlog(log ?? "notice: \(message)")
-        // 在刘海上说（灵动岛那样），人一眼看得到；刘海关着、正展开着时才退回菜单栏标题。
-        let tone = Self.noticeTone(message)
-        let needsPermission = message.contains("权限")
-        let spoken = MainActor.assumeIsolated {
-            notch.announce(message, detail: needsPermission ? "点一下打开设置" : "", tone: tone,
-                           onClick: needsPermission ? { [weak self] in self?.showPermissionOnboardingIfNeeded(force: true) } : nil)
-        }
-        if spoken { return }
         statusNoticeWorkItem?.cancel()
         // 菜单栏标题保持短小（完整文案在 tooltip 与可访问性值里），
         // 否则一句长提示会把状态栏条挤得很宽，顶开旁边的菜单栏项目。
@@ -133,14 +97,6 @@ extension AppDelegate {
         statusNoticeWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
     }
-
-/// 提示的语气：“已……”是做成了；说做不了、缺什么的是出了问题；其余是说明。
-static func noticeTone(_ message: String) -> NotchPanel.Tone {
-    if message.hasPrefix("已") { return .done }
-    let problems = ["不能", "没有", "没能", "失败", "未完成", "不支持", "需要", "暂时", "无法", "占用", "打不开", "关着",
-                    "没跟上", "没有跟上", "被保留", "存不下", "取不到", "不可用", "只有"]
-    return problems.contains(where: message.contains) ? .problem : .info
-}
 
 /// 系统标准“关于”面板 + 一句用途说明与许可信息（代理应用从状态栏菜单进入）。
 @objc func showAboutPanel() {
@@ -199,32 +155,13 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         trigger.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.setCustomSpacing(18, after: trigger)
 
-        let notchCard = makeUnifiedSettingsCard([
-            makeUnifiedToggleRow(name: "收进刘海", subtitle: "朝刘海甩一下标题栏，窗口就收进刘海；指针停在刘海上，点一下放回",
-                                 isOn: NotchController.isEnabled, action: #selector(prefToggleNotch(_:))),
-            makeUnifiedToggleRow(name: "有变化时提醒", subtitle: "收起的窗口标题变了，比如编译完成，刘海会短暂展开告诉你",
-                                 isOn: NotchController.alertsEnabled, action: #selector(prefToggleNotchAlerts(_:))),
-            makeUnifiedToggleRow(name: "实时活动", subtitle: "在刘海和启动台负一屏查看音乐、耳机、隔空投送与路线",
-                                 isOn: NotchActivityController.isEnabled, action: #selector(prefToggleActivities(_:))),
-            // 欢迎窗口第二步问的那一句，在这里能改；没答时一段都不选。
-            makeUnifiedControlRow(name: "之前常用", subtitle: "卡住时，刘海按你原来的习惯提示 Mac 上怎么做",
-                                  control: SwitcherOriginControl.make()),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("刘海"))
-        stack.addArrangedSubview(notchCard)
-        notchCard.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: notchCard)
-
         let gapSeg = NSSegmentedControl(labels: ["不留", "窄", "宽"], trackingMode: .selectOne,
                                         target: self, action: #selector(prefSelectArrangeGap(_:)))
         gapSeg.selectedSegment = ArrangeGap.choices.firstIndex(of: ArrangeGap.points) ?? 0
         let arrangeCard = makeUnifiedSettingsCard([
             makeUnifiedControlRow(name: "窗口之间留缝",
-                                  subtitle: "半屏、四角、网格、魔法平铺、卷轴排好的窗口之间和屏幕边留一道缝",
+                                  subtitle: "半屏、四角、网格排好的窗口之间和屏幕边留一道缝",
                                   control: gapSeg),
-            makeUnifiedToggleRow(name: "分屏把手",
-                                 subtitle: "两扇窗口拼满一块屏时，中间出现一根小竖条：拖它两扇一起变，推到屏幕边那一扇进侧拉",
-                                 isOn: SplitViewController.isEnabled, action: #selector(prefToggleSplitDivider(_:))),
         ])
         stack.addArrangedSubview(makePrefGroupLabel("排布"))
         stack.addArrangedSubview(arrangeCard)
@@ -243,10 +180,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         appearance.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
 
-        let ws2Pane = MainActor.assumeIsolated { WS2SupplementPane(owner: self) }
-        stack.addArrangedSubview(ws2Pane)
-        ws2Pane.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-
         stack.addArrangedSubview(makePrefGroupLabel("声音"))
         let sound = makeUnifiedSettingsCard([
             makeUnifiedToggleRow(name: "收起和展开时播放音效", subtitle: nil,
@@ -261,16 +194,11 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         return root
     }
 
-    /// 隐私一栏（原「权限与启动」）：先摊开读到的每一样（内容从 tools/privacy/registry.json 生成），
-    /// 再把两项系统授权、登录时启动和更新并进同一页——开关全都还是原来那一个，不复制。
+    /// 权限与启动：两项系统授权、登录时启动和更新。
     func makePermissionsSettingsPage() -> NSView {
         let (root, stack) = makeSettingsPageRoot()
         stack.addArrangedSubview(makeSettingsHeader(
-            title: "隐私", subtitle: "WindowShade 读到的每一样都列在这里。", symbolName: "lock.shield"))
-        let pane = MainActor.assumeIsolated { WS2PrivacyPane(owner: self) }
-        stack.addArrangedSubview(pane)
-        pane.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: pane)
+            title: "权限与启动", subtitle: "WindowShade 只在需要时使用系统权限。", symbolName: "lock.shield"))
         stack.addArrangedSubview(makePrefGroupLabel("权限"))
         let permissions = makeUnifiedSettingsCard([
             makeUnifiedPermissionRow(symbol: "accessibility", name: "辅助功能",
@@ -306,7 +234,7 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         return field
     }
 
-    /// 设置里每一张卡片的外观；隐私页也从同一处拿，别再写第二套样式。
+    /// 设置里每一张卡片的外观；各页都从同一处拿，别再写第二套样式。
     func makeUnifiedSettingsCard(_ rows: [NSView], separatorInset: CGFloat = 16) -> NSView {
         let card = SettingsGroupBox()
         card.wantsLayer = true
@@ -347,16 +275,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         return card
     }
 
-    func makePermissionDesignSample() -> NSView {
-        makeUnifiedSettingsCard([
-            makeUnifiedPermissionRow(symbol: "accessibility", name: "辅助功能",
-                subtitle: "找到、移动和恢复窗口", granted: false,
-                action: #selector(openAccessibilitySettingsAction)),
-            makeUnifiedPermissionRow(symbol: "rectangle.inset.filled.and.person.filled", name: "屏幕录制",
-                subtitle: "截取窗口画面做预览", granted: true,
-                action: #selector(openScreenRecordingSettingsAction)),
-        ])
-    }
 
     private func makeUnifiedLabels(name: String, subtitle: String?, symbol: String? = nil) -> NSStackView {
         SettingsRowContent.content(name: name, subtitle: subtitle, symbol: symbol ?? SettingsRowContent.symbol(for: name)).view
@@ -500,18 +418,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         TrackpadGestureController.isEnabled = sender.state == .on
         MainActor.assumeIsolated { gestures.refreshMonitors() }
         rebuildMenu()
-    }
-
-    @objc func prefToggleNotch(_ sender: NSSwitch) {
-        MainActor.assumeIsolated { notch.setEnabled(sender.state == .on) }
-    }
-
-    @objc func prefToggleActivities(_ sender: NSSwitch) {
-        NotchActivityController.isEnabled = sender.state == .on
-        MainActor.assumeIsolated { notch.activities.configure() }
-    }
-    @objc func prefToggleNotchAlerts(_ sender: NSSwitch) {
-        MainActor.assumeIsolated { notch.setAlertsEnabled(sender.state == .on) }
     }
 
     @objc func prefToggleGlance(_ sender: NSSwitch) {
@@ -747,25 +653,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
 
     // MARK: 窗口浏览
 
-    @objc func openActivitiesAction() {
-        MainActor.assumeIsolated { launchpad.navigate(to: .today) }
-    }
-
-    @objc func verifyTouchIDAction() {
-        MainActor.assumeIsolated { notch.authentication.selfCheck() }
-    }
-
-    @objc func toggleLockOverlayAction() {
-        duoController.lockOverlay.setEnabled(!duoController.lockOverlay.enabled)
-        duoController.settingsChanged()
-        scheduleMenuRebuild()
-    }
-
-    @objc func observeFaceAction(_ sender: NSMenuItem) {
-        guard let cameraID = sender.representedObject as? String else { return }
-        MainActor.assumeIsolated { notch.faceObservations.start(cameraID: cameraID) }
-    }
-
     @objc func openWindowBrowserPanel() {
         windowBrowserController?.openKeyboardPanel()
     }
@@ -796,9 +683,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
             recorderRow(.pinPreview, subtitle: nil),
             recorderRow(.suspendPins, subtitle: "一下让开所有置顶的窗口，再按一下按原来的前后顺序放回"),
             recorderRow(.carry, subtitle: "窗口留在原处，在别的桌面上也能看一眼"),
-            recorderRow(.slideOver, subtitle: "窗口靠到屏幕边、浮在前面；再按一次收到屏幕边，或拉出来"),
-            recorderRow(.pictureInPicture, subtitle: "窗口缩成一张实时画面浮在屏幕角落，再按一次回到原处；把标题栏拖到屏幕角落停一下也行"),
-            recorderRow(.launchpad, subtitle: "列出所有 App；把图标拖到屏幕边就侧拉，拖到一边就开在那一半"),
         ])
         stack.addArrangedSubview(makePrefGroupLabel("当前窗口"))
         stack.addArrangedSubview(window)
@@ -811,10 +695,7 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
             recorderRow(.stepSmaller, subtitle: "铺满的窗口回到原来大小；原来大小的窗口收起"),
             recorderRow(.leftHalf, subtitle: nil),
             recorderRow(.rightHalf, subtitle: nil),
-            recorderRow(.magicTile, subtitle: "把这块屏上的窗口一次排好：要地方多的占大头，聊天放侧拉；捏合整批撤回"),
             recorderRow(.nextDisplay, subtitle: "按原来的排法放到下一块屏幕上；上下摆的显示器也行"),
-            recorderRow(.tuckAll, subtitle: "这块屏上的窗口全部收进刘海，再按一下放回来"),
-            recorderRow(.tuckCurrent, subtitle: "只把当前窗口收进刘海"),
         ])
         stack.addArrangedSubview(makePrefGroupLabel("排布当前窗口"))
         stack.addArrangedSubview(arrange)
@@ -858,7 +739,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
             recorderRow(.smaller, subtitle: "四边各往里 30 点"),
             recorderRow(.undoPlacement, subtitle: "回到排之前的位置和大小"),
             recorderRow(.previousDisplay, subtitle: "和“移到另一块屏幕”反着转"),
-            recorderRow(.focusTimer, subtitle: "开始、暂停或继续同一个番茄钟；默认不占用任何快捷键"),
         ])
         stack.addArrangedSubview(makePrefGroupLabel("更多排法"))
         stack.addArrangedSubview(more)
@@ -942,11 +822,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
                 isOn: WindowBrowserSettings.dockEnabled,
                 action: #selector(prefToggleWindowBrowserDock(_:))),
             makeUnifiedToggleRow(
-                name: "再点一下 Dock 图标，让开这个 App",
-                subtitle: "它已经在最前、窗口露着时才这样（和 Windows 任务栏一样）；再点一下回来",
-                isOn: DockClickHide.isEnabled,
-                action: #selector(prefToggleDockClickHide(_:))),
-            makeUnifiedToggleRow(
                 name: "在 Dock 图标上两指上下滑",
                 subtitle: "往上滑看这个 App 的所有窗口，往下滑让开这个 App",
                 isOn: DockSwipeController.isEnabled,
@@ -971,23 +846,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         stack.addArrangedSubview(triggers)
         triggers.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.setCustomSpacing(18, after: triggers)
-
-        let triggerSeg = NSSegmentedControl(labels: ["关", "⌥Tab", "⌘Tab"], trackingMode: .selectOne,
-                                            target: self, action: #selector(prefSelectSwitcherTrigger(_:)))
-        switch WindowSwitcherKeys.trigger {
-        case .off: triggerSeg.selectedSegment = 0
-        case .option: triggerSeg.selectedSegment = 1
-        case .command: triggerSeg.selectedSegment = 2
-        }
-        let switcherCard = makeUnifiedSettingsCard([
-            makeUnifiedControlRow(name: "按窗口切换",
-                                  subtitle: "按住连按 Tab 一扇一扇地挑，松手切过去；收着的窗口也在里面。选 ⌘Tab 会换掉系统的 App 切换",
-                                  control: triggerSeg),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("切换"))
-        stack.addArrangedSubview(switcherCard)
-        switcherCard.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: switcherCard)
 
         let preview = makeUnifiedSettingsCard([
             makeUnifiedToggleRow(
@@ -1096,24 +954,9 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         UserDefaults.standard.set(Double(value), forKey: ArrangeGap.defaultsKey)
     }
 
-    @objc func prefSelectSwitcherTrigger(_ sender: NSSegmentedControl) {
-        let choices: [WindowSwitcherKeys.Trigger] = [.off, .option, .command]
-        WindowSwitcherKeys.trigger = choices[max(0, min(2, sender.selectedSegment))]
-        MainActor.assumeIsolated { switcher.applySetting() }
-    }
-
     @objc func prefToggleDockLock(_ sender: NSSwitch) {
         DockLock.isEnabled = sender.state == .on
         MainActor.assumeIsolated { DockLock.isEnabled ? dockLock.relock() : dockLock.apply() }
-    }
-
-    @objc func prefToggleSplitDivider(_ sender: NSSwitch) {
-        SplitViewController.isEnabled = sender.state == .on
-        MainActor.assumeIsolated { splitView.refresh() }
-    }
-
-    @objc func prefToggleDockClickHide(_ sender: NSSwitch) {
-        DockClickHide.isEnabled = sender.state == .on
     }
 
     @objc func prefToggleDockSwipe(_ sender: NSSwitch) {
@@ -1179,35 +1022,6 @@ static func noticeTone(_ message: String) -> NotchPanel.Tone {
         NotificationCenter.default.post(name: WindowBrowserNotification.didChangeSettings, object: nil)
     }
 
-}
-
-/// 设置里的“之前常用”：Windows / iPad / 一直用 Mac 三段，名字和欢迎窗口第二步一样；没答时一段都不选。
-/// 自己盯着 SwitcherOrigin 的变化（欢迎窗口里点了、刘海问过之后他点了），设置页开着也跟着变。
-final class SwitcherOriginControl: NSSegmentedControl {
-    static func make() -> SwitcherOriginControl {
-        let control = SwitcherOriginControl(labels: SwitcherOrigin.answers.compactMap(\.title),
-                                            trackingMode: .selectOne, target: nil, action: nil)
-        control.target = control
-        control.action = #selector(picked)
-        control.setAccessibilityLabel("之前常用")
-        control.showCurrent()
-        NotificationCenter.default.addObserver(control, selector: #selector(showCurrent),
-                                               name: SwitcherOrigin.didChangeNotification, object: nil)
-        return control
-    }
-
-    @objc private func picked() {
-        guard SwitcherOrigin.answers.indices.contains(selectedSegment) else { return }
-        SwitcherOrigin.current = SwitcherOrigin.answers[selectedSegment]
-    }
-
-    @objc private func showCurrent() {
-        if let at = SwitcherOrigin.answers.firstIndex(of: SwitcherOrigin.current) {
-            selectedSegment = at
-        } else {
-            for segment in 0..<segmentCount { setSelected(false, forSegment: segment) }
-        }
-    }
 }
 
 /// 快捷键记录器：只在设置页明确聚焦时读取键盘事件，不安装任何全局监听。

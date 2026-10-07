@@ -74,12 +74,6 @@ enum GestureAction: String, Equatable, CaseIterable {
     case bottomLeftNinth
     case bottomCenterNinth
     case bottomRightNinth
-    /// 两指张开：魔法平铺——这扇当主角，这块屏上别的窗口按各自要的地方排在旁边（见 MagicTiling）；
-    /// 只有它一扇时就是铺满。捏合整批撤回。
-    case magicTile
-    /// 卷轴里的一列：往下拉宽一档、往上推窄一档（⅓ ⇄ ½ ⇄ ⅔ ⇄ 整屏），和“变大一级、变小一级”同一个方向。
-    case widerColumn
-    case narrowerColumn
 
     /// 左右方向走满之后拐向 vertical（上或下）得到的角。
     static func corner(_ horizontal: GestureDirection, turning vertical: GestureDirection) -> GestureAction? {
@@ -380,8 +374,8 @@ struct GestureMap: Equatable {
 
     /// 标题栏。上下是一架尺寸梯子，和卷帘同向：往下拉一格变大，往上推一格变小——
     /// 卷帘条 ⇄ 原来大小 ⇄ 铺满屏幕。所以普通窗口下拉铺满、上推收起；铺满的窗口上推
-    /// 先撤销那次铺满，再上推才收起。左右占半屏，张开是魔法平铺（把窗口铺开排好），捏合撤销上次排布。
-    /// - isFilled：窗口现在就占满了屏幕可用区域（下拉没有意义）。
+    /// 先撤销那次铺满，再上推才收起。左右占半屏，张开铺满屏幕，捏合撤销上次排布。
+    /// - isFilled：窗口现在就占满了屏幕可用区域（下拉、张开都没有意义）。
     /// - appOwnsHorizontal：指针下的控件自己用左右滑（标签页、地址栏），左右让给 App。
     /// - 没有可撤销的排布时，捏合只说明这一点。
     /// - side：窗口现在占着哪一格。再往左右推，沿左右梯子走一格（见 HorizontalLadder）。
@@ -396,21 +390,11 @@ struct GestureMap: Equatable {
                           down: isFilled ? nil : .fill,
                           left: appOwnsHorizontal ? nil : left,
                           right: appOwnsHorizontal ? nil : right,
-                          spread: .magicTile,
+                          spread: isFilled ? nil : .fill,
                           pinch: .undoPlacement,
                           corners: !appOwnsHorizontal,
                           tile: side,
                           unavailable: unavailable)
-    }
-
-    /// 卷轴里的窗口：左右滑是整条卷轴跟着手指走（不走这张表，见 ScrollStripController）；
-    /// 往下宽一档、往上窄一档，窄到头再往上是收起；捏合整批撤回；张开由卷轴自己接（卷轴概览，
-    /// 见 ScrollStripController.noteSpread / endSpread），也不走这张表。
-    static func stripTitleBar(canUndoPlacement: Bool, canWiden: Bool, canNarrow: Bool) -> GestureMap {
-        GestureMap(up: canNarrow ? .narrowerColumn : .shade,
-                   down: canWiden ? .widerColumn : nil,
-                   pinch: .undoPlacement,
-                   unavailable: canUndoPlacement ? [] : [.undoPlacement])
     }
 
     /// 卷帘条：往下拉展开。

@@ -996,7 +996,7 @@ extension AppDelegate {
         if displaysChanged || visibleChanged {
             MainActor.assumeIsolated {
                 carry.layout()
-                if displaysChanged { gestures.screensChanged(); slideOver.screensChanged(); pip.screensChanged() }
+                if displaysChanged { gestures.screensChanged() }
             }
         }
         if displaysChanged {
@@ -1034,7 +1034,6 @@ extension AppDelegate {
         MainActor.assumeIsolated {
             glance.cancelAll(reason: "space-changed")
             carry.activeSpaceChanged()
-            notch.activeSpaceChanged()
             gestures.cancel(reason: "space-changed")
         }
         menuPreviewHoverID = nil

@@ -119,7 +119,7 @@ enum DirectionKeyPresets {
                        canSwitchBack: set == .arrows && !restoring && after != before)
     }
 
-    /// 刘海上说的话：标题说换成了什么，下面一行说每个方向现在按什么、哪几个没换。
+    /// 提示里说的话：标题说换成了什么，后面说每个方向现在按什么、哪几个没换。
     static func message(for outcome: Outcome) -> (title: String, detail: String) {
         func name(_ combo: KeyCombo) -> String { WindowBrowserSettings.displayName(for: hotKey(combo)) }
         let now = current()
@@ -162,6 +162,7 @@ extension AppDelegate {
         refreshPreferencesWindowIfOpen()
         wlog("direction-keys: \(set.rawValue) restored=\(outcome.restored) changed=\(outcome.changed.map(\.rawValue)) skipped=\(outcome.skipped.map { "\($0.slot.rawValue):\($0.reason)" })")
         let text = DirectionKeyPresets.message(for: outcome)
-        notch.announce(text.title, detail: text.detail, tone: outcome.skipped.isEmpty ? .done : .info)
+        quietNotice(text.detail.isEmpty ? text.title : "\(text.title)：\(text.detail)",
+                    log: "direction-keys: notice \(text.title)")
     }
 }

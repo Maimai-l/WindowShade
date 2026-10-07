@@ -203,25 +203,10 @@ final class CarryController: GlanceCarrySource {
     var sourceIsOnScreen: (CGWindowID) -> Bool = { windowIsOnScreenNow($0) }
     var shelfVisibleFrame: () -> CGRect? = { NSScreen.screens.first?.visibleFrame }
 
-    /// 探针：在窗口自己的桌面上也显示卷帘条（平时自己的桌面上不需要它）。
-    var showsOnOwnDesktop = false
-
     init(owner: AppDelegate) {
         self.owner = owner
         owner.glance.carrySource = self
     }
-
-    var carriedIDs: [CGWindowID] { order }
-
-    /// 刘海的一排里要显示的：哪个 App、标题、最近一张画面。
-    func notchInfo(_ id: CGWindowID) -> (pid: pid_t, title: String, snapshot: CGImage?)? {
-        guard let item = carried[id] else { return nil }
-        return (item.pid, item.title.isEmpty ? item.appName : item.title, item.snapshot)
-    }
-
-    func isCarried(_ id: CGWindowID) -> Bool { carried[id] != nil }
-
-    func stripPanel(_ id: CGWindowID) -> NSPanel? { carried[id]?.panel }
 
     // MARK: 带上 / 放下
 
@@ -306,7 +291,7 @@ final class CarryController: GlanceCarrySource {
     func layout() {
         let eligible = order.filter { id in
             guard let item = carried[id] else { return false }
-            return sourceExists(id, item.pid) && (showsOnOwnDesktop || !sourceIsOnScreen(id))
+            return sourceExists(id, item.pid) && !sourceIsOnScreen(id)
         }
         if let promotedID, !eligible.contains(promotedID) { self.promotedID = nil }
         let plan = shelfVisibleFrame().map {
@@ -316,9 +301,7 @@ final class CarryController: GlanceCarrySource {
         for id in order {
             guard let item = carried[id] else { continue }
             guard let frame = frames[id] else {
-                // 刘海那一格开的看一眼（锚在格子上）不是这条卷帘条的，别拆。
-                let anchoredInNotch = owner.glance.elsewhereSource?.elsewhereAnchorFrame(id) != nil
-                if item.panel.isVisible || (owner.glance.hasSession(id) && !anchoredInNotch) {
+                if item.panel.isVisible || owner.glance.hasSession(id) {
                     owner.glance.detach(id: id)
                     item.panel.orderOut(nil)
                 }
@@ -397,7 +380,7 @@ final class CarryController: GlanceCarrySource {
     private func previewOverflowItem(_ id: CGWindowID, expected: Carried? = nil) -> Bool {
         guard let item = carried[id], expected == nil || item === expected,
               sourceExists(id, item.pid),
-              showsOnOwnDesktop || !sourceIsOnScreen(id) else { return false }
+              !sourceIsOnScreen(id) else { return false }
         promotedID = id
         layout()
         guard item.panel.isVisible else { return false }

@@ -29,7 +29,7 @@ enum DirectionKeySet: String, CaseIterable {
     static let controlCommand: UInt32 = 0x1000 | 0x0100
     static let controlOption: UInt32 = 0x1000 | 0x0800
 
-    /// 方向键沿用 ⌃⌘；字母用 ⌃⌥：⌃⌘W、⌃⌘S、⌃⌘L、⌃⌘D 不是系统在用（关窗、查词），就是已经给了侧拉、启动台。
+    /// 方向键沿用 ⌃⌘；字母用 ⌃⌥：⌃⌘W、⌃⌘D 这些系统在用（关窗、查词）。
     var modifiers: UInt32 {
         self == .arrows ? Self.controlCommand : Self.controlOption
     }

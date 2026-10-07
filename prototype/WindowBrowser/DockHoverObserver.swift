@@ -80,8 +80,6 @@ struct DockHoverTarget: Equatable {
     }
 
     var currentTarget: DockHoverTarget? { target }
-    var observerGeneration: UInt64 { generation }
-    var usesNotifications: Bool { notificationReliable }
     /// 诊断：当前排队器里的请求数量（≤ 2：一个在途 + 一个最新待处理）。
     var pendingDetectionCount: Int { detection.pendingCount }
 
@@ -454,13 +452,6 @@ struct DockHoverTarget: Equatable {
 
     private func mouseMoved() {
         handlePointerMove(at: NSEvent.mouseLocation)
-    }
-
-    /// 测试/探针接缝：用给定 Cocoa 指针位置驱动真正的回退命中路径，
-    /// 不移动系统指针。生产路径始终传入 `NSEvent.mouseLocation`。
-    func simulatePointer(at cocoaPoint: NSPoint) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        handlePointerMove(at: cocoaPoint)
     }
 
     private func handlePointerMove(at mouse: NSPoint) {

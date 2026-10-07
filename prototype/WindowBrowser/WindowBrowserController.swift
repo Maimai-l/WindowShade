@@ -175,13 +175,6 @@ final class WindowBrowserController: NSObject {
         return made
     }
 
-    /// 兼容旧探针：AX 真实调用次数（不是包装函数调用次数）。
-    var axQueryCount: Int {
-        counterLock.lock()
-        defer { counterLock.unlock() }
-        return axCallTotal
-    }
-
     var axDiagnostics: (discoveryRequests: Int, axCalls: Int) {
         counterLock.lock()
         defer { counterLock.unlock() }
@@ -3283,20 +3276,4 @@ final class WindowBrowserThumbnailBackend: @preconcurrency WindowThumbnailBacken
         // SCScreenshotManager 无法真正取消已经开始的一次截图；服务端保持在途计数，
         // 直到它真实返回并丢弃结果。这里没有额外的系统取消 API 可调用。
     }
-}
-
-// MARK: - 真机探针用的接缝（只读，或走与界面完全相同的入口）
-
-extension WindowBrowserController {
-    /// 面板列表里现在有哪几扇（和用户看到的是同一份）。
-    var probeListedKeys: [WindowKey] { contentView?.records.map(\.key) ?? [] }
-    var probePanelVisible: Bool { panel?.isVisible == true }
-    var probeDepartureAnimationCount: Int { contentView?.departureAnimationCount ?? 0 }
-    /// 这个 Dock 会话一起列出的辅助进程。
-    var probeSessionHelperPIDs: Set<pid_t> { session?.helperPIDs ?? [] }
-    /// 与点卡片、右键菜单同一个入口提交动作。
-    func probeSubmit(_ action: WindowBrowserAction, key: WindowKey) {
-        submit(action: action, key: key)
-    }
-    func probeClosePanel() { closePanel(reason: "probe") }
 }

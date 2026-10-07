@@ -155,7 +155,7 @@ struct MotionSpring: Equatable {
 
     /// 没有动量的变化：指针停上来、收回、换状态。
     static let calm = MotionSpring(response: 0.34, dampingRatio: 1, bounce: 0)
-    /// 尺寸变化；截图飞进刘海（终点是个口子，不回弹）。
+    /// 尺寸变化（不回弹）。
     static let settle = MotionSpring(response: 0.38, dampingRatio: 1, bounce: 0)
     /// 展开一排。
     static let expand = MotionSpring(response: 0.4, dampingRatio: 0.92, bounce: 0.08)
@@ -163,7 +163,7 @@ struct MotionSpring: Equatable {
     static let bloom = MotionSpring(response: 0.42, dampingRatio: 0.84, bounce: 0.16)
     /// 拖着窗口到刘海时的落点小岛（`catch` 是保留字，所以叫 catchDrop）。
     static let catchDrop = MotionSpring(response: 0.4, dampingRatio: 0.8, bounce: 0.2)
-    /// 甩一下标题栏后的窗口滑行位置；画中画落角沿用同一手感。
+    /// 甩一下标题栏后的窗口滑行位置。
     static let glide = MotionSpring(response: 0.42, dampingRatio: 0.88, bounce: 0.12)
     /// 截图从刘海飞出。
     static let flyOut = MotionSpring(response: 0.38, dampingRatio: 0.9, bounce: 0.1)
@@ -183,7 +183,7 @@ struct FlickSpring: Equatable {
     var dampingRatio: Double
     var response: Double
 
-    /// 位置沿用 PiP 挪动的手感，带一点落定时的回弹（甩的动作本身带着动量）。
+    /// 位置带一点落定时的回弹（甩的动作本身带着动量）。
     static let position = FlickSpring(dampingRatio: MotionSpring.glide.dampingRatio, response: MotionSpring.glide.response)
     /// 尺寸不带初速度，不回弹。
     static let size = FlickSpring(dampingRatio: MotionSpring.settle.dampingRatio, response: MotionSpring.settle.response)
