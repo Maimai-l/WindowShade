@@ -674,9 +674,11 @@ private final class ClassicControlAccessibilityElement: NSObject, NSAccessibilit
 
     func accessibilityFrame() -> NSRect {
         // 辅助功能在主线程上来问。
-        MainActor.assumeIsolated {
-            guard let parent, let window = parent.window else { return frameInParentSpace }
-            return window.convertToScreen(parent.convert(frameInParentSpace, to: nil))
+        let parent = self.parent
+        let frame = frameInParentSpace
+        return MainActor.assumeIsolated {
+            guard let parent, let window = parent.window else { return frame }
+            return window.convertToScreen(parent.convert(frame, to: nil))
         }
     }
 
