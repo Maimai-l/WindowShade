@@ -95,6 +95,27 @@ func saveWindowCapture(next video: URL) {
     }
 }
 
+func axSize(_ window: AXUIElement) -> CGSize {
+    var value: CFTypeRef?
+    var size = CGSize.zero
+    if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &value) == .success, let value {
+        AXValueGetValue(value as! AXValue, .cgSize, &size)
+    }
+    return size
+}
+
+/// WindowShade 吞掉双击的第二次按下，但第二次松开照样送给 App。这里不经过它，
+/// 只发“按下、松开、第二次松开”，看系统会不会因为那次松开就缩放窗口。
+func probeLoneSecondMouseUp(_ window: AXUIElement, at point: CGPoint) async {
+    let before = axSize(window)
+    post(.leftMouseDown, at: point, clicks: 1)
+    post(.leftMouseUp, at: point, clicks: 1)
+    await pause(0.09)
+    post(.leftMouseUp, at: point, clicks: 2)
+    await pause(1.2)
+    log("lone second mouse-up: size \(before) -> \(axSize(window))")
+}
+
 final class Recorder: NSObject, SCRecordingOutputDelegate, SCStreamDelegate {
     private var stream: SCStream?
     private var finished: CheckedContinuation<Void, Never>?
@@ -155,6 +176,9 @@ struct DemoDriver {
         guard let window else { log("no TextEdit window"); exit(2) }
         let origin = CGPoint(x: 160, y: 120)
         let size = CGSize(width: 700, height: 460)
+        place(window, origin: origin, size: size)
+        await pause(1)
+        await probeLoneSecondMouseUp(window, at: CGPoint(x: origin.x + size.width * 0.72, y: origin.y + 14))
         place(window, origin: origin, size: size)
         await pause(1)
         saveWindowCapture(next: video)
