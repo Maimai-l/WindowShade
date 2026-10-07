@@ -695,7 +695,7 @@ final class ClassicTitleStripView: NSView {
     /// 经典配色由“应用图标色调 × 当前外观”推出，浅深色切换后需要重算，
     /// 否则已折叠的卷帘条会停留在旧外观的纸面/文字颜色上。
     private var palette: ClassicPalette
-    /// 外观读数（默认跟随系统）：探针可以注入“提高对比度”等组合做对照渲染。
+    /// 外观读数（默认跟随系统）：系统外观变了由 AppDelegate 换上新的一份。
     var appearanceCapabilities: SystemAppearanceCapabilities = .current {
         didSet { needsDisplay = true }
     }
@@ -780,9 +780,6 @@ final class ClassicTitleStripView: NSView {
         super.viewDidChangeEffectiveAppearance()
         refreshPalette()
     }
-
-    /// 诊断：当前配色（探针比较“刷新后”与“新建”是否一致）。
-    var paletteForDiagnostics: ClassicPalette { palette }
 
     private var displayTitle: String {
         descriptiveDisplayTitle(appName: appName, windowTitle: windowTitle)

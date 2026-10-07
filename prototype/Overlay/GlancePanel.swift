@@ -58,8 +58,6 @@ final class GlanceContentView: NSView {
     /// 每次长大、缩回、停住都加一：过时的“铺开了再露出提示”不再生效。
     private var noticesGeneration = 0
     private(set) var hasSnapshot = false
-    /// 视频层挂在画面里，且盖在截图上面。
-    var showsVideo: Bool { videoLayer?.superlayer === cardLayer && snapshotLayer.isHidden }
     private(set) var isLive = false
 
     init(frame: NSRect, cardFrame: NSRect, pictureFrame: NSRect, cornerRadius: CGFloat,
@@ -199,9 +197,6 @@ final class GlanceContentView: NSView {
         CATransaction.commit()
         refreshPlaceholder()
     }
-
-    /// 右下角“收起时的画面”此刻看得见（探针用）。
-    var showsStaleNotice: Bool { !notices.isHidden && !badge.isHidden }
 
     /// 实时画面等不到时，照实说这是哪个时候的画面。
     func setStaleNoticeVisible(_ visible: Bool) {

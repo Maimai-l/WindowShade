@@ -1,4 +1,4 @@
-// “少做”的默认值（docs/direction.md 最后一张表）：⌃⌘ 快捷键新装的不占、升级的照旧；“让开这个 App”的守卫和默认值。
+// “少做”的默认值：⌃⌘ 快捷键新装的不占、升级的照旧。
 // 纯逻辑，用单独的偏好域，不碰用户的设置、不碰任何窗口。
 import Carbon.HIToolbox
 import CoreGraphics
@@ -47,16 +47,13 @@ struct QuietDefaultsTests {
         .leftHalf: ctrlCmd(kVK_LeftArrow), .rightHalf: ctrlCmd(kVK_RightArrow),
     ]
     static let previewOnly: [GlobalShortcut: HotKey] = [
-        .slideOver: ctrlCmd(kVK_ANSI_S), .launchpad: ctrlCmd(kVK_ANSI_L), .magicTile: ctrlCmd(kVK_ANSI_M),
-        .nextDisplay: ctrlCmd(kVK_ANSI_N), .tuckAll: ctrlCmd(kVK_ANSI_H),
+        .nextDisplay: ctrlCmd(kVK_ANSI_N),
     ]
 
     static func main() {
         installHistory()
         shortcuts()
         identifiers()
-        dockClickDefault()
-        dockClickGuard()
         print(failures == 0 ? "all quiet-defaults tests passed" : "\(failures) quiet-defaults test(s) FAILED")
         exit(failures == 0 ? 0 : 1)
     }
@@ -142,7 +139,7 @@ struct QuietDefaultsTests {
             GlobalShortcutSettings.numberedExpandEnabled = true
             expect(GlobalShortcutSettings.numberedExpandEnabled && !GlobalShortcutSettings.isAllDefault,
                    "⌃⌘1…9 can be switched on in Settings")
-            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_M), for: .magicTile)
+            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_N), for: .nextDisplay)
             GlobalShortcutSettings.resetAll()
             expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == nil }
                     && !GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.isAllDefault,
@@ -181,98 +178,14 @@ struct QuietDefaultsTests {
         withDefaults({ $0.set(true, forKey: InstallHistory.previewMarker) }) { _ in
             let expected = shipped.merging(previewOnly) { a, _ in a }
             expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == expected[$0] },
-                   "a Mac that ran the 1.0.16 preview also keeps ⌃⌘S / L / M / N / H")
+                   "a Mac that ran the 1.0.16 preview also keeps ⌃⌘N")
         }
         withDefaults({
             $0.set(true, forKey: InstallHistory.previewMarker)
-            $0.set([Int](), forKey: "GlobalShortcut.magicTile")
+            $0.set([Int](), forKey: "GlobalShortcut.nextDisplay")
         }) { _ in
-            expect(GlobalShortcutSettings.hotKey(for: .magicTile) == nil,
+            expect(GlobalShortcutSettings.hotKey(for: .nextDisplay) == nil,
                    "a preview default that was left off because it clashed stays off")
         }
-    }
-
-    // MARK: 让开这个 App
-
-    static func dockClickDefault() {
-        expect(!DockClickHideDefault.isOn(previewInstall: false, origin: .windows), "off for people who came from Windows")
-        expect(!DockClickHideDefault.isOn(previewInstall: false, origin: .ipad), "off for people who came from iPad")
-        expect(DockClickHideDefault.isOn(previewInstall: false, origin: .mac), "on for people who always used a Mac")
-        expect(DockClickHideDefault.isOn(previewInstall: false, origin: .unanswered), "on when nobody answered")
-        expect(DockClickHideDefault.isOn(previewInstall: true, origin: .windows), "people who already had it on keep it on")
-    }
-
-    static func dockClickGuard() {
-        typealias W = DockClickGuard.Window
-        let screen = CGRect(x: 0, y: 0, width: 1710, height: 1107)
-        let side = CGRect(x: 1710, y: 0, width: 1920, height: 1080)
-        func window(_ id: CGWindowID, _ rect: CGRect, onScreen: Bool = true, layer: Int = 0, alpha: Double = 1) -> W {
-            W(id: id, bounds: rect, onScreen: onScreen, layer: layer, alpha: alpha)
-        }
-        let front = window(1, CGRect(x: 100, y: 100, width: 800, height: 600))
-        func survey(_ windows: [W], managed: Set<CGWindowID> = [], minimized: [CGWindowID] = [], standard: Set<CGWindowID>? = nil,
-                    spaces: [CGWindowID: UInt64] = [:], current: Set<UInt64> = [7]) -> DockClickGuard.Survey {
-            // 没特别说时，每扇都是辅助功能列出来的标准窗口。
-            DockClickGuard.survey(windows: windows, screens: [screen, side], managed: managed, minimized: minimized,
-                                  standard: standard ?? Set(windows.map(\.id)), spaceOf: { spaces[$0] }, currentSpaces: current)
-        }
-
-        let plain = survey([front, window(9, CGRect(x: 0, y: 0, width: 40, height: 30)), window(8, screen, layer: 25)])
-        expect(DockClickGuard.action(for: plain) == .hide, "one window in view, nothing hidden: step aside as before")
-
-        let nothing = survey([window(1, front.bounds, onScreen: false)], minimized: [1])
-        expect(DockClickGuard.action(for: nothing) == .leave, "no window in view: leave the click to the system")
-
-        let tiny = survey([window(2, CGRect(x: 0, y: 0, width: 60, height: 40))])
-        expect(DockClickGuard.action(for: tiny) == .leave, "only a tiny window counts as nothing in view (same rule as before)")
-
-        let withMinimized = survey([front, window(2, front.bounds, onScreen: false), window(3, front.bounds, onScreen: false)],
-                                   minimized: [3, 2])
-        expect(DockClickGuard.action(for: withMinimized) == .bringBack(3),
-               "a minimized window: don't step aside, bring the first one back")
-
-        let collapsed = survey([front, window(2, front.bounds, onScreen: false)], managed: [2], minimized: [2])
-        expect(DockClickGuard.action(for: collapsed) == .hide,
-               "a window WindowShade itself collapsed does not count and is never unminimized here")
-
-        let otherDesktop = survey([front, window(4, front.bounds, onScreen: false)], spaces: [4: 12])
-        expect(otherDesktop.elsewhere == [4] && DockClickGuard.action(for: otherDesktop) == .bringBack(nil),
-               "a window on another desktop: don't step aside (nothing to unminimize)")
-
-        let sameDesktop = survey([front, window(4, front.bounds, onScreen: false)], spaces: [4: 7])
-        expect(DockClickGuard.action(for: sameDesktop) == .hide, "an ordered-out window on this desktop is not a lost window")
-
-        let noSpaceInfo = survey([front, window(4, front.bounds, onScreen: false)], spaces: [4: 12], current: [])
-        expect(DockClickGuard.action(for: noSpaceInfo) == .hide, "without desktop info nothing is guessed to be elsewhere")
-
-        let unknownSpace = survey([front, window(4, front.bounds, onScreen: false)])
-        expect(DockClickGuard.action(for: unknownSpace) == .hide, "a window that belongs to no desktop is ignored")
-
-        let farAway = window(5, CGRect(x: -3000, y: 200, width: 800, height: 600))
-        let offscreen = survey([front, farAway])
-        expect(offscreen.offscreen == [5] && DockClickGuard.action(for: offscreen) == .bringBack(nil),
-               "a standard window entirely outside every screen: don't step aside")
-        expect(DockClickGuard.outsideScreens(windows: [front, farAway], screens: [screen, side], managed: []) == [5],
-               "only then is the app asked whether it is a standard window")
-
-        let helper = survey([front, farAway], standard: [1])
-        expect(helper.offscreen.isEmpty && DockClickGuard.action(for: helper) == .hide,
-               "a window parked off screen that the app does not list as a standard window is ignored (step aside as before)")
-
-        let unanswered = survey([front, farAway], standard: [])
-        expect(DockClickGuard.action(for: unanswered) == .hide,
-               "when the app does not answer, nothing off screen is guessed to be a lost window")
-
-        expect(DockClickGuard.outsideScreens(windows: [front, farAway], screens: [screen, side], managed: [5]).isEmpty,
-               "a window WindowShade itself parked off screen is never asked about")
-
-        let onSecondScreen = survey([front, window(6, CGRect(x: 1800, y: 100, width: 800, height: 600))])
-        expect(DockClickGuard.action(for: onSecondScreen) == .hide, "a window on the other display is in view")
-
-        let partly = survey([front, window(6, CGRect(x: -700, y: 100, width: 800, height: 600))])
-        expect(DockClickGuard.action(for: partly) == .hide, "a window with a sliver on screen is not counted as lost")
-
-        let transparent = survey([front, window(7, CGRect(x: -3000, y: 200, width: 800, height: 600), alpha: 0)])
-        expect(DockClickGuard.action(for: transparent) == .hide, "an invisible off-screen helper window is ignored")
     }
 }

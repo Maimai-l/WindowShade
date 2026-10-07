@@ -50,7 +50,7 @@ final class WindowBrowserPanel: NSPanel {
         tabbingMode = .disallowed
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary, .moveToActiveSpace]
         contentView = browserContentView
-        // 与置顶预览面板同一套纸面阴影。曾怀疑它会激活 app，但面板探针的对照实验
+        // 与置顶预览面板同一套纸面阴影。曾怀疑它会激活 app，但对照实验
         // （不显示窗口 / 同进程第二次显示）证明激活来自“新进程首次出窗”，阴影不是
         // 原因；阴影子窗口还额外改成不可成为 key/main，不会再抢键盘焦点。
         applyShadow(for: browserContentView.materialKind)

@@ -382,7 +382,7 @@ final class WindowBrowserContentView: NSView, NSSearchFieldDelegate, NSTextViewD
     /// 诊断：界面内容是否确实挂在玻璃的 contentView 里（只有玻璃路径为 true）。
     var contentIsInsideGlassForDiagnostics: Bool { materialHost.contentIsInsideGlass }
 
-    /// 诊断：第一行的背景亮度（探针验证浅深色是否实时跟随）。
+    /// 诊断：第一行的背景亮度（测试验证浅深色是否实时跟随）。
     func debugFirstRowBackgroundBrightness() -> CGFloat? {
         guard let key = records.first?.key, let row = rowView(for: key) else { return nil }
         guard let color = row.layer?.backgroundColor,

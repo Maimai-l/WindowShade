@@ -158,7 +158,7 @@ final class PinnedPreviewContentView: NSView {
         titleBar.appliedCapabilities
     }
 
-    /// 暴露给探针/回归：材质与边线跟随系统外观开关。
+    /// 材质与边线跟随系统外观开关。
     func applySystemAppearance(capabilities: SystemAppearanceCapabilities = .current) {
         titleBar.apply(capabilities: capabilities)
         titleBar.layer?.cornerRadius = 0

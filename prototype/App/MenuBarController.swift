@@ -73,8 +73,6 @@ extension AppDelegate {
     action(foldTitle,
            foldTitle.contains("展开") ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
            #selector(toggleAction), .toggleShade)
-    action("收进刘海", "rectangle.topthird.inset.filled", #selector(tuckCurrentAction), .tuckCurrent,
-           enabled: ax && NotchController.isEnabled)
     let pinTitle = pinnedPreviewMenuTitle().replacingOccurrences(of: "当前窗口", with: "窗口")
     action(pinTitle,
            pinTitle.contains("取消置顶") ? "pin.slash" : "pin",
@@ -83,12 +81,6 @@ extension AppDelegate {
     let arrangeItem = NSMenuItem(title: "排列", action: nil, keyEquivalent: "")
     arrangeItem.image = NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: nil)
     arrangeItem.submenu = arrangement; statusMenu.addItem(arrangeItem)
-    action(MainActor.assumeIsolated { slideOver.menuTitle }, "sidebar.right", #selector(toggleSlideOverAction), .slideOver, enabled: ax && screen, menu: arrangement)
-    if MainActor.assumeIsolated({ slideOver.dockedWindowID != nil }) {
-      action("退出侧拉", "sidebar.right", #selector(exitSlideOverAction), menu: arrangement)
-    }
-    action("画中画", "pip", #selector(pictureInPictureAction), .pictureInPicture, enabled: ax && screen, menu: arrangement)
-    action("魔法平铺", "wand.and.stars", #selector(magicTileAction), .magicTile, enabled: ax, menu: arrangement)
     if NSScreen.screens.count > 1 { action("移到另一块屏幕", "display", #selector(nextDisplayAction), .nextDisplay, enabled: ax, menu: arrangement) }
     action("带到每张桌面", "square.on.square", #selector(toggleCarryAction), .carry, enabled: ax, menu: arrangement)
     if appearanceMode == .proxyTitleBar {
@@ -100,16 +92,10 @@ extension AppDelegate {
              enabled: menuState.canArrangeShades, menu: arrangement)
     }
     statusMenu.addItem(.separator())
-    action("全部收进刘海", "macwindow.on.rectangle", #selector(tuckAllAction), .tuckAll, enabled: ax && NotchController.isEnabled)
-    action("启动台", "square.grid.3x3", #selector(toggleLaunchpadAction), .launchpad)
     action("选择窗口…", "rectangle.on.rectangle", #selector(openWindowBrowserPanel), .windowBrowser,
            enabled: WindowBrowserSettings.keyboardPanelEnabled)
     // 动态窗口段不计入 9 个常驻项；保留老板键、逐窗取消和全部取消。
     addPinnedPreviewMenuSection(menuState.pinnedPreviews)
-    // 进行中才出现。番茄钟用真实计时；指挥模式和编程会话没有菜单文案来源，不编一行。
-    if MainActor.assumeIsolated({ ws2Runtime.focus.model.phase != .idle }) {
-      action(MainActor.assumeIsolated { ws2Runtime.menuTitle }, "timer", #selector(ws2ShowFocus))
-    }
 
     if !menuState.foldedWindows.isEmpty {
       statusMenu.addItem(.separator())
@@ -155,22 +141,13 @@ extension AppDelegate {
     }
     statusMenu.addItem(updateItem)
     // 与原工程的发行 feed 约定一致；设置 SUFeedURL 的构建不得展示诊断入口。
-    if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") == nil {
+    // 里面只剩屏幕开合角度：没打开桌面开合效果时没有可看的，这一项也不挂。
+    if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") == nil, let text = menuState.hingeAngleText {
       let developer = NSMenuItem(title: "开发", action: nil, keyEquivalent: "")
       developer.isHidden = !optionHeld
       developer.image = NSImage(systemSymbolName: "hammer", accessibilityDescription: nil)
       let tools = NSMenu(); developer.submenu = tools
-      if let text = menuState.hingeAngleText { tools.addItem(.sectionHeader(title: text)) }
-      action("验证 Touch ID…", "touchid", #selector(verifyTouchIDAction), menu: tools)
-      let cameras = NSMenuItem(title: "检测面部动作", action: nil, keyEquivalent: "")
-      cameras.submenu = NSMenu()
-      MainActor.assumeIsolated {
-        for camera in FaceObservationSource.devices() {
-          let item = NSMenuItem(title: camera.name, action: #selector(observeFaceAction(_:)), keyEquivalent: "")
-          item.target = self; item.representedObject = camera.id; cameras.submenu?.addItem(item)
-        }
-      }
-      tools.addItem(cameras)
+      tools.addItem(.sectionHeader(title: text))
       statusMenu.addItem(developer)
     }
     let quitItem = NSMenuItem(title: "退出 WindowShade", action: #selector(quit), keyEquivalent: "q")

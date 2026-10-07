@@ -2301,8 +2301,8 @@ final class WindowBrowserController: NSObject {
 
     // MARK: 拖出面板去排布
 
-    /// 卡片拖出面板（iPad 从 Dock 把 App 拖到屏幕边分屏的对应做法）：贴着屏幕左边 / 右边松手是
-    /// 左半屏 / 右半屏，贴着顶边是铺满屏幕，拖到屏幕边上那一小块停一下是侧拉。
+    /// 卡片拖出面板（iPad 从 Dock 把 App 拖到屏幕边的对应做法）：贴着屏幕左边 / 右边松手是
+    /// 左半屏 / 右半屏，贴着顶边是铺满屏幕。
     /// 面板四周一圈（WindowBrowserCardDragPolicy.cancelBand）、屏幕中间、Dock 上松手、按 Esc 都是取消：
     /// 按原来“拖出取消”的习惯拖出面板一点松手，窗口不动。只在有辅助功能权限、窗口能排布时接手。
     private func beginCardDrag(key: WindowKey, at point: NSPoint) -> Bool {

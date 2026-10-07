@@ -56,7 +56,7 @@ protocol GlanceCarrySource: AnyObject {
     func openCarriedWindow(_ id: CGWindowID)
 }
 
-/// 探针与日志读的数字：从指针决定打开到画面出现、到第一帧实时画面各用了多久。
+/// 测试与日志读的数字：从指针决定打开到画面出现、到第一帧实时画面各用了多久。
 struct GlanceDiagnostics {
     var opens = 0
     var closes = 0
@@ -172,7 +172,7 @@ final class GlanceController {
     /// 这段时间内“App 又显示出来”是看一眼自己造成的，不当作用户唤回。
     private var revealHoldUntil: [CGWindowID: TimeInterval] = [:]
 
-    /// 探针不改用户的偏好设置，只在本进程里强制打开。
+    /// 测试不改用户的偏好设置，只在本进程里强制打开或关掉。
     nonisolated(unsafe) static var probeOverride: Bool?
 
     nonisolated static var isEnabled: Bool {
@@ -188,7 +188,7 @@ final class GlanceController {
     unowned let owner: AppDelegate
     weak var carrySource: GlanceCarrySource?
     let intent = GlanceIntent()
-    /// 探针替换这两个入口来模拟指针与时钟；平时读真实的指针位置。
+    /// 测试可以替换这两个入口来模拟指针与时钟；平时读真实的指针位置。
     var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
     var clock: () -> TimeInterval = { CACurrentMediaTime() }
     private(set) var diagnostics = GlanceDiagnostics()

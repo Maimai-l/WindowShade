@@ -647,7 +647,7 @@ enum WindowBrowserGeometry {
 
     /// 标题测宽缓存：窗口标题在一次会话里很少变，而 `size(withAttributes:)` 每次约
     /// 0.01–0.2 ms（200 条要 2.4 ms）。缓存后同一批标题的重复刷新只花一次测量。
-    /// 只在主线程（面板刷新与截图探针）访问。
+    /// 只在主线程（面板刷新）访问。
     nonisolated(unsafe) private static var titleWidthCache: [String: CGFloat] = [:]
     private static let titleWidthCacheLimit = 4096
 
@@ -663,7 +663,7 @@ enum WindowBrowserGeometry {
     }
 
     /// 把基础排版参数派生成本次内容真正需要的版本：标题几行、页脚是否占位。
-    /// 控制器与截图探针都走这里，避免“真机一种布局、归档图另一种布局”。
+    /// 控制器与测试都走这里，避免两处各算一种布局。
     static func derivedParams(base: WindowBrowserLayoutParams, titles: [String],
                               hasStatus: Bool,
                               anyCardStatus: Bool = true,

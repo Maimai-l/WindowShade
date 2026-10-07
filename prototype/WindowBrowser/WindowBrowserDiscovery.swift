@@ -1,5 +1,4 @@
-// 普通窗口发现：同步 AX/CG 读取。被 WindowBrowserController 与只读探针共用，
-// 保证探针验证的就是生产路径，而不是另一份演示实现。
+// 普通窗口发现：同步 AX/CG 读取，由 WindowBrowserController 调用。
 //
 // 线程：调用方负责放到后台队列；内部只使用线程安全的 WindowListCache 与 AX 读取，
 // overlay 集合与排除清单必须由调用方在主线程取好快照后传入。

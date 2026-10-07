@@ -126,14 +126,6 @@ final class GestureHUD {
     private var shownAvailable = true
     private(set) var isVisible = false
 
-    /// 诊断：浮窗当前的屏幕位置（Cocoa 坐标）。
-    var frame: NSRect? { isVisible ? panel?.frame : nil }
-    /// 诊断：进度条当前填到几成（0...1）。
-    var displayedProgress: CGFloat { panel?.hudView.displayedProgress ?? 0 }
-    var displaysArmed: Bool { panel?.hudView.displaysArmed ?? false }
-    /// 诊断：浮窗当前的标题。
-    var displayedTitle: String? { isVisible ? panel?.hudView.title : nil }
-
     /// 显示或更新。anchor = 浮窗上沿中点（Cocoa 坐标）；会被夹进该屏幕的可用区域。
     /// animated：鼠标滚轮一格一格走，进度条用短动画过渡；触控板 1:1 跟手，不插值。
     func update(_ frame: GestureFrame, anchor: CGPoint, screen: NSScreen?, animated: Bool = false) {
@@ -338,8 +330,6 @@ final class GestureHUDView: NSView {
         super.viewDidChangeEffectiveAppearance()
         refreshColors()
     }
-
-    var title: String { titleField.stringValue }
 
     func setTitle(_ text: String) {
         titleField.stringValue = text

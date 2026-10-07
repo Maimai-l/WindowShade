@@ -126,7 +126,6 @@ final class SnapshotFlight {
         }
         let positionX = axis("position.x", from: start.midX, to: end.midX, speed: velocity.dx)
         let positionY = axis("position.y", from: start.midY, to: end.midY, speed: velocity.dy)
-        let position = positionX.duration >= positionY.duration ? positionX : positionY
         // 尺寸走 settle：不回弹，也不跟着位置那根弹簧把时长乘一个系数。
         let size = CASpringAnimation(perceptualDuration: Motion.Spring.settle.response, bounce: Motion.Spring.settle.bounce)
         size.keyPath = "bounds.size"

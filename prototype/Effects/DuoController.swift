@@ -18,8 +18,8 @@ final class DuoController: NSObject {
   private var startTask: Task<Void, Never>?
   private var epoch = EffectEpoch()
   private var suspended = false
-  // 合盖效果（docs/lid-effect.md）：合上和展开都跟着盖子走，进度只由 LidGesture 一处算，
-  // 桌面效果和锁屏效果读的是同一份；这里只负责把进度画出来。
+  // 合盖效果（docs/lid-effect.md）：合上和展开都跟着盖子走，进度只由 LidGesture 一处算；
+  // 这里只负责把进度画出来。
   private var gesture = LidGesture()
   private var loggedPhase: LidGesture.Phase = .resting
   private var previousTime: CFTimeInterval = 0
@@ -53,7 +53,6 @@ final class DuoController: NSObject {
   }
   var settingsWindow: DuoSettingsWindow?
   let windowEffects = WindowFoldEffects()
-  let lockOverlay = LockOverlayController()
   var desktopActive: Bool { desktop != nil || startTask != nil }
   var allowsAnimation: Bool {
     allowsAnimationIgnoringLock && EffectEnvironment.allowsDisplay
@@ -154,7 +153,6 @@ final class DuoController: NSObject {
       inputMonitors.append(monitor)
     }
     settingsChanged()
-    lockOverlay.start()
   }
 
   private func observe(
@@ -195,16 +193,14 @@ final class DuoController: NSObject {
     if persistsSettings { settings.save() }
     if !settings.desktopEnabled || !allowsAnimation { stopDesktop() }
     if !settings.windowsEnabled || !allowsAnimation { windowEffects.cancelAll() }
-    // 锁屏时只有「锁屏效果」还需要传感器；别的时候一律停掉。
+    // 锁屏时不用传感器。
     // 注意这里必须看**当前**锁屏状态，不能只看 `suspended`：应用在已经锁屏的状态下启动时，
     // 从没发生过锁屏*转换*，suspended 一直是 false，于是启动即锁屏也会一直 4Hz 问铰链
     // （2026-10-01 实测：那种状态下常驻 0.37% 单核，全花在这上面）。
     let lockedScreen = EffectEnvironment.lockState == .locked
-    let lockOverlayNeedsSensors = lockOverlay.enabled && lockedScreen
-      && !EffectEnvironment.asleep && EffectEnvironment.displayAwake
-    let normalSensors = !suspended && !lockedScreen
+    let needsSensors = !suspended && !lockedScreen
       && ((!pausedByUser && settings.desktopEnabled) || settingsWindow != nil)
-    if lockOverlayNeedsSensors || normalSensors {
+    if needsSensors {
       sensor.start()
     } else {
       sensor.stop()
@@ -215,7 +211,7 @@ final class DuoController: NSObject {
   private func receive(_ reading: LidAngleSource.Reading) {
     angle = reading.angle
     lastReadingTime = reading.time
-    // 每份读数都喂给 LidGesture（静止角度要一直跟着学），锁屏效果和桌面效果读同一份进度。
+    // 每份读数都喂给 LidGesture（静止角度要一直跟着学）。
     gesture.feed(reading.angle, at: reading.time)
     if gesture.phase != loggedPhase {
       // 阶段变化才记一行（静止 / 跟手 / 熄屏），低频，用来事后看一次开合是怎么走的。
@@ -224,7 +220,6 @@ final class DuoController: NSObject {
                   reading.angle, gesture.progress, gesture.baseline.map { String(format: "%.0f", $0) } ?? "-",
                   gesture.restBeforeClose.map { String(format: "%.0f", $0) } ?? "-"))
     }
-    lockOverlay.receive(progress: gesture.progress)
     settingsWindow?.refreshStatus()
     guard settings.desktopEnabled else { return }
     guard gesture.phase == .following else {
@@ -389,20 +384,13 @@ final class DuoController: NSObject {
   private func suspend() {
     wlog("duo: suspend")
     suspended = true
-    lockOverlay.handoff(progress: spring.value, velocity: spring.velocity,
-                        preset: settings.preset)
     stopDesktop()
     windowEffects.cancelAll()
-    if lockOverlay.enabled && EffectEnvironment.lockState == .locked
-      && !EffectEnvironment.asleep && EffectEnvironment.displayAwake { sensor.start() }
-    else { sensor.stop() }
+    sensor.stop()
     settingsWindow?.suspendPreview()
   }
   private func resume() {
-    guard !EffectSecurityBoundary.isLocked else {
-      if lockOverlay.enabled && !EffectEnvironment.asleep && EffectEnvironment.displayAwake { sensor.start() }
-      return
-    }
+    guard !EffectSecurityBoundary.isLocked else { return }
     suspended = false
     angle = nil
     settingsChanged()
@@ -428,7 +416,6 @@ final class DuoController: NSObject {
       CGDisplayRemoveReconfigurationCallback(Self.displayReconfigured, Unmanaged.passUnretained(self).toOpaque())
       displayCallbackRegistered = false
     }
-    lockOverlay.stop()
     suspend()
     sensor.stop()
     for (center, observer) in observers { center.removeObserver(observer) }

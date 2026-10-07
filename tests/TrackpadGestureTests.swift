@@ -108,7 +108,7 @@ import Foundation
       expect(r.end(at: t + 0.2) == .fill, "and fills")
     }
 
-    // On a filled window, up first undoes the fill; down has nothing left to do; spread still arranges (magic tiling).
+    // On a filled window, up first undoes the fill; down has nothing left to do; spread does nothing.
     do {
       let filled = GestureRecognizer(map: .titleBar(canUndoPlacement: true, isFilled: true))
       var t: TimeInterval = 0
@@ -118,7 +118,7 @@ import Foundation
       swipe(filled, dy: -5, steps: 12, &t)
       expect(filled.frame == .idle && filled.end(at: t + 0.2) == nil, "down on a filled window does nothing")
       pinch(filled, 0.03, steps: 10, &t)
-      expect(filled.end(at: t + 0.2) == .magicTile, "spread on a filled window arranges the screen around it")
+      expect(filled.end(at: t + 0.2) == nil, "spread on a filled window does nothing")
 
       let filledByHand = GestureRecognizer(map: .titleBar(canUndoPlacement: false, isFilled: true))
       swipe(filledByHand, dy: 5, steps: 12, &t)
@@ -284,13 +284,13 @@ import Foundation
       expect(r.end(at: t + 0.2) == nil, "and does nothing")
     }
 
-    // Spread is magic tiling (a lone window just fills); pinch undoes the last placement only when there is one.
+    // Spread fills the screen; pinch undoes the last placement only when there is one.
     do {
       var t: TimeInterval = 0
       let r = GestureRecognizer(map: titleBar)
       pinch(r, 0.025, steps: 10, &t)
-      expect(r.frame.action == .magicTile && r.frame.armed, "spreading 0.25 arms magic tiling")
-      expect(r.end(at: t + 0.2) == .magicTile, "magic tiling")
+      expect(r.frame.action == .fill && r.frame.armed, "spreading 0.25 arms fill")
+      expect(r.end(at: t + 0.2) == .fill, "fill")
 
       let feedback = pinch(r, -0.025, steps: 10, &t)
       expect(r.frame.action == .undoPlacement && !r.frame.available,
@@ -305,7 +305,7 @@ import Foundation
       expect(undoable.end(at: t + 0.2) == .undoPlacement, "undo")
 
       pinch(r, 0.01, steps: 5, &t)
-      expect(r.frame.action == .magicTile && !r.frame.armed, "a small spread shows magic tiling")
+      expect(r.frame.action == .fill && !r.frame.armed, "a small spread shows fill")
       expect(r.end(at: t + 0.2) == nil, "a small spread and a pause cancels")
     }
 
@@ -316,8 +316,8 @@ import Foundation
       swipe(r, dy: 3, steps: 2, &t)
       pinch(r, 0.06, steps: 4, &t)
       swipe(r, dy: 20, steps: 5, &t)
-      expect(r.frame.action == .magicTile, "the frame reflects the pinch only")
-      expect(r.end(at: t + 0.2) == .magicTile, "and the pinch decides")
+      expect(r.frame.action == .fill, "the frame reflects the pinch only")
+      expect(r.end(at: t + 0.2) == .fill, "and the pinch decides")
     }
 
     // After ending or cancelling, the recognizer starts fresh.

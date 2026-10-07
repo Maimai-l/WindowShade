@@ -482,7 +482,7 @@ extension AppDelegate {
     }
 
 @objc func showWelcomeGuide() {
-        // 菜单里的“欢迎使用 WindowShade…”：从第一页看起。
+        // 菜单里的“欢迎使用 WindowShade…”：从头看起。
         showPermissionOnboarding()
     }
 
@@ -491,15 +491,15 @@ extension AppDelegate {
         let shouldShowFirstRun = !UserDefaults.standard.bool(forKey: shadeOnboardingShownDefaultsKey)
         guard missing || shouldShowFirstRun || force else { return }
         if !force && UserDefaults.standard.bool(forKey: shadeOnboardingShownDefaultsKey) { return }
-        // force 都是缺权限时的提醒（按快捷键没权限、刘海里点“需要权限”、换显示器时的恢复）：直接到授权页，
-        // 和 1.0.15 一样一打开就看得到授权行。首次打开从第一页看起。
+        // force 都是缺权限时的提醒（按快捷键没权限、换显示器时的恢复）：直接到授权页，
+        // 和 1.0.15 一样一打开就看得到授权行。首次打开从头看起。
         showPermissionOnboarding(toPermissions: force)
     }
 
-    /// 欢迎使用 WindowShade：三步，一句话说清它是什么、问“你之前常用哪个？”、授权（见 Welcome.swift）。
-    /// toPermissions：缺权限时的提醒，直接翻到授权页；否则从第一步开始。
+    /// 欢迎使用 WindowShade：授权（见 Welcome.swift）。
+    /// toPermissions：缺权限时的提醒，直接到授权页；否则从头开始。
     func showPermissionOnboarding(toPermissions: Bool = false) {
-        MainActor.assumeIsolated { showWelcome(startPage: toPermissions ? WelcomeView.permissionPage : 0) }
+        MainActor.assumeIsolated { showWelcome(fromStart: !toPermissions) }
     }
 
     /// 欢迎窗口里那一页（窗口没建过或内容换过时是 nil）。
@@ -510,16 +510,15 @@ extension AppDelegate {
     /// 装好新版本后辅助功能或屏幕录制没了（系统有时要重新打开）：翻到授权页，换成“再打开一次这两项”那组文案。
     func showPermissionsAgainAfterUpdate() {
         MainActor.assumeIsolated {
-            showWelcome(startPage: WelcomeView.permissionPage)
+            showWelcome(fromStart: false)
             onboardingWelcomeView?.permissionsAgain = true
         }
     }
 
-    @MainActor private func showWelcome(startPage: Int) {
-        let permissionPage = WelcomeView.permissionPage
-        // 已经开着：不重建、不挪回正中，看到哪一页还在哪一页，只拿到最前面；缺权限的提醒才翻到授权页。
+    @MainActor private func showWelcome(fromStart: Bool) {
+        // 已经开着：不重建、不挪回正中，看到哪一步还在哪一步，只拿到最前面；缺权限的提醒才翻到授权页。
         if let window = onboardingWindow, window.isVisible, let current = onboardingWelcomeView {
-            if startPage == permissionPage, current.index != permissionPage || current.onMoveStep { current.show(permissionPage) }
+            if !fromStart, current.onMoveStep { current.showPermissions() }
             window.makeKeyAndOrderFront(nil)
             window.makeFirstResponder(current)
             NSApp.activate()
@@ -576,12 +575,12 @@ extension AppDelegate {
         window.center()
         refreshOnboardingState()
         view.onPageChange = { [weak self] in self?.updateOnboardingRefresh() }
-        // 从第一步打开、而 App 不在“应用程序”里：三步之前先问要不要放进去（UpdaterMove 决定要不要这一步）。
+        // 从头打开、而 App 不在“应用程序”里：授权之前先问要不要放进去（UpdaterMove 决定要不要这一步）。
         // 开发版没有更新清单地址、不启动更新器，“放进去才能更新”对它不成立，不问。
-        if startPage == 0, Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil,
+        if fromStart, Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil,
            let move = UpdaterMove.shared.welcomeStep() {
             view.showMove(move)
-        } else if view.index != startPage { view.show(startPage) } else { view.refreshButtons() }
+        } else { view.refreshButtons() }
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)
         NSApp.activate()
@@ -589,10 +588,10 @@ extension AppDelegate {
     }
 
     /// 授权页的刷新：在系统设置里打开了，这里马上变成打勾。只在窗口看得见、停在授权页、还没全部授权时每秒查一次；
-    /// 翻到别的页、两项都有了、窗口收起来或整个被挡住就停（1.0.15 起权限齐全时本来就不跑）。
+    /// 停在别的步、两项都有了、窗口收起来或整个被挡住就停（1.0.15 起权限齐全时本来就不跑）。
     @MainActor func updateOnboardingRefresh() {
         guard let window = onboardingWindow, window.isVisible, window.occlusionState.contains(.visible),
-              let view = onboardingWelcomeView, view.index == WelcomeView.permissionPage else {
+              let view = onboardingWelcomeView, !view.onMoveStep else {
             onboardingRefreshTimer?.invalidate()
             onboardingRefreshTimer = nil
             return

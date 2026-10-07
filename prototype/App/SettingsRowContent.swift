@@ -48,8 +48,6 @@ import Cocoa
         "⌃⌘1…9 对应菜单里的前 9 个窗口": "⌃⌘1…9：前 9 个窗口",
         "卷帘条跟原来一样或用统一标题栏，也可以在原处缩成缩略图": "跟原来一样、统一标题栏或缩略图",
         "让它更透一些，能看到后面的内容": "更透，能看到后面",
-        "WindowShade 读到的每一样都列在这里。": "读到的都列在这里",
-        "这里列出 WindowShade 读到的每一样，以及为什么读、去了哪里。值和开关都来自原来的设置。": "读到的、为什么、去了哪里",
         "有新版本时在菜单里告诉你，不会自己装。": "有新版时告诉你，不自动装",
         "新版本用着不对，可以换回刚才那一版。": "可以换回刚才那一版",
         "合上或打开盖子时，桌面跟着动一下。": "合上或打开时桌面跟着动",
@@ -108,7 +106,6 @@ import Cocoa
             ("收起窗口", "rectangle.compress.vertical"),
             ("按编号展开", "rectangle.expand.vertical"),
             ("快捷键", "command"),
-            ("隐私", "lock.shield"),
         ]
         for (needle, symbol) in pairs where name.contains(needle) {
             return symbol

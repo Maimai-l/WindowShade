@@ -1,8 +1,8 @@
-// 调度中心、App 窗口（App Exposé）的入口：程序坞的私有通知。
+// App 窗口（App Exposé）的入口：程序坞的私有通知。
 //
-// 两下刘海是调度中心、三下是当前 App 的所有窗口（iPad 主屏幕按钮按两下是多任务）。
+// 在 Dock 图标上往上滑（App/DockSwipe.swift）铺开那个 App 的所有窗口。
 // 优先用程序坞自己的通知（CoreDockSendNotification，和触控板手势走的是同一个入口，不依赖用户改没改快捷键）；
-// 符号拿不到时退回公开的办法：调度中心打开 Mission Control.app，App 窗口按系统设置里它的快捷键（默认 ⌃↓）。
+// 符号拿不到时退回公开的办法：按系统设置里它的快捷键（默认 ⌃↓）。
 //
 // 编译单元：prototype/Private/DockBridge.swift
 
@@ -17,20 +17,6 @@ enum DockOverview {
               let symbol = dlsym(handle, "CoreDockSendNotification") else { return nil }
         return unsafeBitCast(symbol, to: SendNotification.self)
     }()
-
-    /// 调度中心：所有桌面、所有窗口。
-    static func missionControl() {
-        if let send {
-            send("com.apple.expose.awake" as CFString, nil)
-            wlog("dock: mission control")
-            return
-        }
-        let url = URL(fileURLWithPath: "/System/Applications/Mission Control.app")
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
-            if let error { wlog("dock: mission control failed \(error.localizedDescription)") }
-        }
-        wlog("dock: mission control via Mission Control.app")
-    }
 
     /// App 窗口：最前面那个 App 的所有窗口铺开（含最小化的）。
     static func applicationWindows() {

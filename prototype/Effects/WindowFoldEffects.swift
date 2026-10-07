@@ -37,9 +37,7 @@ final class WindowFoldEffects {
   private var jobs: [CGWindowID: Job] = [:]
   private var internalRestores: Set<CGWindowID> = []
   private var restoreAfterHide: [CGWindowID: UUID] = [:]
-  var activeCount: Int { jobs.count }
   func hasActiveTransition(for id: CGWindowID) -> Bool { jobs[id] != nil }
-  private(set) var completedTransitions = 0
   private var enabled: Bool {
     controller?.settings.windowsEnabled == true && controller?.allowsAnimation == true
       && controller?.desktopActive == false
@@ -410,7 +408,6 @@ final class WindowFoldEffects {
         preparedImage: job.session?.source.frame()?.stillImage() ?? job.preparedImage)
       scheduleHideWatchdog(job, generation: generation)
     } else {
-      completedTransitions += 1
       dispose(job)
     }
   }
@@ -471,12 +468,6 @@ final class WindowFoldEffects {
   }
 
   // MARK: - 手势跟手
-
-  /// 诊断：跟手中的窗口显示到几成（0 = 完整，1 = 卷起），以及盖板是否已经出现。
-  func trackingState(id: CGWindowID) -> (value: Double, visible: Bool)? {
-    guard let job = jobs[id], job.tracking else { return nil }
-    return (job.transition.value, job.phase == .tracking)
-  }
 
   /// 标题栏手势：先把盖板盖在窗口上（进度 0），之后由 track 驱动；松手 commit 才真的收起。
   func beginTrackingFold(_ element: AXUIElement, id: CGWindowID) -> Bool {

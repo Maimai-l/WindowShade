@@ -17,14 +17,13 @@ func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePoin
 private typealias SLSMainConnectionIDFunction = @convention(c) () -> Int32
 private typealias SLSMoveWindowWithGroupFunction = @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGPoint>) -> Int32
 private typealias SLSReassociateWindowsSpacesByGeometryFunction = @convention(c) (Int32, CFArray) -> Int32
-// Copy 规则：返回的数组是 +1，按 Unmanaged 接住再 takeRetainedValue，不然每次调用都漏一个（刘海每次悬停都会调）。
+// Copy 规则：返回的数组是 +1，按 Unmanaged 接住再 takeRetainedValue，不然每次调用都漏一个。
 private typealias SLSCopySpacesForWindowsFunction = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
 private typealias SLSMoveWindowsToManagedSpaceFunction = @convention(c) (Int32, CFArray, UInt64) -> Void
 private typealias SLSManagedDisplayGetCurrentSpaceFunction = @convention(c) (Int32, CFString) -> UInt64
 private typealias SLSManagedDisplaySetCurrentSpaceFunction = @convention(c) (Int32, CFString, UInt64) -> Int32
 private typealias SLSGetWindowAlphaFunction = @convention(c) (Int32, UInt32, UnsafeMutablePointer<Float>) -> Int32
 private typealias SLSSetWindowAlphaFunction = @convention(c) (Int32, UInt32, Float) -> Int32
-private typealias SLSCopyManagedDisplaySpacesFunction = @convention(c) (Int32) -> Unmanaged<CFArray>?
 
 final class PrivateSLSWindowMover: Sendable {
     static let shared = PrivateSLSWindowMover()
@@ -38,7 +37,6 @@ final class PrivateSLSWindowMover: Sendable {
     private let managedDisplaySetCurrentSpace: SLSManagedDisplaySetCurrentSpaceFunction?
     private let getWindowAlpha: SLSGetWindowAlphaFunction?
     private let setWindowAlpha: SLSSetWindowAlphaFunction?
-    private let copyManagedDisplaySpaces: SLSCopyManagedDisplaySpacesFunction?
 
     private init() {
         let paths = [
@@ -64,7 +62,6 @@ final class PrivateSLSWindowMover: Sendable {
             managedDisplaySetCurrentSpace = nil
             getWindowAlpha = nil
             setWindowAlpha = nil
-            copyManagedDisplaySpaces = nil
             return
         }
         mainConnectionID = unsafeBitCast(mainSymbol, to: SLSMainConnectionIDFunction.self)
@@ -107,8 +104,6 @@ final class PrivateSLSWindowMover: Sendable {
         } else {
             setWindowAlpha = nil
         }
-        copyManagedDisplaySpaces = dlsym(handle, "SLSCopyManagedDisplaySpaces")
-            .map { unsafeBitCast($0, to: SLSCopyManagedDisplaySpacesFunction.self) }
     }
 
     var isAvailable: Bool {
@@ -137,31 +132,6 @@ final class PrivateSLSWindowMover: Sendable {
         guard let mainConnectionID, let reassociateWindowsSpacesByGeometry else { return false }
         let windows = [NSNumber(value: UInt32(id))] as CFArray
         return reassociateWindowsSpacesByGeometry(mainConnectionID(), windows) == 0
-    }
-
-    /// 这扇窗所在的所有桌面（“在所有桌面上”的窗口有好几张；最小化的窗口一张都没有）。读不到时返回空。
-    func windowSpaces(id: CGWindowID) -> [UInt64] {
-        guard let mainConnectionID, let copySpacesForWindows else { return [] }
-        let windows = [NSNumber(value: UInt32(id))] as CFArray
-        let spaces = copySpacesForWindows(mainConnectionID(), 0x7, windows)?.takeRetainedValue() as? [NSNumber] ?? []
-        return spaces.map(\.uint64Value).filter { $0 != 0 }
-    }
-
-    /// 每块屏（“显示器具有单独的空间”关掉时是所有屏共用的一组）的桌面，按调度中心里的次序，和它此刻正显示的那张。
-    /// 只认普通桌面（type 0）和全屏 App 的桌面（type 4）。读不到时返回空。
-    func desktopRows() -> [DesktopRow] {
-        guard let mainConnectionID, let copyManagedDisplaySpaces,
-              let displays = copyManagedDisplaySpaces(mainConnectionID())?.takeRetainedValue() as? [[String: Any]] else { return [] }
-        return displays.compactMap { entry in
-            guard let current = ((entry["Current Space"] as? [String: Any])?["ManagedSpaceID"] as? NSNumber)?.uint64Value
-            else { return nil }
-            let spaces = ((entry["Spaces"] as? [[String: Any]]) ?? []).compactMap { space -> DesktopRow.Space? in
-                guard let id = (space["ManagedSpaceID"] as? NSNumber)?.uint64Value,
-                      let type = (space["type"] as? NSNumber)?.intValue, type == 0 || type == 4 else { return nil }
-                return DesktopRow.Space(id: id, isFullScreen: type == 4)
-            }
-            return DesktopRow(spaces: spaces, current: current)
-        }
     }
 
     func windowSpace(id: CGWindowID) -> UInt64? {

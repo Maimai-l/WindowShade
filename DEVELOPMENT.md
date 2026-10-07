@@ -138,143 +138,42 @@ cd prototype
 日常 `./build.sh` 出来的开发版不写 `SUFeedURL`，更新器不启动，不会被线上版本换掉；只有 `--stage` 写。
 签名从里往外逐个签（Sparkle 的 Autoupdate、Updater.app、框架、看护，最后主程序），全部同一个身份，不用 `--deep`。
 
+## 测试
+
+每个 `tests/run-*.sh` 编一个小的测试程序并运行，只用到它列出的源文件；CI（`.github/workflows/ci.yml`）在 macOS 上逐个跑一遍，结果表在 job summary 里。
+需要签名构建或解锁的图形会话的（`run-update-integration.sh`、`run-lid-report-probe.sh`）只在本机跑。
+
+| 范围 | 命令 |
+|---|---|
+| 设置、经典卷帘条、收起动画、看一眼与带到每张桌面的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
+| 看一眼的指针意图 | `bash tests/run-glance-tests.sh` |
+| 标题栏手势识别 | `bash tests/run-gesture-tests.sh` |
+| 缩略图布局与半透明 | `bash tests/run-thumbnail-tests.sh` |
+| 收起与展开的声音 | `bash tests/run-shade-sound-tests.sh` |
+| 窗口浏览（纯逻辑与离屏视图） | `bash tests/run-window-browser-tests.sh` |
+| 窗口列表缓存、AX 读取名额 | `bash tests/run-window-list-cache-tests.sh`、`bash tests/run-ax-read-gate-tests.sh` |
+| 纸面组件与系统外观 | `bash tests/run-paper-tests.sh` |
+| 快捷键默认值、Rectangle 键位 | `bash tests/run-quiet-defaults-tests.sh`、`bash tests/run-rectangle-keymap-tests.sh` |
+| 合盖效果 | `bash tests/run-duo-tests.sh`、`bash tests/run-lid-gesture-tests.sh`、`bash tests/run-lid-source-tests.sh` |
+| 更新器 | `bash tests/run-update-tests.sh`；签名构建后 `bash tests/run-update-integration.sh` |
+| 日志写入、卡顿采样 | `bash tests/run-secure-log-tests.sh`、`bash tests/run-stall-sampler-tests.sh` |
+
+改了窗口浏览的源文件时，同步更新 `tests/run-window-browser-tests.sh` 里的源文件清单。
+
 ## 调试
 
-- 设置与纸面组件的隔离验收入口：见 [设计规范 v1 落地与验证](docs/design-v1.md)。
-- 纸面组件事件与命中区域回归：`bash tests/run-paper-tests.sh`，使用离屏 AppKit 视图，不操作用户窗口。
-- 看一眼：状态机 `bash tests/run-glance-tests.sh`；真机探针先 `./build.sh --stage`，再
-  `bash tests/run-glance-probe.sh [--single | --carry [--other-space]]`（独立临时 App，解锁状态下运行）。说明见 [docs/glance.md](docs/glance.md)。
-- 标题栏手势：识别状态机 `bash tests/run-gesture-tests.sh`；真机探针 `bash tests/run-glance-probe.sh --gesture`
-  （同一个临时 App，合成事件直接交给控制器，不动指针）。说明见 [docs/gestures.md](docs/gestures.md)。
-- AppKit 回归合跑：`bash tests/run-appkit-tests.sh all`，一次编译后在四个独立进程运行设置、经典卷帘条、收起动画和看一眼生命周期测试，避免重复编译整套生产源码。各单项入口保留。
-- 设置页恢复与滚动保持：`bash tests/run-settings-tests.sh`，编译生产 AppKit 视图的独立入口；使用隔离偏好设置，不显示或操作用户窗口。
-- 经典卷帘条辅助操作与点击边界：`bash tests/run-appkit-tests.sh ClassicStripTests`；直接调用生产视图的事件处理，不注入系统事件，浅深色组件图输出到 `.build/appkit-tests/strip-shots/`。设置测试也复用这个构建入口，保留原命令作为包装。
-- 看一眼与携带窗口生命周期：`bash tests/run-appkit-tests.sh GlanceLifecycleTests`；覆盖临时显示后的用户接管、关闭重入与旧回调隔离，以及返回前取消最小化的成功／失败顺序。使用注入的 AX 操作，不改用户窗口。
-- 窗口动画生命周期：`bash tests/run-appkit-tests.sh WindowFoldEffectsTests`；用无捕获任务检查旧回调隔离、取消、回退移交、隐藏超时代数和重入，不操作真实窗口。测试扩展仅拼入临时源码快照，以访问生产类型的私有生命周期。
 - 日志写在 `~/Library/Logs/WindowShade/windowshade.log`：目录 0700、文件 0600，拒绝符号链接，5MB 轮转（旧文件为 `.1`），不写窗口标题。开发时可用 `WINDOWSHADE_LOG_PATH` 指到一个已存在、只有自己可写的目录；共享的 `/tmp` 不行。
-- 主线程卡顿：日志里搜 `main-thread stall`。
+- 主线程卡顿：日志里搜 `main-thread stall`，会附带卡顿窗口内累计占用最久的标记及占比；`未标记` / `占 0%` 说明阻塞落在所有标记之外（多半在异步回调里）。
 - 慢操作：日志里搜 `slow:` 前缀。
 - 状态机：日志里搜 `state:` 前缀；非法状态转换会记录 `state: illegal transition`。
 - 私有 API 降级：SkyLight 不可用时相关调用返回失败，日志可见 `private SLS ... unavailable`。
-- 卡顿归因：`main-thread stall` 会附带卡顿窗口内累计占用最久的标记及占比，
-  `未标记` / `占 0%` 说明阻塞落在所有标记之外（多半在异步回调里）。
-- AX / SkyLight 调用成本基准：`WindowShade.app/Contents/MacOS/WindowShade --duo-ax-bench`
-  （只读；必须用签名后的 bundle 运行，否则拿不到辅助功能权限）。
-  输出首次/重复完整枚举、原始 AX 列表、新建/复用应用句柄、ID 匹配及过滤成本。
-  加 `--ax-raw-first` 会先读原始列表，用来区分系统首次读取与生产过滤成本；
-  两种顺序应分别运行，不能把相邻热查询的中位数当作首次响应或 p95/p99。
-- 标题栏控件输入回归：签名后的隔离应用运行 `--duo-window-test --input-test`。探针启动自己的临时窗口，在标题栏放入输入框并预热裁剪缓存，确认真实 AX 命中后调用生产双击/三击处理函数，检查输入没有被吞掉或排入窗口操作。需要辅助功能权限及系统标题栏双击动作；不发送全局模拟点击，输出耗时不包含系统事件交付。测试会短暂激活临时窗口，以核对聚焦查找；结束后仅在前台仍是临时窗口时恢复原应用，不覆盖用户中途切换。
+- 系统外观（材质 / 对比度边线 / 薄纱 / 动画 / 可访问性文案）集中在 `prototype/Overlay/SystemAppearance.swift`：新增自定义表面时用 `SystemMaterialView`，在 `applySystemAppearance(capabilities:)` 里读 `SystemAppearancePolicy`，不要在调用点各自判断 `accessibilityDisplayShould*`。
+- 代理应用的主菜单：WindowShade 是 `LSUIElement`，不显示菜单栏，但文本编辑快捷键与 ⌘W 依赖主菜单的 key equivalent，菜单由 `prototype/App/StandardMenu.swift` 生成。
+- 激活应用统一用 `NSApp.activate()`（macOS 14+ 协作式），不要再用 `activate(ignoringOtherApps:)`。
+- 编译期玻璃能力探测：`build.sh` 与测试脚本都会检查当前 SDK 是否包含 `AppKit.framework/Headers/NSGlassEffectView.h`，包含时定义 `WINDOWSHADE_SDK_HAS_GLASS`；运行时再用 `#available(macOS 26.0, *)` 决定是否启用。玻璃实现在 `prototype/WindowBrowser/WindowBrowserMaterial.swift` 的 `WindowBrowserGlassBackdrop`。
 
-### 系统集成与质感批次
-
-- 这批改动的评审索引（改动位置、行为、证据、验证命令、未验证项）见
-  [系统集成与质感批次](docs/system-integration-polish.md)。
-- 两个可复现检查脚本：`scripts/check-settings-appearance.sh`（设置页浅深色自适应）、
-  `scripts/check-standard-menu.sh`（关于面板与代理应用主菜单下的 ⌘V）。
-- 其余入口：`--settings-shots`（设置页真实截图）、`--window-browser-shots`（窗口浏览
-  组件截图 + 卷帘条配色检查）、`--standard-menu-probe`（打包探针）。
-
-### 窗口浏览（Dock 悬停 / 窗口选择面板）
-
-- 纯逻辑与离屏 AppKit 回归：`bash tests/run-window-browser-tests.sh`
-  （身份/目录/动作/缩略图/布局/状态机；不请求权限、不操作用户窗口）。
-
-  - 该脚本编译窗口浏览的生产源文件并运行 690 项断言，另运行预览启动取消/乱序和元数据队列阻塞回归；每次都会打印 50/200 窗口的
-    首屏耗时，便于和 `docs/window-browser-performance.md` 的数字对照。
-  - 生产源文件清单与 `prototype/build.sh` 的自动收集保持一致；新增窗口浏览源文件
-    时同步更新该脚本（只是显式列出，不复制实现）。
-
-- 真实组件截图（隔离构建，不停止正在使用的应用）：
-
-  ```sh
-  cd prototype && WINDOWSHADE_CODESIGN_IDENTITY="Apple Development: …" ./build.sh --stage
-  cd .. && .build/duo-validation/WindowShade.app/Contents/MacOS/WindowShade \
-    --window-browser-shots .build/window-browser-shots
-  ```
-
-  输出 16 张 PNG 与 `manifest.txt`（OS/SDK/缩放率/数据来源）。截图来自生产
-  `WindowBrowserPanel` 组件，数据是内置记录与本地占位画面，不打开真实窗口。
-  `WINDOWSHADE_SHOTS_DEBUG=1` 会打印首张卡片的 frame 摘要。
-
-- 激活应用统一用 `NSApp.activate()`（macOS 14+ 协作式），不要再用将被取代的
-  `activate(ignoringOtherApps:)`；键盘面板的激活重试与聚焦逻辑在
-  `WindowBrowserPanel.presentKeyboardPanel()`。
-- 设置窗口页面截图（离屏、不需要录屏权限）：
-  `./build.sh --stage` 后运行
-  `.build/duo-validation/WindowShade.app/Contents/MacOS/WindowShade --settings-shots .build/settings-shots`
-  输出每页的浅色/深色 PNG 与 `manifest.txt`；侧栏由系统材质绘制、效果页的 Metal 预览
-  画布也不会出现在离屏图里。窗口可自由缩放，`WINDOWSHADE_SETTINGS_SHOTS_SIZE=1115x680`
-  可以把同一批页面渲染成别的尺寸（内容列左右留白是否对称只能在非默认宽度上看出来）。
-  每次渲染都会打印一行内容列居中自检（`内容列居中偏移 0.0pt PASS`）：收起侧栏后详情区变成
-  整窗宽，内容列必须仍然居中，贴左会在右半边留下大片空白。
-  `WINDOWSHADE_SETTINGS_SHOTS_SIDEBAR=collapsed|expanded` 会在拍卷帘页前切换侧栏并核对窗口宽度
-  没变（`侧栏展开时窗口宽 900pt（切换前 900pt）PASS`）——设置窗口的最小尺寸只能用
-  `window.contentMinSize` 表达，给 split view 挂 required 宽高约束会让 AppKit 在展开侧栏时把整扇
-  窗口撑大一个侧栏宽度（实测 900 → 1115）。
-- 设置页外观自适应回归：`bash scripts/check-settings-appearance.sh`
-  （逐页比较浅色/深色平均亮度，防止静态颜色被冻结的缺陷复发）。
-- 系统外观（材质 / 对比度边线 / 薄纱 / 动画 / 可访问性文案）集中在
-  `prototype/Overlay/SystemAppearance.swift`：新增自定义表面时用 `SystemMaterialView`
-  并在 `applySystemAppearance(capabilities:)` 里读取 `SystemAppearancePolicy`，
-  不要在调用点各自判断 `accessibilityDisplayShould*`。`tests/run-paper-tests.sh`
-  覆盖策略本身与各表面的接线（材质、薄纱、边线、VoiceOver 文案）。
-- 代理应用的主菜单：WindowShade 是 `LSUIElement`，不显示菜单栏，但文本编辑快捷键与
-  ⌘W 依赖主菜单的 key equivalent。菜单由 `prototype/App/StandardMenu.swift` 生成，
-  在 `applicationDidFinishLaunching` 里安装；改动菜单后跑
-  `bash scripts/check-standard-menu.sh` 复核关于面板、无主菜单不粘贴、有主菜单可粘贴
-  （打包探针会临时激活应用约 1 秒）。
-- 编译期玻璃能力探测：`build.sh` 与测试脚本都会检查当前 SDK 是否包含
-  `AppKit.framework/Headers/NSGlassEffectView.h`，包含时定义
-  `WINDOWSHADE_SDK_HAS_GLASS`。旧 SDK 构建时玻璃分支不参与编译，运行时再用
-  `#available(macOS 26.0, *)` 决定是否启用；玻璃实现单独放在
-  `prototype/WindowBrowser/WindowBrowserMaterial.swift` 的
-  `WindowBrowserGlassBackdrop` 里。
-
-- 性能对照脚本（同机、同数据、基线 worktree）：
-
-  ```sh
-  git worktree add /tmp/ws-baseline 05e5472370e199e92b147f1e0af72175c6429288
-  /tmp/run-perf.sh    # 内容见 .build/window-browser-perf/ 的说明
-  ```
-- 隔离 fixture（不进入正式 AppDelegate，按钮只改 fake 状态）：
-
-  ```sh
-  cd prototype && WINDOWSHADE_CODESIGN_IDENTITY="<身份>" bash build.sh --stage
-  APP=../.build/duo-validation/WindowShade.app/Contents/MacOS/WindowShade
-  WINDOWSHADE_BROWSER_FIXTURE=many WINDOWSHADE_BROWSER_FIXTURE_AUTOEXIT=3 "$APP" --window-browser-fixture
-  ```
-
-  `WINDOWSHADE_BROWSER_FIXTURE` 可选 `mixed / many / empty / long / nopermission`，
-  `WINDOWSHADE_BROWSER_FIXTURE_SIZE=small` 用小屏尺寸，
-  `WINDOWSHADE_BROWSER_FIXTURE_APPEARANCE=dark|light` 强制浅/深色外观，
-  `WINDOWSHADE_BROWSER_FIXTURE_STYLE=list|grid` 会在自动退出前像用户一样点一次
-  分段控件（用来验证“点了就换布局”，输出里的 `renderedStyle/renderedRows/renderedCards`
-  是真实渲染结果）。
-- 只读真机探针（不移动用户指针、不捕获用户窗口；详见
-  [窗口浏览进度](docs/window-browser-progress.md) 的命令清单）：
-  `--window-browser-dock-probe`、`--window-browser-hover-probe`、
-  `--window-browser-catalog-probe`、`--window-browser-capture-probe`
-  （只捕获本应用自己的探针窗口）、`--window-browser-thumbnail-probe`、
-  `--window-browser-stream-probe`、`--window-browser-panel-probe`、
-  `--window-browser-ui-probe`、`--window-browser-idle-probe`
-  （临时关闭 Dock 开关后测空闲查询数，结束时恢复设置）、
-  `--window-browser-identity-probe`（真实 AX 身份解析：包含同名同位置的两个原生窗口、
-  歧义拒绝、关闭后不替换目标与协调器拒绝分支；不修改用户窗口）。
-  例外：`--window-browser-live-app-probe` 会对**另一个正在运行的 WindowShade**
-  走一遍真实状态栏菜单项并打开一次面板（随后按 Esc 关闭）。它只读用户窗口、不改设置，
-  但会短暂占用菜单栏与屏幕，请在不需要用机的时机运行。
-  `--window-browser-hover-live-probe` 会把系统指针移到 Dock 图标上约 1.2 秒再放回，
-  用于验证真实悬停通知；只悬停、不点击、不激活，运行前请确认当前没有正在进行中的
-  拖拽或需要保持指针位置的操作。
-
-用户向说明（入口、权限、兼容限制）见 [docs/window-browser.md](docs/window-browser.md)。
-
-需要外部/更高智能模型复检时，用 [复检交接与提示词](docs/review-handoff.md)：里面是
-可直接粘贴的评审提示词、按任务书逐条列出的需求与状态、已知缺口、冲突消解记录和复检命令。
-
-动手优化这一带之前先读 [docs/performance.md](docs/performance.md)：那里记了
-实测的调用成本量级、已走通的手法、以及已经证伪的方向（比如用 SkyLight
-绕开目标 App 在 SIP 开启时不可行），可以省掉重新走一遍的时间。
+用户向说明见 [docs/window-browser.md](docs/window-browser.md)、[docs/glance.md](docs/glance.md)、[docs/gestures.md](docs/gestures.md)。
+动手优化性能之前先读 [docs/performance.md](docs/performance.md)：那里记了实测的调用成本、已走通的手法和已经证伪的方向。
 
 ## 发布前测试清单
 
