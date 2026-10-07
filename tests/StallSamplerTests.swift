@@ -11,7 +11,12 @@ struct StallSamplerTests {
     }
 
     static func main() {
-        let path = NSTemporaryDirectory() + "windowshade-stall-\(UUID().uuidString).log"
+        // 日志只写进专用、0700、路径上没有符号链接的目录；/var 是指向 /private/var 的链接，先解析掉。
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath()
+            .appendingPathComponent("windowshade-stall-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                 attributes: [.posixPermissions: 0o700])
+        let path = directory.appendingPathComponent("windowshade.log").path
         setenv("WINDOWSHADE_LOG_PATH", path, 1)
 
         MainThreadSampler.shared.start()

@@ -4194,9 +4194,11 @@ enum WindowBrowserTests {
         // 列表选中行与系统列表一致：强调色实心圆角底，而不是描边环。
         let selectedRow = WindowBrowserListRowView(frame: NSRect(x: 0, y: 0, width: 400, height: 52))
         configure(row: selectedRow, record: records[0], selected: true, busy: false)
-        let expectedFill = SystemAppearancePolicy.cgColor(NSColor.selectedContentBackgroundColor,
-                                                          for: selectedRow)
-        expect(selectedRow.layer?.backgroundColor == expectedFill
+        let filledLikeSystem = MainActor.assumeIsolated {
+            selectedRow.layer?.backgroundColor
+                == SystemAppearancePolicy.cgColor(NSColor.selectedContentBackgroundColor, for: selectedRow)
+        }
+        expect(filledLikeSystem
                 && (selectedRow.layer?.borderWidth ?? 1) < 0.5
                     || SystemAppearanceCapabilities.current.increaseContrast,
                "a selected list row uses the native accent-filled selection")
