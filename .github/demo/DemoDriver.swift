@@ -67,6 +67,34 @@ func place(_ window: AXUIElement, origin: CGPoint, size: CGSize) {
     }
 }
 
+/// 用 App 收起时同一个接口、同样的选项截文本编辑的窗口，存成 PNG，对照卷帘条上的画面。
+func saveWindowCapture(next video: URL) {
+    typealias CreateImage = @convention(c) (CGRect, CGWindowListOption, CGWindowID,
+                                            CGWindowImageOption) -> Unmanaged<CGImage>?
+    guard let handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY),
+          let symbol = dlsym(handle, "CGWindowListCreateImage") else { log("no CGWindowListCreateImage"); return }
+    let createImage = unsafeBitCast(symbol, to: CreateImage.self)
+    let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+    guard let info = list.first(where: { ($0[kCGWindowOwnerName as String] as? String) == "TextEdit"
+                                          && ($0[kCGWindowLayer as String] as? Int) == 0 }),
+          let number = info[kCGWindowNumber as String] as? NSNumber else { log("no TextEdit window id"); return }
+    log("TextEdit window \(number) bounds=\(info[kCGWindowBounds as String] ?? "-") "
+        + "screen scale=\(NSScreen.main?.backingScaleFactor ?? 0)")
+    let variants: [(String, CGWindowImageOption)] = [
+        ("framing-ignored", [.boundsIgnoreFraming, .bestResolution]),
+        ("with-framing", [.bestResolution]),
+    ]
+    for (name, options) in variants {
+        guard let image = createImage(.null, .optionIncludingWindow, number.uint32Value, options)?
+            .takeRetainedValue() else { log("capture \(name): nil"); continue }
+        log("capture \(name): \(image.width)x\(image.height)")
+        let url = video.deletingLastPathComponent().appendingPathComponent("capture-\(name).png")
+        if let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+            try? data.write(to: url)
+        }
+    }
+}
+
 final class Recorder: NSObject, SCRecordingOutputDelegate, SCStreamDelegate {
     private var stream: SCStream?
     private var finished: CheckedContinuation<Void, Never>?
@@ -129,6 +157,7 @@ struct DemoDriver {
         let size = CGSize(width: 700, height: 460)
         place(window, origin: origin, size: size)
         await pause(1)
+        saveWindowCapture(next: video)
 
         let recorder = Recorder()
         do { try await recorder.start(to: video) } catch { log("cannot record: \(error)"); exit(3) }
