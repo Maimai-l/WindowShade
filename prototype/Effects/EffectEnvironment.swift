@@ -39,8 +39,6 @@ enum EffectEnvironment {
     }
 
     static var lockState: LockState { read(\.lock) }
-    static var asleep: Bool { read(\.asleep) }
-    static var displayAwake: Bool { read(\.displayAwake) }
     /// 每次重读 +1：调用方拿它判断“我读到的是不是新一轮状态”。
     static var generation: UInt64 { read(\.generation) }
     /// 同步查询累计次数（性能记录读它）。

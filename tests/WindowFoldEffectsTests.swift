@@ -10,15 +10,11 @@ extension WindowFoldEffects {
     let id: CGWindowID = 4_000_000
     var completions: [Bool] = []
     var lastToken: UUID?
-    // 第九份的完成通知在投递前会重查锁态与具体事务；测试把锁态固定成未锁屏，
-    // 并在需要“成功”时装一份真实 folded 状态，走的就是生产里的结算门槛。
-    let savedLockState = AuthorizationService.shared.lockState
-    AuthorizationService.shared.lockState = { .unlocked }
-    defer { AuthorizationService.shared.lockState = savedLockState }
+    // 完成通知在投递前会重查具体事务；需要“成功”时装一份真实 folded 状态，走的就是生产里的结算门槛。
     func wait() {
       lastToken = owner.registerFoldWaiter(id: id) { completions.append($0) }
     }
-    // 第九份起：完成通知先整批取出、再排队投递，而且不再有「只按窗口 ID 报成功」的路径。
+    // 完成通知先整批取出、再排队投递，没有「只按窗口 ID 报成功」的路径。
     // 测试照生产顺序先把 token 绑到一个事务、再按该事务结算；投递落到下一轮主队列，用 flush 对账。
     func installLiveState() -> ShadeState {
       let state = ShadeState(element: element,

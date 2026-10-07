@@ -992,11 +992,11 @@ enum WindowBrowserTests {
         let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
         let visible = CGRect(x: 0, y: 80, width: 1600, height: 895)  // 底部 Dock、顶上菜单栏
         let panel = CGRect(x: 600, y: 90, width: 400, height: 260)
-        func zone(_ x: CGFloat, _ y: CGFloat, edge: Bool = false, visibleFrame: CGRect? = nil,
+        func zone(_ x: CGFloat, _ y: CGFloat, visibleFrame: CGRect? = nil,
                   panelFrame: CGRect? = nil) -> WindowBrowserDropZone? {
             WindowBrowserCardDragPolicy.zone(pointer: CGPoint(x: x, y: y), screenFrame: screen,
                                              visibleFrame: visibleFrame ?? visible,
-                                             panelFrame: panelFrame ?? panel, slideOverEdgeHit: edge)
+                                             panelFrame: panelFrame ?? panel)
         }
         expect(zone(20, 600) == .leftHalf, "against the left edge drops onto the left half")
         expect(zone(1585, 600) == .rightHalf, "against the right edge drops onto the right half")
@@ -1007,8 +1007,6 @@ enum WindowBrowserTests {
         expect(zone(800, 500) == nil, "the middle of the screen is no target, so letting go cancels")
         expect(zone(800, 200) == nil, "back on the panel is a cancel")
         expect(zone(20, 40) == nil, "over the Dock is a cancel, even at the left edge")
-        expect(zone(10, 500, edge: true) == .slideOver,
-               "the slide-over strip at the edge wins over the left half")
         // 审查发现的问题：Dock 在左侧时面板贴着可用区域左边，拖出面板上下方松手原来会落进“左半屏”。
         let leftDockVisible = CGRect(x: 80, y: 0, width: 1520, height: 975)
         let leftDockPanel = CGRect(x: 88, y: 380, width: 400, height: 260)
@@ -1028,8 +1026,7 @@ enum WindowBrowserTests {
         expect(zone(20, 600, panelFrame: leftIconPanel) == .leftHalf,
                "a leftmost Dock icon: far above the panel against the edge is the left half")
         expect(WindowBrowserDropZone.leftHalf.placementAction == .leftHalf
-               && WindowBrowserDropZone.fill.placementAction == .fill
-               && WindowBrowserDropZone.slideOver.placementAction == nil,
+               && WindowBrowserDropZone.fill.placementAction == .fill,
                "halves and fill reuse the existing placement actions")
         let begin = WindowBrowserCardDragPolicy.shouldBegin
         expect(!begin(CGPoint(x: 700, y: 355), CGPoint(x: 704, y: 365), panel),
