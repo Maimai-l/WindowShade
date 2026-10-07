@@ -1,6 +1,0 @@
-{
-  "runtime": "Python cryptography; not Swift",
-  "testsRun": 18,
-  "failures": 0,
-  "errors": 0
-}

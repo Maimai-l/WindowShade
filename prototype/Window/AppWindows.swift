@@ -88,8 +88,7 @@ func concurrentAppWindows(_ pids: [pid_t]) -> [[AXUIElement]] {
     guard pids.count > 1 else { return pids.map { appWindows(pid: $0) } }
     // 同一套 AX 名额：同时最多 4 个 App，每个 pid 只有一次在途读取。
     // 不再用 concurrentPerform 把全部 App 一起发出去、干等最慢的那个占满名额。
-    var discovered = [[AXUIElement]](repeating: [], count: pids.count)
-    let lock = NSLock()
+    let discovered = LockedSlots<[AXUIElement]>(count: pids.count, initial: [])
     let slots = DispatchSemaphore(value: AXReadGate<pid_t, Int>.defaultBudget)
     let group = DispatchGroup()
     let queue = DispatchQueue(label: "windowshade.ax.enum", attributes: .concurrent)
@@ -98,17 +97,13 @@ func concurrentAppWindows(_ pids: [pid_t]) -> [[AXUIElement]] {
         slots.wait()
         queue.async {
             let windows = appWindows(pid: pid)
-            if !windows.isEmpty {
-                lock.lock()
-                discovered[index] = windows
-                lock.unlock()
-            }
+            if !windows.isEmpty { discovered[index] = windows }
             slots.signal()
             group.leave()
         }
     }
     group.wait()
-    return discovered
+    return discovered.values
 }
 
 // 并发预备快速预览图。CGWindowListCreateImage 每个窗口约 60ms，串行折叠时它是
@@ -118,14 +113,12 @@ func concurrentQuickPreviews(_ ids: [CGWindowID]) -> [CGWindowID: CGImage] {
     guard ids.count > 1 else {
         return ids.reduce(into: [:]) { $0[$1] = quickWindowPreviewCGImage(id: $1) }
     }
-    var images = [CGImage?](repeating: nil, count: ids.count)
-    let lock = NSLock()
+    let slots = LockedSlots<CGImage?>(count: ids.count, initial: nil)
     DispatchQueue.concurrentPerform(iterations: ids.count) { index in
         guard let image = quickWindowPreviewCGImage(id: ids[index]) else { return }
-        lock.lock()
-        images[index] = image
-        lock.unlock()
+        slots[index] = image
     }
+    let images = slots.values
     var result: [CGWindowID: CGImage] = [:]
     for (index, id) in ids.enumerated() where images[index] != nil {
         result[id] = images[index]

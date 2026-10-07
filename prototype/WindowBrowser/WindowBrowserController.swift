@@ -2545,7 +2545,7 @@ final class WindowBrowserController: NSObject {
         logPerformanceSummary(reason: "panel-close-\(reason)")
     }
 
-    /// §17.1：把取消率、过期结果丢弃率、物理截图数量与 AX 排队情况写进日志，
+    /// 把取消率、过期结果丢弃率、物理截图数量与 Dock 检测情况写进日志，
     /// 便于用真实会话的数据核对预算。
     private func logPerformanceSummary(reason: String) {
         let thumbnails = thumbnails.diagnostics()
@@ -2553,11 +2553,9 @@ final class WindowBrowserController: NSObject {
             ? Double(thumbnails.queuedCancelled) / Double(thumbnails.started) : 0
         let staleShare = thumbnails.started > 0
             ? Double(thumbnails.staleResults) / Double(thumbnails.started) : 0
-        let ax = axDiagnostics
         wlog(String(format: "perf-summary: reason=%@ thumbnails started=%d delivered=%d "
                     + "queuedCancelled=%d(%.0f%%) stale=%d(%.0f%%) duplicates=%d stalls=%d "
                     + "running=%d queued=%d cached=%d/%.1fMiB "
-                    + "ax discoveryRequests=%d axCalls=%d "
                     + "detections=%d droppedStale=%d pendingDetection=%d",
                     reason,
                     thumbnails.started, thumbnails.delivered,
@@ -2566,7 +2564,6 @@ final class WindowBrowserController: NSObject {
                     thumbnails.duplicateCompletions, thumbnails.stalledBatches,
                     thumbnails.running, thumbnails.queued, thumbnails.cachedCount,
                     Double(thumbnails.cachedBytes) / (1024 * 1024),
-                    ax.discoveryRequests, ax.axCalls,
                     dockObserver?.detectionCount ?? 0,
                     dockObserver?.droppedStaleResultCount ?? 0,
                     dockObserver?.pendingDetectionCount ?? 0))
