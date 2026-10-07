@@ -12,8 +12,11 @@ struct StallSamplerTests {
 
     static func main() {
         // 日志只写进专用、0700、路径上没有符号链接的目录；/var 是指向 /private/var 的链接，先解析掉。
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath()
+        // 不能用 resolvingSymlinksInPath：它会把 /private/var 又改回 /var。
+        guard let real = realpath(NSTemporaryDirectory(), nil) else { print("FAIL cannot resolve the temp dir"); exit(1) }
+        let directory = URL(fileURLWithPath: String(cString: real), isDirectory: true)
             .appendingPathComponent("windowshade-stall-\(UUID().uuidString)", isDirectory: true)
+        free(real)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                  attributes: [.posixPermissions: 0o700])
         let path = directory.appendingPathComponent("windowshade.log").path
