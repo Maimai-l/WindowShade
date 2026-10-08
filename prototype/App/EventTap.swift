@@ -310,9 +310,33 @@ extension AppDelegate {
             wlog("titlebar-triple-click: AX zoom source=\(source) id=\(id) ok=\(ok)")
             return ok
         case .fullScreen:
-            wlog("titlebar-triple-click: exact zoom fallback required source=\(source) id=\(id) reason=fullscreen-capability")
-            return false
+            // 绿色按钮是全屏：按它会进全屏，不是缩放。用辅助功能直接设位置和大小，做系统缩放的事
+            // （铺满屏幕可用区域；再缩放一次放回原来的位置和大小）。不合成双击或 Option 点击（R6）。
+            return zoomWithinVisibleFrame(win, id: id, source: source)
         }
+    }
+
+    /// 缩放到所在屏幕的可用区域；已经是这个大小、并且记着原来的位置时，放回原处。
+    private func zoomWithinVisibleFrame(_ win: AXUIElement, id: CGWindowID, source: String) -> Bool {
+        guard let pos = axPosition(win), let size = axSize(win) else { return false }
+        let current = CGRect(origin: pos, size: size)
+        let visibleCocoa = visibleFrame(for: cocoaFrame(fromAXPosition: pos, size: size))
+        let zoomed = CGRect(origin: axPosition(fromCocoaFrame: visibleCocoa), size: visibleCocoa.size)
+        let isZoomed = abs(current.minX - zoomed.minX) <= 2 && abs(current.minY - zoomed.minY) <= 2
+            && abs(current.width - zoomed.width) <= 2 && abs(current.height - zoomed.height) <= 2
+        let target: CGRect
+        if isZoomed, let previous = zoomRestoreFrames[id] {
+            target = previous
+            zoomRestoreFrames.removeValue(forKey: id)
+        } else {
+            zoomRestoreFrames[id] = current
+            target = zoomed
+        }
+        let sizeOK = setAXSize(win, target.size) == .success
+        let posOK = setAXPositionReturningError(win, target.origin) == .success
+        wlog("titlebar-triple-click: exact zoom source=\(source) id=\(id) to=(\(Int(target.minX)),\(Int(target.minY)) "
+             + "\(Int(target.width))x\(Int(target.height))) ok=(size:\(sizeOK),pos:\(posOK))")
+        return sizeOK && posOK
     }
     func performSystemTitlebarDoubleClickAction(on win: AXUIElement, id: CGWindowID,
                                                         originalClickPoint: CGPoint,
@@ -327,7 +351,7 @@ extension AppDelegate {
             if performAXZoomForTitlebarTripleClick(on: win, id: id, source: source) {
                 break
             }
-            // 绿色按钮是全屏的窗口没有能用辅助功能做的“缩放”：不做，不合成双击。
+            // 缩放按钮和直接设位置大小都没成：不做，不合成双击。
             wlog("titlebar-triple-click: zoom unavailable source=\(source) id=\(id)")
         case .minimize:
             let err = setAXMinimizedReturningError(win, true)

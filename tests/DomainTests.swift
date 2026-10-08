@@ -67,6 +67,8 @@ struct DomainTests {
         t.expect(decide(FoldFacts(visibleOnActiveSpace: false)) == .reject("invisible/off-space window"), "不在当前桌面的窗口不收起")
         t.expect(decide(FoldFacts(fullScreen: true)) == .reject("fullscreen window"), "全屏窗口不收起")
         t.expect(decide(FoldFacts(minimized: true)) == .reject("minimized window"), "已最小化的窗口不收起")
+        // 缺陷回归（CI 场景 A10）：挂着“是否保存”这类对话框的窗口收起后，对话框跟着被移开，用户看不到要回答的问题。
+        t.expect(decide(FoldFacts(hasSheet: true)) == .reject("window has a sheet"), "挂着对话框的窗口不收起")
         if case .reject = decide(FoldFacts(adobeKind: .floatingPanel)) {
             t.expect(true, "Adobe 浮动面板不收起")
         } else { t.expect(false, "Adobe 浮动面板不收起") }

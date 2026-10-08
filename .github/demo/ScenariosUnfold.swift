@@ -39,11 +39,11 @@ func dockItem(_ name: String) -> AXUIElement? {
 }
 
 /// 在 AX 树里找第一个满足条件的元素。
-func findElement(_ root: AXUIElement, depth: Int = 0, _ match: (AXUIElement) -> Bool) -> AXUIElement? {
-    guard depth < 8 else { return nil }
+func findElement(_ root: AXUIElement, depth: Int = 0, maxDepth: Int = 8, _ match: (AXUIElement) -> Bool) -> AXUIElement? {
+    guard depth < maxDepth else { return nil }
     for child in axChildren(root) {
         if match(child) { return child }
-        if let found = findElement(child, depth: depth + 1, match) { return found }
+        if let found = findElement(child, depth: depth + 1, maxDepth: maxDepth, match) { return found }
     }
     return nil
 }

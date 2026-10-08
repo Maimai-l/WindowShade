@@ -245,7 +245,7 @@ final class Harness {
     func logLines() -> [String] { log.lines() }
 
     /// 场景失败时记下当时的样子：截图、当前应用程序、屏幕上的窗口、这段时间 WindowShade 的日志。
-    func diagnose() {
+    func diagnose(_ probe: Probe? = nil) {
         guard result.notes["diagnosis"] == nil else { return }
         let shot = "\(Suite.outputDir)/fail-\(result.id).png"
         run("/usr/sbin/screencapture", ["-x", shot])
@@ -266,6 +266,9 @@ final class Harness {
             "frontmost": NSWorkspace.shared.frontmostApplication?.localizedName ?? "?",
             "windows": Array(windows),
             "log": Array(log.lines().suffix(40)),
+            "probeEvents": (probe?.events().suffix(20) ?? []).map { event in
+                event.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " ")
+            },
         ] as [String: Any]
     }
 
@@ -799,7 +802,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
                               tagBase: Int64(0x5e00_0000 + index * 0x1000))
         if let probe = await Probe.launch(probeApp, name: scenario.id, options: scenario.options) {
             await scenario.run(probe, harness)
-            if !harness.result.violations.isEmpty { harness.diagnose() }
+            if !harness.result.violations.isEmpty { harness.diagnose(probe) }
             if probe.isRunning { probe.forceQuit() }
             await pause(1.0)
         } else {

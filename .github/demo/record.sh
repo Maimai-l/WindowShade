@@ -81,6 +81,16 @@ print("approved", sorted(approvals))
 PY
 killall replayd 2>/dev/null || true
 
+echo "==> prepare the desktop"
+# 探测点击落在桌面上：关掉“点按墙纸显示桌面”，否则所有窗口被移开，还会弹出说明窗口挡住场景。
+defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
+killall WindowManager 2>/dev/null || true
+# ProbeApp 每个场景结束时被直接结束，P02 让它崩溃：不弹“意外退出”和“是否重新打开窗口”的对话框。
+defaults write com.apple.CrashReporter DialogType none
+defaults write com.windowshade.probe ApplePersistenceIgnoreState -bool true
+rm -rf "$HOME/Library/Saved Application State/com.windowshade.probe.savedState"
+killall Tips 2>/dev/null || true
+
 echo "==> launch"
 defaults write com.windowshade.prototype ShadeOnboardingShown -bool true
 # CI 虚拟机上窗口的第一次整窗截图要 0.6–1.7 秒，真实的 Mac 上只要几十毫秒：启动时先截一次最前面的窗口，

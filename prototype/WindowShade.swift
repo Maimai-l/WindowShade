@@ -230,6 +230,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var ownsGlobalInput = true
     var pendingTitlebarTripleClick: PendingTitlebarTripleClick?
     var restorePinTokens: [CGWindowID: UUID] = [:]
+    /// 用辅助功能“缩放”过的窗口原来的位置和大小（辅助功能坐标）：再缩放一次放回去。
+    var zoomRestoreFrames: [CGWindowID: CGRect] = [:]
     var soundEnabled: Bool = {
         if UserDefaults.standard.object(forKey: shadeSoundEnabledDefaultsKey) == nil { return true }
         return UserDefaults.standard.bool(forKey: shadeSoundEnabledDefaultsKey)
@@ -265,6 +267,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var glance = MainActor.assumeIsolated { GlanceController(owner: self) }
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // 只留一个 WindowShade（docs/test-catalog.md L07）：两个同时运行，会各自拦截双击、各自收起同一扇窗。
+        // 在写下任何设置、找回任何窗口之前判断。更新后重新启动时旧的那个可能还在退出，等它最多 2 秒。
+        if anotherWindowShadeKeepsRunning() {
+            wlog("launch: another WindowShade is running; this one quits pid=\(getpid())")
+            exit(0)
+        }
         // 新装还是升级：赶在这一次启动写下任何设置之前认一次、存下来（声音迁移每次启动都写，清理收起记录会删键；
         // 见 App/GlobalShortcuts.swift 的 InstallHistory）。
         _ = InstallHistory.settled(in: .standard)
@@ -788,4 +796,17 @@ extension AppDelegate {
         }
     }
 
+}
+
+/// 除了自己，还有别的 WindowShade 进程在运行，并且 2 秒内没有退出。
+private func anotherWindowShadeKeepsRunning() -> Bool {
+    guard let bundleID = Bundle.main.bundleIdentifier else { return false }
+    let selfPID = ProcessInfo.processInfo.processIdentifier
+    for _ in 0..<20 {
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .filter { $0.processIdentifier != selfPID && !$0.isTerminated }
+        if others.isEmpty { return false }
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+    return true
 }

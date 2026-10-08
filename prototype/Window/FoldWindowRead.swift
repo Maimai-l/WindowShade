@@ -14,6 +14,8 @@ struct FoldWindowReadout {
     let profile: WindowChromeProfile
     let fullScreen: Bool
     let minimized: Bool
+    /// 窗口上挂着对话框（sheet）。
+    let hasSheet: Bool
     let quickLookReopenURL: URL?
     /// 该应用程序在当前屏幕上可见、未最小化的窗口数：只有 1 扇时才可能隐藏整个应用程序。
     let visibleWindowCount: Int
@@ -37,6 +39,7 @@ func readWindowForFold(_ win: AXUIElement, id: CGWindowID, pid: pid_t, layout: S
     return FoldWindowReadout(pos: pos, size: size, role: role, isWindow: isWindow, title: title, profile: profile,
                              fullScreen: axBoolAttribute(win, "AXFullScreen"),
                              minimized: axBoolAttribute(win, kAXMinimizedAttribute as String),
+                             hasSheet: axChildren(win).contains { axRole($0) == kAXSheetRole as String },
                              quickLookReopenURL: profile.isQuickLook ? quickLookReopenURL(for: win) : nil,
                              visibleWindowCount: WindowControlSystem().windowCounts(pid: pid, layout: layout).visible)
 }

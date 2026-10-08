@@ -304,8 +304,14 @@ let foldScenarios: [Scenario] = [
         place(window, origin: probeOrigin, size: probeSize)
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
-        await pressShortcut(toggleKey)
-        await pressShortcut(toggleKey)
+        await probe.bringToFront()
+        // 两次按下之间不停顿：第二次一定落在第一次收起的过程中（收起本身约 70 毫秒）。
+        // 停顿 0.15 秒再按时，第一次已经收完、焦点已经交给别的应用程序，第二次收起的是那个应用程序的窗口，
+        // 那是快捷键本来的意思，不是这里要测的情形（2026-10-08 CI：第二次收起了访达）。
+        for _ in 0..<2 {
+            post(.keyDown, key: toggleKey, flags: controlOptionCommand.flags)
+            post(.keyUp, key: toggleKey, flags: controlOptionCommand.flags)
+        }
         await pause(3)
         let strips = stripFrames().count
         h.expect(strips <= 1, "A23: \(strips) strips")

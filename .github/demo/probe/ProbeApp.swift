@@ -38,6 +38,8 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     private var created = 0
 
     static func main() {
+        // 每个场景结束时直接结束 ProbeApp：不保存窗口状态，下次启动不弹“是否重新打开窗口”（它会挡住启动和标题栏）。
+        UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": false, "ApplePersistenceIgnoreState": true])
         let app = NSApplication.shared
         let delegate = ProbeApp()
         app.delegate = delegate
@@ -117,6 +119,7 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         let window = ProbeWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
         window.title = "Probe \(index)"
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
         window.delegate = self
         window.collectionBehavior = [.fullScreenPrimary]
         let text = NSTextView(frame: window.contentLayoutRect)

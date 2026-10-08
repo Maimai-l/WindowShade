@@ -38,9 +38,10 @@ func windowShadeWindow(_ title: String) -> AXUIElement? {
     return (value as? [AXUIElement] ?? []).first { axString($0, kAXTitleAttribute as String).contains(title) }
 }
 
-/// 某个元素里标题或说明含 name 的控件。
+/// 某个元素里标题或说明含 name 的控件。SwiftUI 表单的层次很深（窗口、标签页、托管视图、滚动区域、分组……），
+/// 搜到 30 层。
 func control(_ root: AXUIElement, _ name: String, role: String? = nil) -> AXUIElement? {
-    findElement(root) { element in
+    findElement(root, maxDepth: 30) { element in
         let texts = [kAXTitleAttribute, kAXDescriptionAttribute].map { axString(element, $0 as String) }
         return texts.contains { $0.contains(name) } && (role == nil || axString(element, kAXRoleAttribute as String) == role)
     }

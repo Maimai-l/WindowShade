@@ -29,6 +29,8 @@ struct FoldFacts: Sendable {
     var visibleOnActiveSpace = true
     var fullScreen = false
     var minimized = false
+    /// 窗口上挂着对话框（sheet），例如“是否保存”。
+    var hasSheet = false
     var isQuickLook = false
     var adobeKind = AdobeChromeKind.none
     var adobeCanShade = true
@@ -55,6 +57,7 @@ enum FoldPlanner {
         guard facts.visibleOnActiveSpace else { return .reject("invisible/off-space window") }
         guard !facts.fullScreen else { return .reject("fullscreen window") }
         guard !facts.minimized else { return .reject("minimized window") }
+        guard !facts.hasSheet else { return .reject("window has a sheet") }
         guard facts.adobeKind != .floatingPanel, facts.adobeCanShade else {
             return .reject("adobe panel kind=\(facts.adobeKind.rawValue) reason=\(facts.adobeReason)")
         }

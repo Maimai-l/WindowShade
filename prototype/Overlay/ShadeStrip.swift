@@ -24,6 +24,17 @@ final class OverlayWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
+    // 卷帘条上的 ⌘N 等要卷帘条是当前窗口才收得到：何时成为、何时不再是当前窗口记进日志，便于对照（场景 C10 至 C14）。
+    override func becomeKey() {
+        super.becomeKey()
+        wlog("strip: became key window=\(windowNumber) appActive=\(NSApp.isActive)")
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        wlog("strip: resigned key window=\(windowNumber)")
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         StripKeyForwarding.handle(event, in: self) || super.performKeyEquivalent(with: event)
     }
