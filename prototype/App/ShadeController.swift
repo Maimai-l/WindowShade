@@ -530,6 +530,12 @@ extension AppDelegate {
                 }
             }
             let shouldParkFocus = preparedImage == nil && !profile.isQuickLook
+            // 诊断（只在 CI 录像时打开）：转移焦点之前先截一次，和转移之后的那次比耗时，
+            // 判断第一次收起截图慢是不是因为窗口在重绘成非活跃状态（docs/testing.md 第 5 节）。
+            if shouldParkFocus, UserDefaults.standard.bool(forKey: "WindowShadeDiagnoseCapture") {
+                let before = await timedFastWindowCapture(id)
+                wlog("    fold-capture diagnose id=\(id) before-park=\(before.label)")
+            }
             if shouldParkFocus {
                 parkFocusForInactiveCapture()
                 try? await Task.sleep(nanoseconds: 35_000_000)       // 等 WindowServer 把整条 toolbar 重绘成非活跃态

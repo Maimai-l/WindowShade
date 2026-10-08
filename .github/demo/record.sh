@@ -64,6 +64,8 @@ killall replayd 2>/dev/null || true
 
 echo "==> launch"
 defaults write com.windowshade.prototype ShadeOnboardingShown -bool true
+# 截图耗时诊断：转移焦点之前先截一次并记下耗时（App/ShadeController.swift）。
+defaults write com.windowshade.prototype WindowShadeDiagnoseCapture -bool true
 printf '窗口卷帘的来历\n\nMac OS 8 时代，双击标题栏，窗口就卷成一条只剩标题栏的细条，留在原地。\n\nWindowShade 把这件事带回了 macOS。\n' > "$OUT/参考资料.txt"
 open -a TextEdit "$OUT/参考资料.txt"
 sleep 3
