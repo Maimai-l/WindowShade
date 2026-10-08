@@ -1,0 +1,391 @@
+// 系统事件、WindowShade 的生命周期、被收起的应用程序、故障注入、设置窗口、权限
+// （docs/test-catalog.md 第 6 至 10 节）。权限场景（group 不是 main）只在 record.sh 收回权限后单独运行。
+
+import AppKit
+import ApplicationServices
+
+/// 浅色、深色切换：与 dark-mode 命令行工具相同的系统调用（只在测试驱动程序里用）。
+func setDarkMode(_ dark: Bool) -> Bool {
+    guard let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+          let symbol = dlsym(handle, "SLSSetAppearanceThemeLegacy") else { return false }
+    typealias Setter = @convention(c) (Bool) -> Void
+    unsafeBitCast(symbol, to: Setter.self)(dark)
+    return true
+}
+
+func windowShadeInstances() -> Int {
+    NSRunningApplication.runningApplications(withBundleIdentifier: windowShadeBundleID).count
+}
+
+func readDefault(_ key: String) -> String {
+    let process = Process()
+    let pipe = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+    process.arguments = ["read", windowShadeBundleID, key]
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    try? process.run()
+    process.waitUntilExit()
+    return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+/// WindowShade 的某扇窗口（按标题）。
+func windowShadeWindow(_ title: String) -> AXUIElement? {
+    guard let pid = windowShadePID() else { return nil }
+    var value: CFTypeRef?
+    AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value)
+    return (value as? [AXUIElement] ?? []).first { axString($0, kAXTitleAttribute as String).contains(title) }
+}
+
+/// 某个元素里标题或说明含 name 的控件。
+func control(_ root: AXUIElement, _ name: String, role: String? = nil) -> AXUIElement? {
+    findElement(root) { element in
+        let texts = [kAXTitleAttribute, kAXDescriptionAttribute].map { axString(element, $0 as String) }
+        return texts.contains { $0.contains(name) } && (role == nil || axString(element, kAXRoleAttribute as String) == role)
+    }
+}
+
+func isEnabled(_ element: AXUIElement) -> Bool {
+    var value: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &value)
+    return (value as? Bool) ?? true
+}
+
+/// 让 record.sh 在测试中途授予一项权限：写一个请求文件，等它回一个完成文件。
+func requestGrant(_ name: String, timeout: Double = 40) async -> Bool {
+    let request = "/tmp/windowshade-e2e-grant-\(name)"
+    let done = request + ".done"
+    FileManager.default.createFile(atPath: request, contents: nil)
+    return await eventually(timeout) { FileManager.default.fileExists(atPath: done) }
+}
+
+let systemScenarios: [Scenario] = [
+    // MARK: 系统事件（第 7 节）
+    Scenario(id: "E05", title: "收起后切换深色、浅色外观", options: []) { probe, h in
+        guard let folded = await foldProbe(probe, h) else { return }
+        guard setDarkMode(true) else { h.result.notes["skipped"] = "cannot switch appearance"; return }
+        await pause(2)
+        h.expect(stripFrames().count == 1, "E05: the strip disappeared after switching to dark")
+        _ = setDarkMode(false)
+        await pause(2)
+        h.expect(stripFrames().count == 1, "E05: the strip disappeared after switching to light")
+        await unfold(folded, probe, h)
+    },
+    Scenario(id: "E06", title: "台前调度打开时收起、展开", options: []) { probe, h in
+        writeDefaults([["GloballyEnabled", "-bool", "true"]], domain: "com.apple.WindowManager")
+        defer { writeDefaults([["GloballyEnabled", "-bool", "false"]], domain: "com.apple.WindowManager") }
+        await pause(2)
+        NSRunningApplication(processIdentifier: probe.pid)?.activate()
+        guard let folded = await foldProbe(probe, h) else { return }
+        await unfold(folded, probe, h)
+    },
+    Scenario(id: "E07", title: "程序坞放在左边时收起、展开", options: []) { probe, h in
+        writeDefaults([["orientation", "-string", "left"]], domain: "com.apple.dock")
+        run("/usr/bin/killall", ["Dock"])
+        await pause(3)
+        defer {
+            writeDefaults([["orientation", "-string", "bottom"]], domain: "com.apple.dock")
+            run("/usr/bin/killall", ["Dock"])
+        }
+        NSRunningApplication(processIdentifier: probe.pid)?.activate()
+        guard let window = probe.window(),
+              let folded = await fold(window, at: CGPoint(x: 0, y: 120), size: probeSize, h) else { return }
+        let visible = Folded(window: folded.window, frame: folded.frame,
+                             titleBar: CGPoint(x: folded.frame.minX + folded.frame.width * 0.72, y: folded.titleBar.y), close: folded.close)
+        await unfold(visible, probe, h)
+        await pause(1)
+    },
+
+    // MARK: WindowShade 的生命周期（第 8 节）
+    Scenario(id: "L01", title: "有窗口收起着时从菜单退出 WindowShade：全部回到原处", options: ["--windows=2", "--size=360,220"],
+             changesSettings: true) { probe, h in
+        let frames = await foldAll(probe, h)
+        h.expect(await pressWindowShadeMenu("退出"), "L01: no Quit item")
+        h.expect(await eventually(5) { windowShadePID() == nil }, "L01: WindowShade did not quit")
+        await expectAllRestored(probe, frames, h, within: 4)
+        _ = await relaunchWindowShade()
+    },
+    Scenario(id: "L02", title: "kill -9 结束 WindowShade 后重新启动：窗口回到原处（R1）", options: [],
+             changesSettings: true) { probe, h in
+        guard let folded = await foldProbe(probe, h), let pid = windowShadePID() else { return }
+        kill(pid, SIGKILL)
+        await pause(1)
+        run("/usr/bin/open", [Suite.shadeApp])
+        _ = await eventually(8) { windowShadePID() != nil }
+        if let pid = windowShadePID() { Suite.audit?.watch(pid) }
+        await expectRestored(probe, folded.frame, h, within: 8)
+        await expectNoStrip(h, within: 2)
+    },
+    Scenario(id: "L03", title: "收起进行中 kill -9，重新启动后窗口回到原处", options: [],
+             changesSettings: true) { probe, h in
+        guard let window = probe.window() else { return }
+        place(window, origin: probeOrigin, size: probeSize)
+        await pause(0.6)
+        guard let frame = axFrame(window), let pid = windowShadePID() else { return }
+        let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
+        await glide(to: point, duration: 0.3)
+        await doubleClick(at: point)
+        await pause(0.12)
+        kill(pid, SIGKILL)
+        await pause(1)
+        run("/usr/bin/open", [Suite.shadeApp])
+        _ = await eventually(8) { windowShadePID() != nil }
+        if let pid = windowShadePID() { Suite.audit?.watch(pid) }
+        await glide(to: h.neutral, duration: 0.2)
+        await expectRestored(probe, frame, h, within: 8)
+    },
+    Scenario(id: "L07", title: "再启动一个 WindowShade：只留一个", options: []) { _, h in
+        run("/usr/bin/open", ["-n", Suite.shadeApp])
+        await pause(5)
+        h.expect(windowShadeInstances() == 1, "L07: \(windowShadeInstances()) WindowShade processes are running")
+    },
+
+    // MARK: 被收起的应用程序（第 9 节）
+    Scenario(id: "P03", title: "收起后应用程序新开一扇窗口：不多出卷帘条", options: []) { probe, h in
+        guard await foldProbe(probe, h) != nil else { return }
+        probe.send("new-window")
+        await pause(2)
+        h.expect(stripFrames().count == 1, "P03: \(stripFrames().count) strips after the app opened a window")
+        h.expect(probe.window("Probe 2") != nil, "P03: the new window is missing")
+    },
+    Scenario(id: "P04", title: "收起后应用程序自己把窗口移走：卷帘条移除，窗口不丢", options: []) { probe, h in
+        guard await foldProbe(probe, h) != nil else { return }
+        probe.send("move:400,300")
+        await expectNoStrip(h, within: 4)
+        let frame = probe.window().flatMap(axFrame)
+        let screen = CGDisplayBounds(CGMainDisplayID())
+        h.expect(frame.map { screen.intersects($0) } ?? false, "P04: the window is not on screen (\(frame.map { "\($0)" } ?? "none"))")
+    },
+    Scenario(id: "P05", title: "收起后应用程序弹出提示框：提示框看得见", options: []) { probe, h in
+        guard await foldProbe(probe, h) != nil else { return }
+        probe.send("alert")
+        let screen = CGDisplayBounds(CGMainDisplayID())
+        let visible = await eventually(3) {
+            (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).contains { info in
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == probe.pid,
+                      let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                      let rect = CGRect(dictionaryRepresentation: bounds) else { return false }
+                return rect.height > 80 && screen.intersection(rect).width > rect.width * 0.9
+            }
+        }
+        h.expect(visible, "P05: the alert is not visible on screen")
+        if let ok = findButton(AXUIElementCreateApplication(probe.pid), "OK") {
+            AXUIElementPerformAction(ok, kAXPressAction as CFString)
+        }
+    },
+    Scenario(id: "P06", title: "收起后应用程序让这扇窗口进入全屏：卷帘条移除", options: ["--windows=2"]) { probe, h in
+        guard await foldProbe(probe, h) != nil else { return }
+        probe.send("fullscreen")
+        await expectNoStrip(h, within: 5)
+        probe.send("fullscreen")
+        await pause(2)
+    },
+    Scenario(id: "P07", title: "一个应用程序卡住时，另一个应用程序的卷帘条照常展开", options: []) { probe, h in
+        guard let other = await Probe.launch(Suite.probeApp, name: "P07-other", options: []) else { return }
+        defer { other.forceQuit() }
+        guard let window = probe.window(), let otherWindow = other.window() else { return }
+        NSRunningApplication(processIdentifier: probe.pid)?.activate()
+        guard let a = await fold(window, at: CGPoint(x: 80, y: 120), size: CGSize(width: 480, height: 300), h) else { return }
+        NSRunningApplication(processIdentifier: other.pid)?.activate()
+        await pause(0.6)
+        guard let b = await fold(otherWindow, at: CGPoint(x: 640, y: 480), size: CGSize(width: 480, height: 300), h) else { return }
+        probe.send("freeze:6")
+        await pause(0.3)
+        await doubleClick(at: b.titleBar)
+        await glide(to: h.neutral, duration: 0.2)
+        await expectFrame({ other.window() }, b.frame, h, within: 1.5, "the responsive app's window")
+        await h.probeFor(2)
+        await pause(4)
+        await unfold(a, probe, h)
+    },
+
+    // MARK: 故障注入（第 10 节，X01 至 X05 在 Scenarios.swift）
+    Scenario(id: "X08", title: "窗口标题每 0.1 秒变一次：收起、看一眼、展开", options: ["--title-churn"]) { probe, h in
+        guard let folded = await foldProbe(probe, h) else { return }
+        _ = await hoverForGlance(folded)
+        await glide(to: h.neutral, duration: 0.3)
+        await pause(1)
+        await unfold(folded, probe, h)
+    },
+    Scenario(id: "X09", title: "窗口拒绝被移动：仍能收起，展开后在原处", options: []) { probe, h in
+        guard let window = probe.window() else { return }
+        place(window, origin: probeOrigin, size: probeSize)
+        await pause(0.6)
+        probe.send("pin")
+        await pause(0.3)
+        guard let frame = axFrame(window) else { return }
+        let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
+        await glide(to: point, duration: 0.3)
+        await doubleClick(at: point)
+        await glide(to: h.neutral, duration: 0.2)
+        let folded = await eventually(4) { stripFrames().count == 1 }
+        h.result.notes["folded"] = folded
+        await h.probeFor(1)
+        if folded { await doubleClick(at: point) }
+        await glide(to: h.neutral, duration: 0.2)
+        await expectRestored(probe, frame, h, within: 5)
+        await expectNoStrip(h, within: 2)
+        h.expect(probe.window().map { !axBool($0, kAXMinimizedAttribute as String) } ?? false, "X09: the window is still minimized")
+    },
+    Scenario(id: "X10", title: "收起后应用程序把窗口移回原处：卷帘条移除，窗口在原处", options: []) { probe, h in
+        guard let folded = await foldProbe(probe, h) else { return }
+        probe.send("move:\(Int(folded.frame.minX)),\(Int(folded.frame.minY))")
+        await expectNoStrip(h, within: 4)
+        await expectRestored(probe, folded.frame, h, within: 3)
+    },
+
+    // MARK: 设置窗口（第 6 节）
+    Scenario(id: "H01", title: "在设置窗口里改开关：立即写入设置", options: [], changesSettings: true) { _, h in
+        h.expect(await pressWindowShadeMenu("设置"), "H01: no Settings item")
+        guard await eventually(4, { windowShadeWindow("卷帘") != nil || windowShadeWindow("设置") != nil }),
+              let settings = windowShadeWindow("卷帘") ?? windowShadeWindow("设置") else {
+            h.result.violations.append("H01: the settings window did not open"); return
+        }
+        for (name, key) in [("卷帘条置顶", "ShadeFloatingOnTop"), ("看一眼", "GlanceEnabled")] {
+            let before = readDefault(key)
+            guard let toggle = control(settings, name, role: "AXCheckBox") ?? control(settings, name) else {
+                h.result.violations.append("H01: no control named \(name)"); continue
+            }
+            AXUIElementPerformAction(toggle, kAXPressAction as CFString)
+            await pause(0.6)
+            let after = readDefault(key)
+            h.expect(after != before, "H01: \(name) did not change \(key) (\(before) → \(after))")
+        }
+        if let proxy = control(settings, "统一标题栏") {
+            AXUIElementPerformAction(proxy, kAXPressAction as CFString)
+            await pause(0.6)
+            h.expect(readDefault("ShadeAppearanceMode") == "proxyTitleBar", "H01: the appearance choice was not saved")
+        } else {
+            h.result.violations.append("H01: no appearance choice named 统一标题栏")
+        }
+    },
+    Scenario(id: "H02", title: "有窗口收起着时改“收起后的样子”：已收起的窗口照常展开", options: [], changesSettings: true) { probe, h in
+        guard let folded = await foldProbe(probe, h) else { return }
+        _ = await pressWindowShadeMenu("设置")
+        await pause(1.5)
+        if let settings = windowShadeWindow("卷帘") ?? windowShadeWindow("设置"), let thumbnail = control(settings, "缩略图") {
+            AXUIElementPerformAction(thumbnail, kAXPressAction as CFString)
+            await pause(0.8)
+        } else {
+            h.result.violations.append("H02: could not change the appearance in settings")
+        }
+        await unfold(folded, probe, h)
+    },
+    Scenario(id: "H10", title: "欢迎窗口点关闭：记为看过，下次不再自动出现", options: [], changesSettings: true) { _, h in
+        _ = await relaunchWindowShade([["ShadeOnboardingShown", "-bool", "false"]])
+        guard await eventually(4, { windowShadeWindow("欢迎") != nil }), let welcome = windowShadeWindow("欢迎") else {
+            h.result.violations.append("H10: the welcome window did not appear on first launch"); return
+        }
+        var close: CFTypeRef?
+        AXUIElementCopyAttributeValue(welcome, kAXCloseButtonAttribute as CFString, &close)
+        if let close { AXUIElementPerformAction(close as! AXUIElement, kAXPressAction as CFString) }
+        await pause(1)
+        h.expect(readDefault("ShadeOnboardingShown") == "1", "H10: closing the welcome window did not mark it as seen")
+    },
+
+    // MARK: 真实应用程序里的标签页和快速查看
+    Scenario(id: "A21", title: "访达有两个标签页时收起、展开：标签页不丢", options: []) { _, h in
+        guard let window = await standardWindow(of: "com.apple.finder", launch: ["/Applications"]) else {
+            h.result.notes["skipped"] = "no Finder window"; return
+        }
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+        place(window, origin: CGPoint(x: 160, y: 120), size: CGSize(width: 900, height: 500))
+        await pause(0.8)
+        await pressKey(17, .maskCommand)   // T
+        await pause(1.5)
+        func tabs() -> Int {
+            findElement(window) { axString($0, kAXRoleAttribute as String) == "AXTabGroup" }.map { axChildren($0).count } ?? 0
+        }
+        let before = tabs()
+        await realAppRoundTrip("com.apple.finder", launch: ["/Applications"], size: CGSize(width: 900, height: 500),
+                               barY: 8, quitAfter: false, h)
+        h.expect(tabs() == before, "A21: tabs changed from \(before) to \(tabs())")
+        await pressKey(13, .maskCommand)   // W 关掉多开的标签页
+    },
+    Scenario(id: "A32", title: "快速查看窗口收起、展开：展开时重新打开同一个文件", options: []) { _, h in
+        let file = NSTemporaryDirectory() + "windowshade-ql.txt"
+        try? "Quick Look probe".write(toFile: file, atomically: true, encoding: .utf8)
+        let ql = Process()
+        ql.executableURL = URL(fileURLWithPath: "/usr/bin/qlmanage")
+        ql.arguments = ["-p", file]
+        ql.standardOutput = FileHandle.nullDevice
+        ql.standardError = FileHandle.nullDevice
+        try? ql.run()
+        defer { ql.terminate(); run("/usr/bin/killall", ["qlmanage"]) }
+        func qlWindow() -> CGRect? {
+            (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { info -> CGRect? in
+                guard (info[kCGWindowOwnerName as String] as? String)?.contains("qlmanage") == true
+                        || (info[kCGWindowOwnerName as String] as? String)?.contains("Quick Look") == true,
+                      let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                      let rect = CGRect(dictionaryRepresentation: bounds), rect.height > 100 else { return nil }
+                return rect
+            }.first
+        }
+        guard await eventually(6, { qlWindow() != nil }), let frame = qlWindow() else {
+            h.result.notes["skipped"] = "Quick Look did not open"; return
+        }
+        let point = CGPoint(x: frame.minX + frame.width * 0.6, y: frame.minY + 12)
+        await glide(to: point, duration: 0.3)
+        await doubleClick(at: point)
+        await glide(to: h.neutral, duration: 0.2)
+        let folded = await eventually(3) { stripFrames().count == 1 }
+        h.expect(folded, "A32: the Quick Look window did not fold")
+        guard folded, let strip = stripFrames().first else { return }
+        await doubleClick(at: CGPoint(x: strip.midX, y: strip.midY))
+        await glide(to: h.neutral, duration: 0.2)
+        h.expect(await eventually(6) { qlWindow() != nil }, "A32: Quick Look did not reopen")
+        await expectNoStrip(h, within: 3)
+    },
+
+    // MARK: 权限（record.sh 收回权限后单独运行）
+    Scenario(id: "A26", title: "没有屏幕录制权限时收起：改用统一标题栏", options: [], group: "no-screen-recording") { probe, h in
+        guard let folded = await foldProbe(probe, h) else { return }
+        h.expect(h.logLines().contains { $0.contains(">>> shade") && $0.contains("mode=proxyTitleBar") },
+                 "A26: the strip did not fall back to the unified title bar")
+        await unfold(folded, probe, h)
+    },
+    Scenario(id: "D08", title: "没有屏幕录制权限时停在卷帘条上：不出错", options: [], group: "no-screen-recording") { probe, h in
+        guard let folded = await foldProbe(probe, h) else { return }
+        _ = await hoverForGlance(folded, 1.5)
+        await glide(to: h.neutral, duration: 0.3)
+        await pause(1)
+        await unfold(folded, probe, h)
+    },
+    Scenario(id: "A27", title: "没有辅助功能权限时按快捷键：不收起，欢迎窗口出现，辅助功能一行是“去授权”（H08）",
+             options: [], group: "no-accessibility") { probe, h in
+        NSRunningApplication(processIdentifier: probe.pid)?.activate()
+        await pause(0.6)
+        await pressShortcut(toggleKey)
+        await expectNoFold(0, h, "A27")
+        guard await eventually(4, { windowShadeWindow("欢迎") != nil }), let welcome = windowShadeWindow("欢迎") else {
+            h.result.violations.append("A27: the welcome window did not appear"); return
+        }
+        h.expect(control(welcome, "去授权") != nil, "H08: no Grant button for Accessibility")
+        if let start = control(welcome, "开始使用") {
+            h.expect(!isEnabled(start), "H08: Start is enabled without Accessibility")
+        } else {
+            h.result.violations.append("H08: no Start button")
+        }
+    },
+    Scenario(id: "H09", title: "欢迎窗口开着时授予辅助功能：变成已授权，“开始使用”可以点", options: [],
+             group: "no-accessibility") { probe, h in
+        NSRunningApplication(processIdentifier: probe.pid)?.activate()
+        await pressShortcut(toggleKey)
+        guard await eventually(4, { windowShadeWindow("欢迎") != nil }) else {
+            h.result.violations.append("H09: the welcome window did not appear"); return
+        }
+        guard await requestGrant("accessibility") else { h.result.violations.append("setup: the grant was not done"); return }
+        let granted = await eventually(4) {
+            guard let welcome = windowShadeWindow("欢迎") else { return false }
+            return control(welcome, "去授权") == nil && (control(welcome, "开始使用").map(isEnabled) ?? false)
+        }
+        h.expect(granted, "H09: the welcome window did not show the new permission within 4 s")
+    },
+]
+
+func axBool(_ element: AXUIElement, _ attribute: String) -> Bool {
+    var value: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    return (value as? Bool) ?? false
+}

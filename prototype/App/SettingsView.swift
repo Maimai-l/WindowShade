@@ -416,23 +416,22 @@ private struct ShortcutRow: View {
     }
 
     private func capture(_ event: NSEvent) {
-        // 只按修饰键不构成快捷键：保持录制状态，等真正的键。
-        guard !HotKey.isModifierOnlyKeyCode(event.keyCode) else { return }
-        recording = false
         var modifiers: UInt32 = 0
         let flags = event.modifierFlags
         if flags.contains(.command) { modifiers |= HotKey.commandMask }
         if flags.contains(.option) { modifiers |= HotKey.optionMask }
         if flags.contains(.control) { modifiers |= HotKey.controlMask }
         if flags.contains(.shift) { modifiers |= HotKey.shiftMask }
-        let hotKey = HotKey(keyCode: UInt32(event.keyCode), modifiers: modifiers)
-        if HotKey.isReserved(hotKey) {
-            let hasControlOrOption = modifiers & (HotKey.controlMask | HotKey.optionMask) != 0
-            reject(hasControlOrOption ? SettingsCopy.reservedBySystem : SettingsCopy.needsControlOrOption)
-        } else if let name = GlobalShortcutSettings.conflictName(for: hotKey, excluding: shortcut) {
-            reject(SettingsCopy.usedBy(name))
-        } else {
-            model.setShortcut(hotKey, for: shortcut)
+        let verdict = GlobalShortcutSettings.captureVerdict(keyCode: event.keyCode, modifiers: modifiers, for: shortcut)
+        // 只按修饰键不构成快捷键：保持录制状态，等真正的键。
+        if verdict == .keepWaiting { return }
+        recording = false
+        switch verdict {
+        case .accept(let hotKey): model.setShortcut(hotKey, for: shortcut)
+        case .needsControlOrOption: reject(SettingsCopy.needsControlOrOption)
+        case .reservedBySystem: reject(SettingsCopy.reservedBySystem)
+        case .usedBy(let name): reject(SettingsCopy.usedBy(name))
+        case .keepWaiting, .cancel: break
         }
     }
 

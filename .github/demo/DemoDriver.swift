@@ -379,10 +379,11 @@ struct DemoDriver {
             await closeUnsavedScenario(video: video)
             return
         }
-        // scenarios：逐条场景和不变式检查（Scenarios.swift）。第三个参数是 ProbeApp.app 的路径，第四个可选，逗号分隔的场景编号。
-        if args.count > 2, args[1] == "scenarios" {
-            let only = args.count > 3 ? Set(args[3].split(separator: ",").map(String.init)) : nil
-            await runScenarioSuite(output: video, probeApp: args[2], only: only)
+        // scenarios：逐条场景和不变式检查（Scenarios*.swift）。参数：ProbeApp.app 路径、WindowShade.app 路径，
+        // 可选的逗号分隔场景编号。
+        if args.count > 3, args[1] == "scenarios" {
+            let only = args.count > 4 ? Set(args[4].split(separator: ",").map(String.init)) : nil
+            await runScenarioSuite(output: video, probeApp: args[2], shadeApp: args[3], only: only)
             return
         }
         let bundleID = args.count > 1 ? args[1] : "com.apple.TextEdit"

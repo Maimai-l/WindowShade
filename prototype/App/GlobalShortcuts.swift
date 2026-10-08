@@ -115,6 +115,27 @@ enum GlobalShortcutSettings {
         return nil
     }
 
+    /// 录制快捷键时按下一个键的结果。Esc 结束录制；只按修饰键继续等；其余组合按保留规则和冲突判断。
+    enum CaptureVerdict: Equatable {
+        case keepWaiting
+        case cancel
+        case accept(HotKey)
+        case needsControlOrOption
+        case reservedBySystem
+        case usedBy(String)
+    }
+
+    static func captureVerdict(keyCode: UInt16, modifiers: UInt32, for shortcut: GlobalShortcut) -> CaptureVerdict {
+        if keyCode == UInt16(kVK_Escape) { return .cancel }
+        if HotKey.isModifierOnlyKeyCode(keyCode) { return .keepWaiting }
+        let hotKey = HotKey(keyCode: UInt32(keyCode), modifiers: modifiers)
+        if HotKey.isReserved(hotKey) {
+            return modifiers & (HotKey.controlMask | HotKey.optionMask) != 0 ? .reservedBySystem : .needsControlOrOption
+        }
+        if let name = conflictName(for: hotKey, excluding: shortcut) { return .usedBy(name) }
+        return .accept(hotKey)
+    }
+
     static func displayName(for shortcut: GlobalShortcut) -> String? {
         hotKey(for: shortcut).map(HotKey.displayName(for:))
     }

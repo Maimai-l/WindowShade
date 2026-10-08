@@ -25,7 +25,7 @@ ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/WindowShade-app.zip"
 DRIVER="$OUT/DemoDriver.app"
 rm -rf "$DRIVER"
 mkdir -p "$DRIVER/Contents/MacOS"
-swiftc -swift-version 5 -parse-as-library -O .github/demo/DemoDriver.swift .github/demo/Scenarios.swift \
+swiftc -swift-version 5 -parse-as-library -O .github/demo/*.swift \
   -o "$DRIVER/Contents/MacOS/DemoDriver" -framework AppKit -framework ScreenCaptureKit || exit 1
 cat > "$DRIVER/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -44,7 +44,7 @@ codesign --force -s - "$DRIVER"
 PROBE="$OUT/ProbeApp.app"
 rm -rf "$PROBE"
 mkdir -p "$PROBE/Contents/MacOS"
-swiftc -swift-version 5 -O .github/demo/ProbeApp.swift -o "$PROBE/Contents/MacOS/ProbeApp" -framework AppKit || exit 1
+swiftc -swift-version 5 -O .github/demo/probe/ProbeApp.swift -o "$PROBE/Contents/MacOS/ProbeApp" -framework AppKit || exit 1
 cat > "$PROBE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -133,8 +133,45 @@ cat "$OUT/driver-close-unsaved.log" || true
 
 # 逐条场景和不变式检查（Scenarios.swift）：ProbeApp 卡住、弹提示框、关闭超时、没有按钮、退出、崩溃，连点。
 echo "==> scenarios with invariant checks"
-open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE"
+open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE" "$APP"
 cat "$OUT/driver-scenarios.log" || true
+
+# 权限场景组：收回一项权限，重启 WindowShade 后只跑这一组，跑完把权限还回去。
+grant_all() {
+  sudo python3 .github/demo/grant-tcc.py "com.windowshade.prototype=$APP" >/dev/null
+  sudo killall tccd 2>/dev/null || true
+}
+run_group() {
+  local name="$1" service="$2" ids="$3"
+  echo "==> scenarios without $service: $ids"
+  sudo python3 .github/demo/grant-tcc.py --revoke "$service" com.windowshade.prototype
+  sudo killall tccd 2>/dev/null || true
+  sleep 2
+  open -W --stderr "$OUT/driver-$name.log" "$DRIVER" --args "$OUT/$name.json" scenarios "$PROBE" "$APP" "$ids"
+  cat "$OUT/driver-$name.log" || true
+  grant_all
+}
+run_group scenarios-noscreen ScreenCapture "A26,D08"
+# H09 在场景中途要求授予辅助功能：驱动程序建 /tmp/windowshade-e2e-grant-accessibility，这里授权后回一个 .done。
+rm -f /tmp/windowshade-e2e-grant-accessibility /tmp/windowshade-e2e-grant-accessibility.done
+(
+  for _ in $(seq 1 600); do
+    if [ -f /tmp/windowshade-e2e-grant-accessibility ]; then
+      grant_all
+      touch /tmp/windowshade-e2e-grant-accessibility.done
+      break
+    fi
+    sleep 1
+  done
+) &
+GRANT_WATCHER=$!
+run_group scenarios-noax Accessibility "A27,H09"
+kill "$GRANT_WATCHER" 2>/dev/null || true
+# 权限还回去以后，WindowShade 要重启才用得上；后面的检查要求它还在运行。
+pkill -x WindowShade 2>/dev/null || true
+sleep 1
+open "$APP"
+sleep 3
 
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
 collect_crashes
@@ -168,23 +205,28 @@ print("PASS E13: save sheet once, window closed, worst probe %.3f s" % result.ge
 PY
 grep -n "event-tap: main thread did not answer\|traffic: " "$OUT/windowshade.log" | tail -20 || true
 echo "==> check scenarios"
-python3 - "$OUT/scenarios.json" "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'PY' || status=1
+python3 - "${GITHUB_STEP_SUMMARY:-/dev/null}" "$OUT/scenarios.json" "$OUT/scenarios-noscreen.json" "$OUT/scenarios-noax.json" <<'PY' || status=1
 import json, sys
-try:
-    with open(sys.argv[1]) as f:
-        suite = json.load(f)
-except (OSError, ValueError) as error:
-    print(f"FAIL scenarios: no result ({error})")
-    sys.exit(1)
 rows = ["| 场景 | 内容 | 结果 | 违反的不变式 |", "|---|---|---|---|"]
-for s in suite["scenarios"]:
-    verdict = "通过" if s["passed"] else "未通过"
-    rows.append(f"| {s['id']} | {s['title']} | {verdict} | {'<br>'.join(s['violations'])} |")
-    print(("PASS " if s["passed"] else "FAIL ") + s["id"] + " " + s["title"])
-    for v in s["violations"]:
-        print("     " + v)
-with open(sys.argv[2], "a") as summary:
+failed = 0
+for path in sys.argv[2:]:
+    try:
+        with open(path) as f:
+            suite = json.load(f)
+    except (OSError, ValueError) as error:
+        print(f"FAIL {path}: no result ({error})")
+        rows.append(f"| {path} | 没有结果 | 未通过 | {error} |")
+        failed += 1
+        continue
+    for s in suite["scenarios"]:
+        verdict = "通过" if s["passed"] else "未通过"
+        rows.append(f"| {s['id']} | {s['title']} | {verdict} | {'<br>'.join(s['violations'])} |")
+        print(("PASS " if s["passed"] else "FAIL ") + s["id"] + " " + s["title"])
+        for v in s["violations"]:
+            print("     " + v)
+    failed += suite["failed"]
+with open(sys.argv[1], "a") as summary:
     summary.write("\n".join(rows) + "\n")
-sys.exit(0 if suite["failed"] == 0 else 1)
+sys.exit(0 if failed == 0 else 1)
 PY
 exit $status

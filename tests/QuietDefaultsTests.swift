@@ -38,6 +38,7 @@ struct QuietDefaultsTests {
         identifiers()
         hotKeyPolicy()
         menuKeyEquivalents()
+        captureVerdicts()
         print(failures == 0 ? "all quiet-defaults tests passed" : "\(failures) quiet-defaults test(s) FAILED")
         exit(failures == 0 ? 0 : 1)
     }
@@ -199,6 +200,50 @@ struct QuietDefaultsTests {
         expect(!HotKey.isModifierOnlyKeyCode(UInt16(kVK_ANSI_K)), "a real key can be recorded")
         expect(!HotKey.isReserved(hotKey(kVK_ANSI_C, cmdKey | controlKey)),
                "the app's own ⌃⌘ combinations can be re-recorded; clashes are checked per setting")
+    }
+
+    /// 录制快捷键时每一种按法的结果（docs/test-catalog.md H03、H04）。
+    static func captureVerdicts() {
+        typealias Verdict = GlobalShortcutSettings.CaptureVerdict
+        func press(_ keyCode: Int, _ modifiers: Int, for shortcut: GlobalShortcut = .toggleShade) -> Verdict {
+            GlobalShortcutSettings.captureVerdict(keyCode: UInt16(keyCode), modifiers: UInt32(modifiers), for: shortcut)
+        }
+        withDefaults { _ in
+            // H03
+            for modifier in [kVK_Command, kVK_Control, kVK_Option, kVK_Shift, kVK_RightCommand, kVK_RightOption, kVK_Function] {
+                expect(press(modifier, controlKey | cmdKey) == .keepWaiting,
+                       "H03: pressing only a modifier key (\(modifier)) keeps waiting")
+            }
+            expect(press(kVK_Escape, 0) == .cancel, "H03: Esc cancels recording")
+            expect(press(kVK_Escape, controlKey | cmdKey) == .cancel, "H03: Esc with modifiers still cancels, it is never recorded")
+            expect(press(kVK_ANSI_K, 0) == .needsControlOrOption, "H03: a single letter is rejected and asks for Control or Option")
+            expect(press(kVK_ANSI_K, shiftKey) == .needsControlOrOption, "H03: Shift plus a letter is rejected the same way")
+            expect(press(kVK_ANSI_C, cmdKey) == .needsControlOrOption, "H03: Command-C asks for Control or Option")
+            expect(press(kVK_ANSI_K, cmdKey | shiftKey) == .needsControlOrOption, "H03: Shift-Command-K asks for Control or Option")
+            expect(press(kVK_ANSI_Q, cmdKey | optionKey) == .reservedBySystem, "H03: Option-Command-Q is reserved by the system")
+            expect(press(kVK_Space, cmdKey | controlKey) == .reservedBySystem, "H03: Control-Command-Space is reserved by the system")
+            expect(press(kVK_Tab, cmdKey | optionKey) == .reservedBySystem, "H03: Option-Command-Tab is reserved by the system")
+            expect(press(kVK_ANSI_K, controlKey | cmdKey) == .accept(ctrlCmd(kVK_ANSI_K)), "H03: Control-Command-K is accepted")
+            expect(press(kVK_F5, 0) == .needsControlOrOption, "H03: a bare function key is rejected")
+            expect(press(kVK_ANSI_K, controlKey | optionKey) == .accept(HotKey(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(controlKey | optionKey))),
+                   "H03: Control-Option-K is accepted")
+
+            // H04：录给一个动作的组合，再录给另一个动作时提示已用于前一个；录回给它自己不算冲突。
+            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_K), for: .toggleShade)
+            expect(press(kVK_ANSI_K, controlKey | cmdKey, for: .arrange) == .usedBy(GlobalShortcut.toggleShade.title),
+                   "H04: the same combination for another action names the first action")
+            expect(press(kVK_ANSI_K, controlKey | cmdKey, for: .toggleShade) == .accept(ctrlCmd(kVK_ANSI_K)),
+                   "H04: re-recording an action's own combination is accepted")
+            GlobalShortcutSettings.numberedExpandEnabled = true
+            if case .usedBy = press(kVK_ANSI_3, controlKey | cmdKey, for: .arrange) {
+                expect(true, "H04: Control-Command-3 is reported as taken while numbered unfold is on")
+            } else {
+                expect(false, "H04: Control-Command-3 is reported as taken while numbered unfold is on")
+            }
+            GlobalShortcutSettings.numberedExpandEnabled = false
+            expect(press(kVK_ANSI_3, controlKey | cmdKey, for: .arrange) == .accept(ctrlCmd(kVK_ANSI_3)),
+                   "H04: Control-Command-3 is free once numbered unfold is off")
+        }
     }
 
     static func menuKeyEquivalents() {

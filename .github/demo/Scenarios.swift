@@ -346,13 +346,242 @@ func click(_ point: CGPoint) async {
     post(.leftMouseUp, at: point)
 }
 
+// MARK: - 驱动 WindowShade：重启、快捷键、菜单
+
+/// 整个场景套件共用：两个 App 的路径，以及场景结束后要恢复的 WindowShade 设置。
+enum Suite {
+    nonisolated(unsafe) static var probeApp = ""
+    nonisolated(unsafe) static var shadeApp = ""
+    nonisolated(unsafe) static var audit: EventAudit?
+}
+
+/// 快捷键（Carbon 修饰键：Command 256、Shift 512、Option 2048、Control 4096）。
+let controlOptionCommand: (carbon: Int, flags: CGEventFlags) = (6400, [.maskControl, .maskAlternate, .maskCommand])
+let toggleKey: CGKeyCode = 40     // K
+let arrangeKey: CGKeyCode = 38    // J
+
+/// 套件开头写进 WindowShade 的设置：两个快捷键、按编号展开。每次重启都带上。
+let baselineDefaults: [[String]] = [
+    ["GlobalShortcut.toggleShade", "-array", "-integer", "\(toggleKey)", "-integer", "\(controlOptionCommand.carbon)"],
+    ["GlobalShortcut.arrangeOrFocus", "-array", "-integer", "\(arrangeKey)", "-integer", "\(controlOptionCommand.carbon)"],
+    ["GlobalShortcut.numberedExpand", "-bool", "true"],
+    ["GlanceEnabled", "-bool", "true"],
+    ["ShadeTitlebarDoubleClickEnabled", "-bool", "true"],
+    ["ShadeAppearanceMode", "-string", "nativeScreenshot"],
+    ["ShadeFloatingOnTop", "-bool", "true"],
+    ["ShadeOnboardingShown", "-bool", "true"],
+]
+
+func run(_ tool: String, _ arguments: [String]) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: tool)
+    process.arguments = arguments
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    try? process.run()
+    process.waitUntilExit()
+}
+
+func writeDefaults(_ entries: [[String]], domain: String = windowShadeBundleID) {
+    for entry in entries { run("/usr/bin/defaults", ["write", domain] + entry) }
+}
+
+/// 从菜单栏里 WindowShade 的菜单按下标题含 fragment 的一项（辅助功能）。找不到返回 false。
+@discardableResult
+func pressWindowShadeMenu(_ fragment: String) async -> Bool {
+    guard let pid = windowShadePID() else { return false }
+    let app = AXUIElementCreateApplication(pid)
+    var extras: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, "AXExtrasMenuBar" as CFString, &extras) == .success,
+          let extras, let item = axChildren(extras as! AXUIElement).first else { return false }
+    AXUIElementPerformAction(item, kAXPressAction as CFString)
+    await pause(0.4)
+    func search(_ element: AXUIElement, _ depth: Int) -> AXUIElement? {
+        guard depth < 4 else { return nil }
+        for child in axChildren(element) {
+            if axString(child, kAXRoleAttribute as String) == "AXMenuItem",
+               axString(child, kAXTitleAttribute as String).contains(fragment) { return child }
+            if let found = search(child, depth + 1) { return found }
+        }
+        return nil
+    }
+    guard let target = search(item, 0) else {
+        AXUIElementPerformAction(item, kAXCancelAction as CFString)
+        post(.keyDown, key: 53)
+        return false
+    }
+    AXUIElementPerformAction(target, kAXPressAction as CFString)
+    await pause(0.4)
+    return true
+}
+
+/// 发一个按键（驱动程序自己合成；WindowShade 不合成任何输入）。
+func post(_ type: CGEventType, key: CGKeyCode, flags: CGEventFlags = []) {
+    guard let event = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: type == .keyDown) else { return }
+    event.flags = flags
+    event.post(tap: .cghidEventTap)
+}
+
+func pressKey(_ key: CGKeyCode, _ flags: CGEventFlags = []) async {
+    post(.keyDown, key: key, flags: flags)
+    post(.keyUp, key: key, flags: flags)
+    await pause(0.15)
+}
+
+func pressShortcut(_ key: CGKeyCode) async { await pressKey(key, controlOptionCommand.flags) }
+
+func typeText(_ text: String) async {
+    for character in text {
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down) else { continue }
+            let units = Array(String(character).utf16)
+            event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+            event.post(tap: .cghidEventTap)
+        }
+        await pause(0.03)
+    }
+}
+
+/// 退出 WindowShade（菜单里的“退出”，会先展开全部窗口），写设置，再启动，等它准备好。
+func relaunchWindowShade(_ extra: [[String]] = []) async -> Bool {
+    if windowShadePID() != nil {
+        if !(await pressWindowShadeMenu("退出")) {
+            if let pid = windowShadePID() { kill(pid, SIGTERM) }
+        }
+        for _ in 0..<50 where windowShadePID() != nil { await pause(0.1) }
+        if let pid = windowShadePID() { kill(pid, SIGKILL); await pause(0.5) }
+    }
+    writeDefaults(baselineDefaults + extra)
+    run("/usr/bin/open", [Suite.shadeApp])
+    for _ in 0..<80 {
+        await pause(0.1)
+        if let pid = windowShadePID() {
+            await pause(2.5)
+            Suite.audit?.watch(pid)
+            return true
+        }
+    }
+    return false
+}
+
+/// 拖动：按下、分几步移动、松开。
+func drag(from start: CGPoint, to end: CGPoint) async {
+    await glide(to: start, duration: 0.3)
+    await pause(0.2)
+    post(.leftMouseDown, at: start)
+    for step in 1...20 {
+        let t = Double(step) / 20
+        let point = CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
+        post(.leftMouseDragged, at: point)
+        await pause(0.02)
+    }
+    post(.leftMouseUp, at: end)
+    pointer = end
+    await pause(0.4)
+}
+
+/// 屏幕上 WindowShade 的大窗口（看一眼的画面卡片）：和 frame 有重叠、比卷帘条高。
+func glanceVisible(over frame: CGRect) -> Bool {
+    guard let pid = windowShadePID(),
+          let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] else { return false }
+    return list.contains { info in
+        guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+              let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+              let rect = CGRect(dictionaryRepresentation: bounds),
+              ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0.1 else { return false }
+        return rect.height > 100 && rect.intersects(frame)
+    }
+}
+
+/// 某个 App 的窗口在屏幕上的前后次序：数字越小越靠前；不在屏幕上为 nil。
+func zOrder(ofOwner pid: pid_t, intersecting frame: CGRect) -> Int? {
+    guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] else { return nil }
+    return list.firstIndex { info in
+        guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+              let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+              let rect = CGRect(dictionaryRepresentation: bounds) else { return false }
+        return rect.intersects(frame)
+    }
+}
+
+func frontmostPID() -> pid_t? { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+
+extension Probe {
+    /// 某扇窗口最后一次记下的文字。
+    func text(of title: String) -> String? {
+        events().last { $0["event"] as? String == "text" && $0["title"] as? String == title }?["string"] as? String
+    }
+
+    /// 最后一次成为键盘焦点的窗口。
+    var keyWindow: String? {
+        events().last { $0["event"] as? String == "key-window" }?["title"] as? String
+    }
+
+    func allWindows() -> [AXUIElement] {
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value)
+        return value as? [AXUIElement] ?? []
+    }
+}
+
+/// 等某个条件成立，最多 seconds 秒。
+func eventually(_ seconds: Double, _ condition: () -> Bool) async -> Bool {
+    let start = Date()
+    while Date().timeIntervalSince(start) < seconds {
+        if condition() { return true }
+        await pause(0.1)
+    }
+    return condition()
+}
+
+/// 摆好一扇指定的窗口并收起它，返回收起前的信息。
+func fold(_ window: AXUIElement, at origin: CGPoint, size: CGSize, _ harness: Harness) async -> Folded? {
+    place(window, origin: origin, size: size)
+    await pause(0.6)
+    guard let frame = axFrame(window) else { return nil }
+    let titleBar = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
+    let close = closeButtonCenter(window)
+    let before = stripFrames().count
+    await glide(to: titleBar, duration: 0.3)
+    await pause(0.2)
+    await doubleClick(at: titleBar)
+    let folded = await eventually(3) { stripFrames().count > before }
+    harness.expect(folded, "setup: the window did not fold")
+    await pause(1.0)
+    await glide(to: harness.neutral, duration: 0.3)
+    return Folded(window: window, frame: frame, titleBar: titleBar, close: close)
+}
+
+/// 卷帘条上标准按钮的位置：截图样式和原窗口的按钮对齐；没取到时按统一标题栏的排法。
+func stripButton(_ folded: Folded, _ index: Int) -> CGPoint {
+    if index == 0, let close = folded.close { return close }
+    let base = folded.close ?? CGPoint(x: folded.frame.minX + 23, y: folded.frame.minY + 14)
+    return CGPoint(x: base.x + CGFloat(index) * 20, y: base.y)
+}
+
 // MARK: - 场景
 
 struct Scenario {
     let id: String
     let title: String
     let options: [String]
+    /// 场景里重启了 WindowShade 或改了它的设置：跑完要恢复基准设置。
+    var changesSettings = false
+    /// 需要先撤销某项权限的场景另成一组，由 record.sh 撤销权限后按编号单独运行。
+    let group: String
     let run: (Probe, Harness) async -> Void
+
+    init(id: String, title: String, options: [String], changesSettings: Bool = false, group: String = "main",
+         run: @escaping (Probe, Harness) async -> Void) {
+        self.id = id
+        self.title = title
+        self.options = options
+        self.changesSettings = changesSettings
+        self.group = group
+        self.run = run
+    }
 }
 
 let scenarios: [Scenario] = [
@@ -495,11 +724,13 @@ let scenarios: [Scenario] = [
 ]
 
 /// 逐条运行场景，每条用一个新的 ProbeApp；结果写进 json。有一条不合格就以 6 退出。
-func runScenarioSuite(output: URL, probeApp: String, only: Set<String>?) async {
+func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set<String>?) async {
     let audit = EventAudit()
     guard audit.start() else { log("cannot install the event audit tap"); exit(2) }
-    guard let shadePID = windowShadePID() else { log("WindowShade is not running"); exit(2) }
-    audit.watch(shadePID)
+    Suite.probeApp = probeApp
+    Suite.shadeApp = shadeApp
+    Suite.audit = audit
+    guard await relaunchWindowShade() else { log("WindowShade did not start"); exit(2) }
 
     let recorder = Recorder()
     do { try await recorder.start(to: output.deletingPathExtension().appendingPathExtension("mp4")) }
@@ -507,7 +738,12 @@ func runScenarioSuite(output: URL, probeApp: String, only: Set<String>?) async {
 
     var results: [[String: Any]] = []
     var failed = 0
-    for (index, scenario) in scenarios.enumerated() where only?.contains(scenario.id) ?? true {
+    let all = scenarios + foldScenarios + unfoldScenarios + stripScenarios + glanceScenarios + systemScenarios
+    var needsRelaunch = false
+    for (index, scenario) in all.enumerated() where only?.contains(scenario.id) ?? (scenario.group == "main") {
+        // 改过设置的场景之后，回到基准设置再跑下一个。
+        if needsRelaunch || windowShadePID() == nil { _ = await relaunchWindowShade() }
+        needsRelaunch = scenario.changesSettings
         log("scenario \(scenario.id): \(scenario.title)")
         let harness = Harness(id: scenario.id, title: scenario.title, audit: audit, probeApp: probeApp,
                               tagBase: Int64(0x5e00_0000 + index * 0x1000))

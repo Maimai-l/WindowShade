@@ -1,6 +1,7 @@
 """Grant TCC permissions to app bundles on a disposable CI Mac by writing the TCC databases.
 
 Usage: sudo python3 grant-tcc.py <bundle-id>=<path-to-.app> ...
+       sudo python3 grant-tcc.py --revoke <service> <bundle-id> ...   (service without the kTCCService prefix)
 Only for GitHub Actions macOS runners, which are thrown away after the job.
 """
 import os
@@ -55,6 +56,26 @@ def grant(db_path, client, blob):
     db.close()
     print(f"granted {client} in {db_path}")
 
+
+def revoke(db_path, client, service):
+    if not os.path.exists(db_path):
+        return
+    db = sqlite3.connect(db_path)
+    db.execute("DELETE FROM access WHERE client = ? AND service = ?", (client, service))
+    db.commit()
+    db.close()
+    print(f"revoked {service} from {client} in {db_path}")
+
+
+if sys.argv[1:2] == ["--revoke"]:
+    service = "kTCCService" + sys.argv[2]
+    for client in sys.argv[3:]:
+        for database in DATABASES:
+            try:
+                revoke(database, client, service)
+            except sqlite3.Error as error:
+                print(f"cannot write {database}: {error}")
+    sys.exit(0)
 
 for argument in sys.argv[1:]:
     client, app_path = argument.split("=", 1)
