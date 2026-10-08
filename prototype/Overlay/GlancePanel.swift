@@ -146,13 +146,13 @@ final class GlanceContentView: NSView {
         path.addLine(to: CGPoint(x: size.width, y: top))
         path.closeSubpath()
         let cornerY = size.height + join
+        // 三块都按逆时针走：和卡片本体重叠的那 2 点里绕数相加，方向相反会抵消成一个洞。
         // 左边：角落方块减去以卷帘条左下圆角圆心为心、半径小 edge 的圆。
-        path.move(to: CGPoint(x: 0, y: cornerY))
-        path.addLine(to: CGPoint(x: edge, y: cornerY))
-        path.addArc(center: CGPoint(x: join, y: cornerY), radius: join - edge,
-                    startAngle: .pi, endAngle: 1.5 * .pi, clockwise: false)
+        path.move(to: CGPoint(x: 0, y: size.height))
         path.addLine(to: CGPoint(x: join, y: size.height))
-        path.addLine(to: CGPoint(x: 0, y: size.height))
+        path.addArc(center: CGPoint(x: join, y: cornerY), radius: join - edge,
+                    startAngle: 1.5 * .pi, endAngle: .pi, clockwise: true)
+        path.addLine(to: CGPoint(x: 0, y: cornerY))
         path.closeSubpath()
         // 右边对称。
         path.move(to: CGPoint(x: size.width, y: cornerY))
