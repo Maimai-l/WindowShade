@@ -317,15 +317,23 @@ func closeUnsavedScenario(video: URL) async {
     if sheets > 1 { failures.append("more than one save sheet (\(sheets))") }
 
     if let sheet {
-        let buttons = axChildren(sheet).filter { axString($0, kAXRoleAttribute as String) == "AXButton" }
-        let names = buttons.map { axString($0, kAXTitleAttribute as String) }
+        // macOS 26 的对话框把按钮放在几层分组里：逐层往下找，不只看直接的子元素。
+        func buttons(in element: AXUIElement, depth: Int) -> [AXUIElement] {
+            guard depth < 6 else { return [] }
+            return axChildren(element).flatMap { child in
+                axString(child, kAXRoleAttribute as String) == "AXButton" ? [child] : buttons(in: child, depth: depth + 1)
+            }
+        }
+        func name(_ button: AXUIElement) -> String {
+            let title = axString(button, kAXTitleAttribute as String)
+            return title.isEmpty ? axString(button, kAXDescriptionAttribute as String) : title
+        }
+        let found = buttons(in: sheet, depth: 0)
+        let names = found.map(name)
         results["sheetButtons"] = names
         let deleteWords = ["Delete", "Don’t Save", "Don't Save", "删除", "不存储"]
-        if let delete = buttons.first(where: { button in
-            let name = axString(button, kAXTitleAttribute as String)
-            return deleteWords.contains { name.contains($0) }
-        }) {
-            log("press \(axString(delete, kAXTitleAttribute as String)) in the save sheet")
+        if let delete = found.first(where: { button in deleteWords.contains { name(button).contains($0) } }) {
+            log("press \(name(delete)) in the save sheet")
             AXUIElementPerformAction(delete, kAXPressAction as CFString)
         } else {
             failures.append("no delete button in the save sheet (\(names))")
