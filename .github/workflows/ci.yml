@@ -40,3 +40,10 @@ jobs:
         with:
           name: test-logs
           path: .build/ci-logs
+      - name: Upload settings screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settings-screenshots
+          path: .build/appkit-tests/settings-shots
+          if-no-files-found: ignore
