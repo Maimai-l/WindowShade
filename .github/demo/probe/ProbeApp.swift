@@ -237,7 +237,19 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
     }
 
     func applicationDidBecomeActive(_ notification: Notification) { record("activated") }
-    func applicationDidHide(_ notification: Notification) { record("hidden") }
+    // 记下是哪个事件让它隐藏的（按键、单击、Apple 事件……），分得清是 WindowShade、系统还是测试本身。
+    func applicationDidHide(_ notification: Notification) {
+        var trigger = "none"
+        if let event = NSApp.currentEvent {
+            let chars: String = event.type == .keyDown ? (event.charactersIgnoringModifiers ?? "") : ""
+            trigger = "type=\(event.type.rawValue) flags=\(event.modifierFlags.rawValue) chars=\(chars)"
+        }
+        var appleEvent = "none"
+        if let descriptor = NSAppleEventManager.shared().currentAppleEvent {
+            appleEvent = "\(descriptor.eventClass)/\(descriptor.eventID)"
+        }
+        record("hidden", ["trigger": trigger, "appleEvent": appleEvent])
+    }
     func applicationDidUnhide(_ notification: Notification) { record("unhidden") }
 
     func textDidChange(_ notification: Notification) {

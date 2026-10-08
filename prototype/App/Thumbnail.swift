@@ -453,15 +453,16 @@ final class ShadeThumbnailView: NSView {
             flights.append(flight)
             dropEntranceCover(fade: false)
         }
+        // 回调要持有 flight：flights 里那一份移走后它就没人持有了，弱引用到这里已是 nil，面板会一直留在屏幕上。
         flight.fly(to: thumbnail, velocity: .zero, response: 0.38, bounce: 0,
-                   cornerRadius: ThumbnailLayout.cornerRadius) { [weak self, weak flight] in
+                   cornerRadius: ThumbnailLayout.cornerRadius) { [weak self] in
             MainActor.assumeIsolated {
                 if let self {
                     self.entranceFlying = false
                     self.refreshOpacity()
                     self.flights.removeAll { $0 === flight }
                 }
-                flight?.remove(fade: false)
+                flight.remove(fade: false)
             }
         }
     }

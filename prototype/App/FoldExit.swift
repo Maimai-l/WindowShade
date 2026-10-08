@@ -120,12 +120,14 @@ extension AppDelegate {
         markShadeLifecycle(id: id, stage, reason: reason)
         transitionOperationState(id: id, to: .normal, reason: "removeProxy")
         hideMenuHoverPreview(id: id)
+        // 先移出收起记录，再撤看一眼：画面结束时，窗口若还算收起着，会把临时取消隐藏的应用程序藏回去，
+        // 刚放回来、正要按它的关闭按钮的窗口就又不见了（CI 场景 C04-cancel：选“取消”后窗口不在屏幕上）。
+        shaded.removeValue(forKey: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         clearShadeJournal(id: id)
         reconcileInvalidCounts.removeValue(forKey: id)
         arrangedOverlayFrames.removeValue(forKey: id)
         accessibilityActionTargets.removeValue(forKey: id)
-        shaded.removeValue(forKey: id)
         if let overlayID = state.overlayID { overlayIDs.remove(overlayID) }
         removeObserver(state)
         if let overlay = state.overlay { dismissOverlay(overlay) }

@@ -196,8 +196,7 @@ extension AppDelegate {
                 self.pendingVisibilityChecks.remove(id)
                 guard let frame, let current = self.shaded[id], current.foldTransactionID == transaction,
                       self.sourceWindowLooksUserVisible(state: current, pos: frame.origin, size: frame.size) else { return }
-                wlog("proxy: source visible; cleanup id=\(id) app=\(current.appName) reason=\(reason)")
-                self.forceCleanup(id)
+                self.settleRevealedSource(id: id, state: current, at: frame.origin, reason: reason)
             }
         })
     }

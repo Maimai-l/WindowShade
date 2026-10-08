@@ -52,6 +52,24 @@ func realAppRoundTrip(_ bundleID: String, launch: [String], size: CGSize?, barY:
         app.activate()
     }
     await pause(0.8)
+    // 备忘录第一次打开时在窗口上挂着“新功能”对话框；带对话框的窗口按规则不收起（A13），先把它关掉。
+    for _ in 0..<3 {
+        guard let sheet = axChildren(window).first(where: { axString($0, kAXRoleAttribute as String) == "AXSheet" }) else { break }
+        var value: CFTypeRef?
+        var defaultButton: AXUIElement?
+        if AXUIElementCopyAttributeValue(sheet, kAXDefaultButtonAttribute as CFString, &value) == .success,
+           let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
+            defaultButton = unsafeDowncast(value, to: AXUIElement.self)
+        }
+        guard let button = defaultButton
+                ?? findElement(sheet, maxDepth: 6, { axString($0, kAXRoleAttribute as String) == "AXButton" }) else {
+            harness.result.notes["sheet"] = "\(bundleID) shows a sheet without a button"
+            break
+        }
+        harness.result.notes["sheet"] = "dismissed a sheet on \(bundleID): \(axString(button, kAXTitleAttribute as String))"
+        AXUIElementPerformAction(button, kAXPressAction as CFString)
+        await pause(1)
+    }
     if let size { place(window, origin: CGPoint(x: 160, y: 120), size: size) }
     else { place(window, origin: CGPoint(x: 160, y: 120), size: axFrame(window)?.size ?? CGSize(width: 600, height: 400)) }
     await pause(0.6)
@@ -373,18 +391,25 @@ let foldScenarios: [Scenario] = [
         await glide(to: point, duration: 0.3)
         await doubleClick(at: point)
         await glide(to: h.neutral, duration: 0.2)
-        var thumbnail: CGRect?
-        _ = await eventually(3) {
-            thumbnail = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+        func windowShadeWindows() -> [CGRect] {
+            (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
                 .compactMap { info -> CGRect? in
                     guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
                           let bounds = info[kCGWindowBounds as String] as? NSDictionary else { return nil }
                     return CGRect(dictionaryRepresentation: bounds)
                 }
-                .first { $0.width > 60 && $0.height > 40 && $0.intersects(frame) }
+        }
+        // 缩略图比窗口小得多；收起动画的面板比窗口大，飞完就该撤掉。取与窗口相交的最小那一扇。
+        var thumbnail: CGRect?
+        _ = await eventually(3) {
+            thumbnail = windowShadeWindows()
+                .filter { $0.width > 60 && $0.height > 40 && $0.width < frame.width && $0.intersects(frame) }
+                .min { $0.width * $0.height < $1.width * $1.height }
             return thumbnail != nil
         }
         guard let thumbnail else { h.result.violations.append("A28: no thumbnail appeared"); return }
+        let cleared = await eventually(2) { !windowShadeWindows().contains { $0.width > frame.width && $0.height > frame.height } }
+        h.expect(cleared, "A28: the fold animation panel is still on screen (\(windowShadeWindows()))")
         await glide(to: CGPoint(x: thumbnail.midX, y: thumbnail.midY), duration: 0.3)
         await doubleClick(at: CGPoint(x: thumbnail.midX, y: thumbnail.midY))
         await glide(to: h.neutral, duration: 0.2)

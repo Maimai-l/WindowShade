@@ -743,6 +743,15 @@ final class GlanceController {
         guard session.viaUnhide else { return }
         if session.stage == .shown, session.unhiddenAt == nil,
            let at = session.unhideAt, now >= at, session.frontmostBeforeUnhide == nil {
+            // 用户刚单击了卷帘条，卷帘条是当前窗口：取消隐藏有时会把原应用程序换到前台（场景 C13、C14 里晚了 0.5 秒），
+            // 卷帘条随之失去键盘，⌘N、⌘Q 落不到它上面，这次激活还会被当成用户切回原应用程序而展开窗口。
+            // 这时不取消隐藏，只给截图。
+            if NSApp.isActive {
+                session.unhideAt = nil
+                session.captureFailed = true
+                wlog("glance: strip has the keyboard; snapshot only id=\(session.id)")
+                return
+            }
             session.frontmostBeforeUnhide = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
             revealHoldUntil[session.id] = now + 5
             let ok = setAXAppHidden(pid: session.pid, false)

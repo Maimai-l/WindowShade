@@ -63,6 +63,22 @@ extension AppDelegate {
             return ownWindow(id: state.sourceWindowID)?.isVisible ?? false
         }
     }
+    /// 原窗口又出现在屏幕上了。回到了它自己的位置（用户从程序坞、Command-Tab 唤回）：只撤卷帘条。
+    /// 出现在别处：多半是系统把停在屏幕角落的窗口拉回屏幕内（应用程序被激活时会这样），
+    /// 只撤卷帘条会把窗口留在一个它从没待过的地方（CI 场景 A24）：按展开的流程放回原处。
+    func settleRevealedSource(id: CGWindowID, state: ShadeState, at pos: CGPoint, reason: String) {
+        let expected = state.overlay.map { axPosition(fromCocoaFrame: restoreReferenceFrame(id: id, overlay: $0)) }
+            ?? state.originalPosition
+        if abs(pos.x - expected.x) <= 4 && abs(pos.y - expected.y) <= 4 {
+            wlog("\(reason): source already visible; cleanup overlay id=\(id) app=\(state.appName)")
+            forceCleanup(id)
+        } else {
+            wlog("\(reason): source visible away from its place at=(\(Int(pos.x)),\(Int(pos.y))) "
+                 + "expected=(\(Int(expected.x)),\(Int(expected.y))); unfold to its place id=\(id) app=\(state.appName)")
+            _ = unshadeReturningElement(id, playSound: false)
+        }
+    }
+
     func shouldLogReconcileInvalidCount(_ count: Int) -> Bool {
         count == 1 || count == 3 || count == 10 || count % 60 == 0
     }
@@ -233,8 +249,7 @@ extension AppDelegate {
                                             onScreenWindowIDs: onScreenIDs,
                                             sourceIsMinimized: snapshot.isMinimized),
                foldCallbackIsCurrent(snapshot.stamp) {
-                wlog("reconcile: source already visible; cleanup overlay id=\(snapshot.id) app=\(state.appName)")
-                forceCleanup(snapshot.id)
+                settleRevealedSource(id: snapshot.id, state: state, at: pos, reason: "reconcile")
                 continue
             }
 

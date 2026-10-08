@@ -141,9 +141,7 @@ extension AppDelegate {
         // Even a standard titlebar can contain an editable accessory view.
         // 过了带内预过滤的点击都是"疑似标题栏双击"，低频且用户可感——
         // 此后的每个拒绝分支都要留日志，否则"有时候折叠不了"无从排查。
-        let sysWide = AXUIElementCreateSystemWide()
-        var elRef: AXUIElement?
-        let hitErr = AXUIElementCopyElementAtPosition(sysWide, Float(point.x), Float(point.y), &elRef)
+        let (hitErr, elRef, hitTimedOut) = titlebarHitTest(at: point)
         if hitErr == .success, let el = elRef {
             // 交通灯、地址栏、搜索框、工具栏按钮等控件不抢；标签放行（见谓词注释）。
             let role = axRole(el)
@@ -160,9 +158,14 @@ extension AppDelegate {
             if let win = frontmostWindowContaining(point: point, requireCompatProfile: false) {
                 return handleTitleBarDoubleClick(win: win, point: point, source: "geometry-after-orphan-hit")
             }
+        } else if hitTimedOut {
+            // 应用程序在 titlebarHitTestTimeout 内没有回答：它卡住了。几何回退还要再问它窗口位置，
+            // 每问一次又是一次超时，所以这次双击放行给它自己，不收起。
+            wlog("titlebar-double-click: app did not answer the hit-test in time; passing the click through at=(\(Int(point.x)),\(Int(point.y)))")
+            return false
         } else if hitErr != .success {
-            // 目标 app 忙时 AX 命中测试会超时/出错（此前静默死掉，正是"有时候
-            // 双击没反应"的一类来源）。降级用几何回退判定标题栏。
+            // 命中测试出了别的错（此前静默死掉，正是"有时候双击没反应"的一类来源）。
+            // 降级用几何回退判定标题栏。
             wlog("titlebar-double-click: ax hit-test failed err=\(hitErr.rawValue); trying geometry fallback")
             if let win = frontmostWindowContaining(point: point, requireCompatProfile: false) {
                 return handleTitleBarDoubleClick(win: win, point: point, source: "geometry-after-ax-error")
@@ -237,10 +240,10 @@ extension AppDelegate {
         // pending 分支之后才预过滤：三击补系统动作的 pending 匹配不依赖 AX。
         guard pointMayLieInTitlebarBand(point) else { return false }
 
-        let sysWide = AXUIElementCreateSystemWide()
-        var elRef: AXUIElement?
-        if AXUIElementCopyElementAtPosition(sysWide, Float(point.x), Float(point.y), &elRef) == .success,
-           let el = elRef {
+        let (hitErr, elRef, hitTimedOut) = titlebarHitTest(at: point)
+        // 应用程序卡住时不再用几何回退去问它（见 handleTitleBarDoubleClick）。
+        if hitTimedOut { return false }
+        if hitErr == .success, let el = elRef {
             // A rejected control is conclusive. Geometry must not turn a text
             // selection or button click into a window action.
             guard !stealsTitlebarDoubleClick(axRole(el)) else { return false }

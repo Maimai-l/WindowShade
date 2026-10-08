@@ -46,6 +46,18 @@ struct FocusHandoffTests {
             t.expect(control.focused == [2] && control.activated.isEmpty, "只设置焦点窗口，不切换应用程序")
         }
 
+        t.section("F4", "截图时 WindowShade 暂居前台，同一应用程序还有窗口：激活该应用程序再交给它（场景 A15）")
+        do {
+            let control = FakeFocusControl()
+            let sibling = FakeWindow(id: 2, pid: appPID, frame: frame)
+            control.appWindows[appPID] = [original, sibling]
+            control.onScreen = [onScreen(99, selfPID), onScreen(1, appPID), onScreen(2, appPID)]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: selfPID))
+            t.expect(result == .sameApp(heir: 2), "交给窗口 2")
+            t.expect(control.activated == [appPID], "激活应用程序 \(appPID)：只设置焦点窗口，它仍在后台，窗口 2 成不了当前窗口")
+            t.expect(control.focused == [2], "焦点给窗口 2")
+        }
+
         t.section("F4", "同一应用程序没有其他窗口：交给当前桌面最上层的普通应用程序窗口")
         do {
             let control = FakeFocusControl()

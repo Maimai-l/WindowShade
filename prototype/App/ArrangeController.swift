@@ -76,6 +76,28 @@ extension AppDelegate {
         syncRestoreJournal(id: id, fromOverlayFrame: frame)
         arrangedOverlayFrames.removeValue(forKey: id)
         if hadArrangedFrame { rebuildMenu() }
+        pullOverlayBackIntoReachAfterDrag(id: id)
+    }
+
+    /// 卷帘条被拖到屏幕外（例如拖过屏幕下边）：拖完之后拉回够得着的位置（docs/test-catalog.md C02）。
+    /// 拖动过程中不拉，免得和手抢；停下 0.3 秒且鼠标已经松开才检查。
+    func pullOverlayBackIntoReachAfterDrag(id: CGWindowID) {
+        let token = UUID()
+        overlayMoveSettleTokens[id] = token
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.overlayMoveSettleTokens[id] == token else { return }
+            guard NSEvent.pressedMouseButtons == 0 else {
+                self.pullOverlayBackIntoReachAfterDrag(id: id)
+                return
+            }
+            self.overlayMoveSettleTokens.removeValue(forKey: id)
+            guard let state = self.shaded[id], let overlay = state.overlay,
+                  !overlayIsReachable(overlay.frame) else { return }
+            let newFrame = self.clampedFrame(overlay.frame, margin: 8, preferredDisplayID: state.sourceDisplayID)
+            overlay.setFrame(newFrame, display: true)
+            self.syncRestoreJournal(id: id, fromOverlayFrame: newFrame)
+            wlog("drag: pulled strip back into reach id=\(id) frame=(\(Int(newFrame.minX)),\(Int(newFrame.minY)) \(Int(newFrame.width))x\(Int(newFrame.height)))")
+        }
     }
 
     func arrangedDisplayWidth(for state: ShadeState, overlay: NSWindow,

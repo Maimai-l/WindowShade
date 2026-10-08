@@ -232,6 +232,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var restorePinTokens: [CGWindowID: UUID] = [:]
     /// 用辅助功能“缩放”过的窗口原来的位置和大小（辅助功能坐标）：再缩放一次放回去。
     var zoomRestoreFrames: [CGWindowID: CGRect] = [:]
+    /// 卷帘条最后一次被拖动的令牌：停下 0.3 秒、松开鼠标后，检查它还够不够得着。
+    var overlayMoveSettleTokens: [CGWindowID: UUID] = [:]
     var soundEnabled: Bool = {
         if UserDefaults.standard.object(forKey: shadeSoundEnabledDefaultsKey) == nil { return true }
         return UserDefaults.standard.bool(forKey: shadeSoundEnabledDefaultsKey)

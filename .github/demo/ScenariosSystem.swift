@@ -47,6 +47,29 @@ func control(_ root: AXUIElement, _ name: String, role: String? = nil) -> AXUIEl
     }
 }
 
+/// 设置窗口里的开关。SwiftUI 表单里的开关自己没有标题，名字是同一行里另一段文字的 AXValue：
+/// 先按标题找，找不到就找写着 name 的文字，取和它在同一行（中线相差不到 20 点）的开关。
+func toggle(_ root: AXUIElement, _ name: String) -> AXUIElement? {
+    if let titled = control(root, name, role: "AXCheckBox") { return titled }
+    var labels: [CGRect] = []
+    var boxes: [(AXUIElement, CGRect)] = []
+    func walk(_ element: AXUIElement, _ depth: Int) {
+        guard depth < 30 else { return }
+        for child in axChildren(element) {
+            let role = axString(child, kAXRoleAttribute as String)
+            if role == "AXStaticText", axString(child, kAXValueAttribute as String) == name, let frame = axFrame(child) {
+                labels.append(frame)
+            } else if role == "AXCheckBox", let frame = axFrame(child) {
+                boxes.append((child, frame))
+            }
+            walk(child, depth + 1)
+        }
+    }
+    walk(root, 0)
+    guard let label = labels.first else { return nil }
+    return boxes.filter { abs($0.1.midY - label.midY) < 20 }.min { abs($0.1.midY - label.midY) < abs($1.1.midY - label.midY) }?.0
+}
+
 func isEnabled(_ element: AXUIElement) -> Bool {
     var value: CFTypeRef?
     AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &value)
@@ -245,10 +268,10 @@ let systemScenarios: [Scenario] = [
         }
         for (name, key) in [("卷帘条置顶", "ShadeFloatingOnTop"), ("看一眼", "GlanceEnabled")] {
             let before = readDefault(key)
-            guard let toggle = control(settings, name, role: "AXCheckBox") ?? control(settings, name) else {
+            guard let element = toggle(settings, name) else {
                 h.result.violations.append("H01: no control named \(name)"); continue
             }
-            AXUIElementPerformAction(toggle, kAXPressAction as CFString)
+            AXUIElementPerformAction(element, kAXPressAction as CFString)
             await pause(0.6)
             let after = readDefault(key)
             h.expect(after != before, "H01: \(name) did not change \(key) (\(before) → \(after))")
