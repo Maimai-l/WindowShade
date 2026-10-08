@@ -14,9 +14,7 @@
 prototype/
 ├── main.swift                        # 入口（NSApplication + AppDelegate）
 ├── WindowShade.swift                 # 全局常量 + AppDelegate 骨架（启动、观察者、生命周期）
-├── ScreenCaptureBridge.swift         # SCStream 捕获（置顶预览的实时流）
-├── PinnedPreview.swift               # 置顶预览控制器（目标解析、watchdog、交互接管）
-├── PinnedPreviewPanel.swift          # 预览面板与菜单实时缩略图
+├── ScreenCaptureBridge.swift         # SCStream 捕获（看一眼的实时画面）
 ├── App/                              # AppDelegate 扩展（按功能拆分的控制器）
 │   ├── MenuBarController.swift       # 状态栏图标、菜单重建与菜单代理回调
 │   ├── Reconcile.swift               # 折叠会话监控（reconcile 定时核对/并行快照）
@@ -24,14 +22,19 @@ prototype/
 │   ├── EventTapCallback.swift        # CGEventTap 的 C 回调与标题栏带预过滤
 │   ├── Permissions.swift             # 权限检测与隐私设置跳转
 │   ├── StatusBarIcon.swift           # 状态栏模板图标
-│   ├── Preferences.swift             # 设置窗口与引导页
+│   ├── SettingsWindow.swift          # 设置窗口（侧边栏与分页）
+│   ├── Preferences.swift             # 设置各分页的内容与引导页
+│   ├── GlobalShortcuts.swift         # 全局快捷键的设置与默认值；HotKey.swift 是一个组合的录制规则与显示名
+│   ├── Glance.swift                  # 看一眼：指针停在卷帘条上时的画面卡片
+│   ├── Thumbnail.swift               # 收成缩略图的外观
+│   ├── SnapshotFlight.swift          # 展开时截图飞回原位
 │   ├── OverlayPresentation.swift     # 覆盖层展示与 Space 不变量
 │   ├── HoverPreview.swift            # 悬停预览（peek / 菜单悬停）
 │   ├── OverlayFactory.swift          # 覆盖层窗口工厂（截图条/代理标题栏）
 │   ├── ArrangeController.swift       # 卷帘条整理与专注 shelf
 │   ├── FocusSession.swift            # 专注会话
 │   ├── FoldTransaction.swift         # 折叠事务辅助（隐藏/恢复/验证/转发/通知）
-│   ├── FoldCompletion.swift          # 窗口动作与标题栏手势共用的完成等待
+│   ├── FoldCompletion.swift          # 等折叠终态的回调（标题栏三击）
 │   ├── ShadeController.swift         # 折叠入口（shade/toggle/折叠计划/截图）
 │   ├── FoldExit.swift                # 折叠出口（unshade/清理/交通灯/QuickLook）
 │   └── Updater*.swift                # 应用内更新（docs/update.md）：Updater 状态与把关、UpdaterSparkle 唯一接 Sparkle 的一层
@@ -62,15 +65,11 @@ prototype/
 │   ├── ChromeProfile.swift           # 窗口外框画像与缓存
 │   ├── Coordinates.swift             # AX / Cocoa 坐标换算与屏幕归属
 │   └── WindowListCache.swift         # WindowServer 窗口列表缓存与单窗口查询
-├── Effects/                          # 合盖桌面效果与窗口收起动画（Metal 渲染、传感器、设置窗口）
-├── WindowBrowser/                    # 窗口浏览：Dock 悬停与“选择窗口…”面板
-│   ├── WindowBrowserController.swift # 会话、目录、截图请求与面板生命周期
-│   ├── WindowBrowserViews.swift      # 视图共用部分（协议、图标缓存、表面样式）
-│   └── WindowBrowser*View.swift 等   # 每个视图一个文件：卡片、列表行、详情、大图预览、内容视图
 ├── Support/
 │   └── Diagnostics.swift             # 日志、主线程活动标记、慢调用日志、卡顿哨兵
 ├── Recovery/
 │   ├── Journal.swift                 # 恢复日志数据层（持久化/匹配/生命周期标记）
+│   ├── RestoreVerifier.swift         # 展开后确认窗口真的回来了，没回来就留着恢复记录
 │   └── Rescue.swift                  # 离屏窗口救援编排（后台扫描 + 主线程写回）
 ├── Watchdog/                         # 更新看护 WindowShadeUpdateGuard.app 的入口和图标，单独编译，放进 Contents/Helpers/
 └── Vendor/
@@ -141,25 +140,21 @@ cd prototype
 ## 测试
 
 每个 `tests/run-*.sh` 编一个小的测试程序并运行，只用到它列出的源文件；CI（`.github/workflows/ci.yml`）在 macOS 上逐个跑一遍，结果表在 job summary 里。
-需要签名构建或解锁的图形会话的（`run-update-integration.sh`、`tools/lid-report-probe/run.sh`）只在本机跑。
+需要签名构建的 `run-update-integration.sh` 只在本机跑。
 
 | 范围 | 命令 |
 |---|---|
-| 设置、收起动画、看一眼与带到每张桌面的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
+| 设置窗口与看一眼的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
 | 看一眼的指针意图 | `bash tests/run-glance-tests.sh` |
 | 收起时把窗口停到屏幕角上 | `bash tests/run-corner-parking-tests.sh` |
-| 标题栏手势识别 | `bash tests/run-gesture-tests.sh` |
 | 缩略图布局与半透明 | `bash tests/run-thumbnail-tests.sh` |
 | 收起与展开的声音 | `bash tests/run-shade-sound-tests.sh` |
-| 窗口浏览（纯逻辑与离屏视图） | `bash tests/run-window-browser-tests.sh` |
+| 应用菜单与菜单栏菜单 | `bash tests/run-standard-menu-tests.sh` |
 | 窗口列表缓存、AX 读取名额 | `bash tests/run-window-list-cache-tests.sh`、`bash tests/run-ax-read-gate-tests.sh` |
 | 纸面组件与系统外观 | `bash tests/run-paper-tests.sh` |
-| 快捷键默认值、Rectangle 键位 | `bash tests/run-quiet-defaults-tests.sh`、`bash tests/run-rectangle-keymap-tests.sh` |
-| 合盖效果 | `bash tests/run-duo-tests.sh`、`bash tests/run-lid-gesture-tests.sh`、`bash tests/run-lid-source-tests.sh` |
+| 快捷键默认值与录制规则 | `bash tests/run-quiet-defaults-tests.sh` |
 | 更新器 | `bash tests/run-update-tests.sh`；签名构建后 `bash tests/run-update-integration.sh` |
 | 日志写入、卡顿采样 | `bash tests/run-secure-log-tests.sh`、`bash tests/run-stall-sampler-tests.sh` |
-
-改了窗口浏览的源文件时，同步更新 `tests/run-window-browser-tests.sh` 里的源文件清单。
 
 ## 调试
 
@@ -171,14 +166,13 @@ cd prototype
 - 系统外观（材质 / 对比度边线 / 薄纱 / 动画 / 可访问性文案）集中在 `prototype/Overlay/SystemAppearance.swift`：新增自定义表面时用 `SystemMaterialView`，在 `applySystemAppearance(capabilities:)` 里读 `SystemAppearancePolicy`，不要在调用点各自判断 `accessibilityDisplayShould*`。
 - 代理应用的主菜单：WindowShade 是 `LSUIElement`，不显示菜单栏，但文本编辑快捷键与 ⌘W 依赖主菜单的 key equivalent，菜单由 `prototype/App/StandardMenu.swift` 生成。
 - 激活应用统一用 `NSApp.activate()`（macOS 14+ 协作式），不要再用 `activate(ignoringOtherApps:)`。
-- 编译期玻璃能力探测：`build.sh` 与测试脚本都会检查当前 SDK 是否包含 `AppKit.framework/Headers/NSGlassEffectView.h`，包含时定义 `WINDOWSHADE_SDK_HAS_GLASS`；运行时再用 `#available(macOS 26.0, *)` 决定是否启用。玻璃实现在 `prototype/WindowBrowser/WindowBrowserMaterial.swift` 的 `WindowBrowserGlassBackdrop`。
 
-用户向说明见 [docs/window-browser.md](docs/window-browser.md)、[docs/glance.md](docs/glance.md)、[docs/gestures.md](docs/gestures.md)。
+用户向说明见 [docs/glance.md](docs/glance.md)。
 动手优化性能之前先读 [docs/performance.md](docs/performance.md)：那里记了实测的调用成本、已走通的手法和已经证伪的方向。
 
 ## 发布前测试清单
 
-在以下应用上验证折叠 / 展开、双击标题栏、卷帘条预览、置顶预览、菜单管理、`⌃⌘1...9`、`⌃⌘0`：
+在以下应用上验证折叠 / 展开、双击标题栏、看一眼、菜单管理、`⌃⌘1...9`、`⌃⌘0`：
 
 - Finder
 - Safari

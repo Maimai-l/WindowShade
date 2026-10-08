@@ -25,12 +25,6 @@ A free, open-source window utility for Mac.
 
 </div>
 
-## In development
-
-A few things are in development. “Temporarily unpin all” in the menu bar gets every pinned window out of the way, and choosing it again puts them back in the same front-to-back order (you can record a shortcut for it in Settings). When a window already sits in the top or bottom row, swiping left or right walks the same ladder inside that row, giving two-thirds and one-sixth cells; a one-third window steps a column at a time through the middle. From a one-sixth cell, a sideways swipe that turns up or down walks the three rows of that column, giving one-ninth cells. Pulling down a little on a rolled-up strip is a glance, and pulling all the way unrolls the window. ⌃⌘N moves a window to the next screen, including screens stacked above or below, and Settings can leave a gap between arranged windows. Coming from Rectangle, one button in Settings → Shortcuts brings its key set with you. With Mission Control open, ⌘W closes the window under the pointer and ⌘Q quits its app. The window browser adds New Window (⌘N on a Mac), dragging a preview out of the panel to a screen edge places that window there, and WeChat mini-program windows are listed under WeChat.
-
-These additions have not shipped. The download still follows its release notes. See [title bar gestures](docs/gestures.md) for usage and validation.
-
 ## Three ways to move a window aside. Only one never makes you look for it.
 
 When a window covers something, you probably close it or minimize it. Both work. Getting it back just takes a little effort.
@@ -59,48 +53,23 @@ Then [boot an old Mac](https://windowshade.aaronlau.me/en/history/#lab) — Syst
 
 Today’s WindowShade is an independent Swift / AppKit app: the old name and the old idea, with code written from scratch. It is not an Apple product, and it uses no code from Rob Johnston, Apple, or Unsanity’s WindowShade X.
 
-## Beyond the old gesture, it keeps track of every window
+## How it works
 
-Roll up, and a window stays where it was. Glance, and you see it without unrolling. Carry it to every desktop, and you can see it from anywhere. Pin, and it stays in front. Browse, and you find it from the Dock. They all answer one question: where is the window you need, without a round trip to get it?
+Roll up, and a window stays where it was. Glance, and you see it without unrolling. The window you need stays where you know it is, with no round trip to get it.
 
 **Roll up.** Double-click a title bar or press `⌃⌘C` and the window rolls up into a thin bar; double-click the bar to unroll it. The bar can keep the window’s own look, or use one consistent title bar. While a bar is in front, `⌘W`, `⌘M`, `⌘H`, `⌘Q` and `⌘N` go to the window and app behind it; `⌘Q` puts the window back down first, so any “save changes?” question is where you can see it.
 
-**Swipe the title bar.** Put the pointer on a title bar and swipe with two fingers. The window follows your fingers: push up and it rolls up like a shade; pull down and it fills the screen between the menu bar and the Dock, and pushing up again puts it back. Nothing happens until you let go, so pulling back halfway undoes it. While you swipe, a small panel styled like the system volume indicator says what letting go will do. Swipe sideways for half the screen; keep swiping the same way for two thirds, then one third, and if there’s another display on that side, once more moves the window there. Once a sideways swipe is complete, turn down or up and the window takes that corner. Spreading two fingers also fills the screen, pinching undoes the last placement, and a double-tap toggles between filled and the original size. With an ordinary mouse, three notches of the wheel on a title bar count as one swipe; Magic Mouse support is still being checked on real hardware.
-
-**Flick the title bar.** Drag a title bar, throw it and let go, and the window glides the way you threw it: up rolls it up, down fills the screen, left and right walk the same steps, and a throw clearly aimed at a corner takes that corner. Three-finger drag works too; lifting your fingers is enough. Slowing down before you let go, or letting go at the edge of the screen, is still the system’s own dragging and tiling. The keyboard follows the same steps: `⌃⌘←` and `⌃⌘→` for the sides, `⌃⌘↓` one size up, `⌃⌘↑` one size down; press `⌃⌘←` then `⌃⌘↓` right away for the bottom-left corner. After you switch displays, windows you placed with a gesture, a shortcut or the window browser are laid out the same way on the new screen. Web pages and lists still scroll, sideways swipes on a Safari tab still switch tabs, and while Swish is running the title bar is left to it. Details are in the [gesture notes](docs/gestures.md).
-
-**Glance.** Rest the pointer on the bar and a card drops down beneath it, showing the window's content at its own size; move away and it rolls back up. Click the card to unroll the window for real; on a Force Touch trackpad, pressing firmly on the bar also glances, and letting go puts it away. The bar stays put and the card hangs just below it, so it reads as a preview, not the window itself. A glance never switches the app you’re in and never moves a window. A window that was minimized when it rolled up can’t be shown live, so you see how it looked then, and the corner says so. Details are in the [glance notes](docs/glance.md).
-
-**Carry to every desktop.** If you keep one app per desktop, press `⌃⌘G` to carry the current window to every desktop: it stays where it is, and its bar appears in the top-right corner of your other desktops. Rest on the bar for a live picture; if the window is hidden or minimized, a labelled snapshot appears instead. Click the picture to go to it. Press `⌃⌘G` again, or click the bar’s ×, to put it down.
-
-**Pin.** Writing from notes, or following a tutorial step by step? Press `⌃⌘P` to pin that window, and it stays uncovered while you switch to anything else. The menu bar lists every pinned window and can unpin them all at once.
-
-**Window browsing.** Rest the pointer on an app’s icon in the Dock and every window that app has open is listed, each with a picture and a title.
-
-- The panel is for looking. A window changes only when you press a button on its card.
-- Select a window and press Space for a large preview. The window isn’t brought forward or moved.
-- Left half, right half, a corner, centred, full, or another display: it shows where the window will go and moves it only when you agree. You can undo afterwards.
-
-You can also open it from Choose window… in the menu bar, or with a hot key you set. The Dock entry is off by default; turn it on in Settings → Window browsing. The panel is temporary: it does not replace the Dock or take over Command-Tab. Details are in the [window browsing notes](docs/window-browser.md).
-
-**An extra: close the lid, and the desktop stays put.**
-
-<img src="assets/windowshade-lid-en.gif" alt="As the MacBook lid closes, the desktop seems to stay where it was, darker and blurrier toward the top" width="620">
-
-On an Apple Silicon MacBook with a hinge sensor, the screen closes but the desktop seems to stay where it was, like a page behind glass, growing darker and blurrier toward the top. Open the lid and it’s back. There are three styles: gentle, standard and frosted. It’s only an extra: rolling up and pinning work without it.
+**Glance.** Rest the pointer on the bar and a card drops down beneath it, showing the window's content at its own size; move away and it rolls back up. Click the card to unroll the window for real. The bar stays put and the card hangs just below it, so it reads as a preview, not the window itself. A glance never switches the app you’re in and never moves a window. A window that was minimized when it rolled up can’t be shown live, so you see how it looked then, and the corner says so. Details are in the [glance notes](docs/glance.md).
 
 ## Shortcuts
 
-New setups in 1.0.16 preset none of these ⌃⌘ combinations; record your own in Settings → Shortcuts, or bring Rectangle’s key set over in one click. Setups upgraded from 1.0.15 or earlier keep the combinations below.
+New setups in 1.0.16 preset none of these ⌃⌘ combinations; record your own in Settings → Shortcuts. Setups upgraded from 1.0.15 or earlier keep the combinations below.
 
 | Shortcut (upgraded setups) | What it does |
 | --- | --- |
 | `⌃⌘C` | Roll up or unroll the current window |
-| `⌃⌘P` | Pin or unpin the current window |
-| `⌃⌘G` | Carry the current window to every desktop; press again to put it down |
 | `⌃⌘1…9` | Unroll a rolled-up window, in menu order |
 | `⌃⌘0` | Line up the bars, or switch to a focus layout |
-| `⌃⌘←` `⌃⌘→` `⌃⌘↑` `⌃⌘↓` | Place the current window: to the sides, one size down, one size up |
 
 Double-click a title bar to roll up; double-click the bar to unroll. Every shortcut can be changed or turned off in Settings, and if another app already uses a combination, WindowShade tells you once.
 
@@ -121,12 +90,12 @@ Regular windows all roll up. Stickies rolls up in its own system way; apps like 
 
 ## Build and contribute
 
-Requires macOS 14+, Xcode command line tools with the Metal compiler, and an Apple Development signing certificate.
+Requires macOS 14+, Xcode command line tools, and an Apple Development signing certificate.
 
 ```sh
 git clone https://github.com/surfine/WindowShade.git
 cd WindowShade/prototype
-./build.sh --check   # Swift type checking and Metal compilation
+./build.sh --check   # compile check, no signing
 ./build.sh           # build and sign with your configured identity
 open WindowShade.app
 ```
@@ -135,8 +104,8 @@ Set `WINDOWSHADE_CODESIGN_IDENTITY` or use an untracked `prototype/local-codesig
 
 | In the repository | Purpose |
 | --- | --- |
-| [`prototype/`](prototype/) | Native app: window policies, capture, overlays, effects, and recovery |
-| [`tests/`](tests/) | State, recovery, frame, Metal, and paper-component checks |
+| [`prototype/`](prototype/) | Native app: window policies, capture, bars, and recovery |
+| [`tests/`](tests/) | State, recovery, shortcut, and paper-component checks |
 | [`site/`](site/) | Bilingual website and window stories, hosted on Cloudflare Pages |
 | [`docs/performance.md`](docs/performance.md) | Measurements and approaches that did or did not work |
 | [`docs/releases/`](docs/releases/) | Preserved release notes |
