@@ -66,6 +66,7 @@
 | A34 | 应用程序正卡住（不响应） | 双击标题栏 | WindowShade 在 1 秒内放弃或完成；系统输入不受影响（I2） |
 | A35 | 收起的过程中应用程序退出 | — | 不留卷帘条，不留恢复记录 |
 | A36 | 刚收起、卷帘条还没显示出来 | 马上在原处再双击 | 不作用到后面的窗口；展开刚收起的窗口 |
+| A37 | 同一应用程序的三扇窗口依次收起（最后一扇收起时它已没有可见窗口） | 展开其中一扇 | 只有这一扇展开，另外两扇仍收起（Q01 发现） |
 
 ## 3. 展开
 
@@ -250,7 +251,7 @@
 | 文件 | 编号 |
 |---|---|
 | `Scenarios.swift` | X01 至 X05、P01、P02、A22、B16 |
-| `ScenariosFold.swift` | A01 至 A15、A17、A18、A23 至 A25、A28、A29、A31、A33（计算器、终端、系统设置、Safari、备忘录、Chrome）、A34 至 A36 |
+| `ScenariosFold.swift` | A01 至 A15、A17、A18、A23 至 A25、A28、A29、A31、A33（计算器、终端、系统设置、Safari、备忘录、Chrome）、A34 至 A37 |
 | `ScenariosUnfold.swift` | B03 至 B07、B09、B11、B14、B17 |
 | `ScenariosStrip.swift` | C01 至 C08、C10 至 C16、C18 至 C23 |
 | `ScenariosGlance.swift` | D01 至 D07、D09 至 D12 |

@@ -16,9 +16,9 @@ struct WindowHiderTests {
     /// 完全不限制（窗口可以移到屏幕外很远的地方）。
     static let anywhere = CGRect(x: -40000, y: -40000, width: 80000, height: 80000)
 
-    static func request(_ policy: ShadePolicy, appHideSafe: Bool = true) -> HideRequest {
+    static func request(_ policy: ShadePolicy, appHideSafe: Bool = true, otherFolded: Int = 0) -> HideRequest {
         HideRequest(window: WindowHandle(element: NSObject()), id: 42, pid: 7, position: start, size: size,
-                    policy: policy, appHideSafe: appHideSafe, layout: layout)
+                    policy: policy, appHideSafe: appHideSafe, layout: layout, otherFoldedWindows: otherFolded)
     }
 
     static func main() {
@@ -52,6 +52,23 @@ struct WindowHiderTests {
             let skyLightCallsBefore = control.callsMatching("skyLight")
             _ = hider.hide(request(.hiddenIfSingleWindowElseMinimized(allowAppHide: true)))
             t.expect(control.callsMatching("skyLight") == skyLightCallsBefore, "已知无效后不再调用 SkyLight")
+        }
+
+        t.section("F3", "同一应用程序还有被收起的窗口：不隐藏整个应用程序（场景 A37、Q01）")
+        do {
+            // 隐藏了整个应用程序，之后展开它的另一扇窗口时应用程序重新显示，这一扇被当成用户唤回，跟着展开
+            // （Q01 种子 1771577254 第 28 步：展开一扇，三扇都展开了）。
+            let control = FakeWindowControl(position: start, size: size, allowedOrigins: cornerOnly)
+            let hider = WindowHider(control: control, skyLightMoveIneffective: true, skyLightAlphaIneffective: true)
+            let hide = hider.hide(request(.hiddenIfSingleWindowElseMinimized(allowAppHide: true), otherFolded: 2))
+            t.expect(hide == .offscreen, "结果为 offscreen（屏幕角落），不是 \(hide)")
+            t.expect(control.callsMatching("hideApp") == 0, "没有隐藏应用程序")
+
+            let safari = FakeWindowControl(position: start, size: size, allowedOrigins: anywhere)
+            let hider2 = WindowHider(control: safari)
+            t.expect(hider2.hide(request(.offscreenThenFallback(allowAppHide: true), otherFolded: 1)) == .offscreen,
+                     "先移屏幕外的策略：唯一可见窗口也不隐藏应用程序，移到屏幕外")
+            t.expect(safari.callsMatching("hideApp") == 0, "没有隐藏应用程序")
         }
 
         t.section("F3", "转移焦点不安全时不隐藏应用程序")

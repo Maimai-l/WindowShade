@@ -52,6 +52,9 @@ struct FocusHandoffRequest: Sendable {
     let selfPID: pid_t
     /// WindowShade 自己的卷帘条：不能接收焦点。
     let overlayIDs: Set<CGWindowID>
+    /// 已被 WindowShade 收起的窗口：停在屏幕角落时还露出 1 像素，算在屏幕上，但不能接收焦点
+    /// （交给它，它成了当前窗口，应用程序下次被激活时系统把它拉回屏幕内；场景 A37）。
+    var foldedIDs: Set<CGWindowID> = []
 }
 
 struct FocusHandoff: Sendable {
@@ -68,7 +71,7 @@ struct FocusHandoff: Sendable {
             guard !control.isSameWindow(candidate, request.window),
                   !control.isMinimized(candidate),
                   let cid = control.windowNumber(candidate), cid != request.id,
-                  onScreenIDs.contains(cid) else { continue }
+                  !request.foldedIDs.contains(cid), onScreenIDs.contains(cid) else { continue }
             // 截图时 WindowShade 为让原窗口画成非活跃态暂居前台：这时只设置焦点窗口，应用程序仍在后台，
             // 继承的窗口成不了当前窗口，键盘落到 WindowShade 上。所以先把应用程序激活回来。
             if request.frontmostPID != request.pid { control.activate(pid: request.pid) }

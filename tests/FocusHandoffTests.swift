@@ -19,9 +19,9 @@ struct FocusHandoffTests {
     static func main() {
         var t = TestSuite("focus-handoff")
         let original = FakeWindow(id: 1, pid: appPID, frame: frame)
-        func request(frontmost: pid_t?, overlays: Set<CGWindowID> = []) -> FocusHandoffRequest {
+        func request(frontmost: pid_t?, overlays: Set<CGWindowID> = [], folded: Set<CGWindowID> = []) -> FocusHandoffRequest {
             FocusHandoffRequest(window: WindowHandle(element: original), id: 1, pid: appPID,
-                                frontmostPID: frontmost, selfPID: selfPID, overlayIDs: overlays)
+                                frontmostPID: frontmost, selfPID: selfPID, overlayIDs: overlays, foldedIDs: folded)
         }
 
         t.section("F4", "原窗口所属的应用程序不在前台：不交接")
@@ -79,6 +79,22 @@ struct FocusHandoffTests {
             t.expect(result == .otherApp(pid: otherPID), "交给应用程序 \(otherPID)")
             t.expect(control.activated == [otherPID], "激活该应用程序")
             t.expect(control.focused == [30], "焦点给位置与屏幕上那扇窗一致的窗口 30")
+        }
+
+        t.section("F4", "同一应用程序的其他窗口已被收起：不交给它们，交给别的应用程序（场景 A37、Q01）")
+        do {
+            // 收起后停在屏幕角落的窗口还露出 1 像素，算在屏幕上；交给它，它成了当前窗口，
+            // 应用程序下次被激活时系统把它拉回屏幕内，WindowShade 就把它展开了（Q01 种子 1771577254 第 28 步）。
+            let control = FakeFocusControl()
+            let parked = FakeWindow(id: 2, pid: appPID, frame: CGRect(x: 1439, y: 899, width: 600, height: 400))
+            control.appWindows[appPID] = [original, parked]
+            let heir = FakeWindow(id: 30, pid: otherPID, frame: frame)
+            control.appWindows[otherPID] = [heir]
+            control.regularApps = [otherPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(2, appPID, bounds: parked.frame), onScreen(30, otherPID)]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID, folded: [2]))
+            t.expect(result == .otherApp(pid: otherPID), "交给应用程序 \(otherPID)，不交给已收起的窗口 2（结果 \(result)）")
+            t.expect(!control.focused.contains(2), "焦点没有给窗口 2")
         }
 
         t.section("F4", "当前桌面没有可以接收焦点的窗口：不交接，隐藏应用程序不安全")

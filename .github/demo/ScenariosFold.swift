@@ -528,6 +528,49 @@ let foldScenarios: [Scenario] = [
         await expectRestored(probe, frame, h, within: 4)
         await expectNoStrip(h, within: 2)
     },
+    // Q01 种子 1771577254 第 28 步缩短而来：收起最后一扇可见窗口时隐藏了整个应用程序，焦点交给了已收起、停在角落的窗口；
+    // 展开另一扇时应用程序重新显示，这两扇都跟着展开了。
+    Scenario(id: "A37", title: "同一应用程序的三扇窗口都收起后展开一扇：另外两扇仍收起",
+             options: ["--windows=3", "--size=340,220"]) { probe, h in
+        let windows = probe.allWindows().sorted {
+            axString($0, kAXTitleAttribute as String) < axString($1, kAXTitleAttribute as String)
+        }
+        guard windows.count == 3 else {
+            h.result.violations.append("setup: ProbeApp has \(windows.count) windows, expected 3")
+            return
+        }
+        let origins = [CGPoint(x: 40, y: 80), CGPoint(x: 440, y: 80), CGPoint(x: 40, y: 380)]
+        let app = AXUIElementCreateApplication(probe.pid)
+        var folded: [Folded] = []
+        for (index, window) in windows.enumerated() {
+            AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+            guard let one = await fold(window, at: origins[index], size: CGSize(width: 340, height: 220), h) else { return }
+            folded.append(one)
+        }
+        h.expect(stripFrames().count == 3, "setup: \(stripFrames().count) strips after folding 3 windows")
+        h.result.notes["hides"] = h.logLines().filter { $0.contains("fallback →") || $0.contains("corner →") || $0.contains("handoff") }
+        await glide(to: folded[1].titleBar, duration: 0.3)
+        await doubleClick(at: folded[1].titleBar)
+        await glide(to: h.neutral, duration: 0.2)
+        let back = await eventually(4) { axFrame(folded[1].window).map { abs($0.minX - folded[1].frame.minX) <= 2 && abs($0.minY - folded[1].frame.minY) <= 2 } ?? false }
+        h.expect(back, "I1: the unfolded window is not back at \(folded[1].frame)")
+        // 另外两扇在 3 秒里一直收着。
+        let start = Date()
+        while Date().timeIntervalSince(start) < 3 {
+            if stripFrames().count != 2 {
+                h.result.violations.append("A37: unfolding one window left \(stripFrames().count) strips, expected 2")
+                break
+            }
+            await pause(0.2)
+        }
+        for index in [0, 2] where !stripFrames().isEmpty {
+            await doubleClick(at: folded[index].titleBar)
+            await glide(to: h.neutral, duration: 0.2)
+            await pause(1)
+        }
+        await expectNoStrip(h, within: 3)
+    },
 ] + [
     ("A33-Calculator", "com.apple.calculator", ["-a", "Calculator"], nil as CGSize?),
     ("A33-Terminal", "com.apple.Terminal", ["-a", "Terminal"], CGSize(width: 700, height: 420)),

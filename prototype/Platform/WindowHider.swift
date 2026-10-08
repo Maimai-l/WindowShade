@@ -42,6 +42,9 @@ struct HideRequest: Sendable {
     /// 交出焦点之后，隐藏整个应用程序不会让系统切换桌面（见 FoldTransaction.handOffFocus）。
     let appHideSafe: Bool
     let layout: ScreenLayout
+    /// 同一应用程序里已被 WindowShade 收起的其他窗口数。不为 0 时不隐藏整个应用程序：
+    /// 之后展开其中任何一扇，应用程序都会重新显示，这一扇会被当成用户唤回而跟着展开（场景 A37）。
+    var otherFoldedWindows = 0
 }
 
 /// 移到屏幕外时依次试的位置。
@@ -96,7 +99,8 @@ final class WindowHider: @unchecked Sendable {
             control.log("    live preview parking failed; fallback to app-hide when single-window（pid=\(pid)）")
             return fallbackHide(request, allowAppHide: request.appHideSafe)
         case .offscreenThenFallback(let allowAppHide):
-            if allowAppHide && request.appHideSafe && control.windowCounts(pid: pid, layout: request.layout).visible <= 1 {
+            if allowAppHide && request.appHideSafe && request.otherFoldedWindows == 0
+                && control.windowCounts(pid: pid, layout: request.layout).visible <= 1 {
                 control.log("    single-window app → prefer hide fallback（pid=\(pid)）")
                 return fallbackHide(request, allowAppHide: true)
             }
@@ -114,7 +118,10 @@ final class WindowHider: @unchecked Sendable {
     func fallbackHide(_ request: HideRequest, allowAppHide: Bool) -> HideMethod {
         let pid = request.pid
         let counts = control.windowCounts(pid: pid, layout: request.layout)
-        if allowAppHide && counts.visible <= 1 {
+        if allowAppHide && counts.visible <= 1 && request.otherFoldedWindows > 0 {
+            control.log("    fallback hidden skipped: \(request.otherFoldedWindows) other windows of this app are folded（pid=\(pid)）")
+        }
+        if allowAppHide && counts.visible <= 1 && request.otherFoldedWindows == 0 {
             if let how = control.hideApp(pid: pid) {
                 control.log("    fallback → hidden via \(how)（pid=\(pid), currentWindows=\(counts.visible), windows=\(counts.total)）")
                 return .hidden

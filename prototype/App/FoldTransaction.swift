@@ -50,7 +50,7 @@ extension AppDelegate {
         FocusHandoffRequest(window: WindowHandle(ax: win), id: id, pid: pid,
                             frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
                             selfPID: ProcessInfo.processInfo.processIdentifier,
-                            overlayIDs: overlayIDs)
+                            overlayIDs: overlayIDs, foldedIDs: Set(shaded.keys))
     }
 
     func scheduleFoldVerification(id: CGWindowID) {
@@ -349,7 +349,8 @@ extension AppDelegate {
             return
         }
         let request = HideRequest(window: WindowHandle(ax: win), id: id, pid: pid, position: pos, size: size,
-                                  policy: policy, appHideSafe: appHideSafe, layout: .current())
+                                  policy: policy, appHideSafe: appHideSafe, layout: .current(),
+                                  otherFoldedWindows: shaded.filter { $0.key != id && $0.value.pid == pid }.count)
         // 窗口藏好之后键盘别再落到它身上：交出焦点和移开放在同一个后台任务里，主线程不等。
         let focusRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
         let hider = windowHider
