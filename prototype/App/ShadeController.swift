@@ -291,10 +291,9 @@ extension AppDelegate {
             // 无处交接（当前 Space 只有这一个窗口）时 app-hide 不安全，改走别的办法。
             // 不会隐藏整个 App 时（挪到屏幕外、停到角上、最小化）没有级联，先藏再交接：
             // 先交接的话，继承人的窗口会先盖到这扇窗上面，等它藏好才露出卷帘条。
-            let mayHideApp = policy.mayHideApp && appCurrentUserWindowCount(pid) <= 1
-            let appHideSafe = mayHideApp
-                ? foldPhase("焦点交接") { handOffFocus(win: win, pid: pid, id: id) }
-                : false
+            // 窗口数在后台读窗口时已经数好（readout.visibleWindowCount）；交出焦点放到后台做，主线程不等。
+            let mayHideApp = policy.mayHideApp && readout.visibleWindowCount <= 1
+            func continueInstall(appHideSafe: Bool) {
             // crash consistency：先把 durable recovery intent 落盘，再执行任何
             // 可能让窗口长期不可见的动作。若进程在 hideWindow 中途被杀，重启后
             // rescue 仍能按 intent 找回窗口；隐藏成功验证后由 recordShadeJournal
@@ -453,6 +452,23 @@ extension AppDelegate {
             if options.emitFoldFeedback {
                 playFoldSound()
             }
+            }
+            }
+            guard mayHideApp else {
+                continueInstall(appHideSafe: false)
+                return
+            }
+            let focusRequest = focusHandoffRequest(win: win, pid: pid, id: id)
+            let handOffStartedAt = CFAbsoluteTimeGetCurrent()
+            let resume = HandOff { (safe: Bool) in
+                foldPhaseTotals["焦点交接（后台）", default: 0] += CFAbsoluteTimeGetCurrent() - handOffStartedAt
+                // 交接后撤掉截图期的焦点停靠。
+                self.focusParkingWindow?.orderOut(nil)
+                continueInstall(appHideSafe: safe)
+            }
+            windowHideQueue.async {
+                let safe = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest).appHideSafe
+                DispatchQueue.main.async { resume.value(safe) }
             }
         }
 
@@ -680,7 +696,7 @@ extension AppDelegate {
         let readStartedAt = CFAbsoluteTimeGetCurrent()
         Task { @MainActor in
             let readout = await readWindowForFoldInBackground(HandOff((win: win, preparedProfile: preparedProfile)),
-                                                              id: id, pid: pid,
+                                                              id: id, pid: pid, layout: ScreenLayout.current(),
                                                               localChromeHeight: localChromeHeight).value
             foldPhaseTotals["后台读取窗口", default: 0] += CFAbsoluteTimeGetCurrent() - readStartedAt
             proceed(readout)

@@ -15,13 +15,15 @@ struct FoldWindowReadout {
     let fullScreen: Bool
     let minimized: Bool
     let quickLookReopenURL: URL?
+    /// 该应用程序在当前屏幕上可见、未最小化的窗口数：只有 1 扇时才可能隐藏整个应用程序。
+    let visibleWindowCount: Int
 }
 
 private let foldReadQueue = DispatchQueue(label: "WindowShade.fold-read", qos: .userInteractive,
                                           attributes: .concurrent)
 
 /// 任意线程。取不到位置或大小时返回 nil。
-func readWindowForFold(_ win: AXUIElement, id: CGWindowID, pid: pid_t,
+func readWindowForFold(_ win: AXUIElement, id: CGWindowID, pid: pid_t, layout: ScreenLayout,
                        localChromeHeight: CGFloat?, preparedProfile: WindowChromeProfile?) -> FoldWindowReadout? {
     guard let pos = axPosition(win), let size = axSize(win) else { return nil }
     let role = axRole(win)
@@ -35,18 +37,19 @@ func readWindowForFold(_ win: AXUIElement, id: CGWindowID, pid: pid_t,
     return FoldWindowReadout(pos: pos, size: size, role: role, isWindow: isWindow, title: title, profile: profile,
                              fullScreen: axBoolAttribute(win, "AXFullScreen"),
                              minimized: axBoolAttribute(win, kAXMinimizedAttribute as String),
-                             quickLookReopenURL: profile.isQuickLook ? quickLookReopenURL(for: win) : nil)
+                             quickLookReopenURL: profile.isQuickLook ? quickLookReopenURL(for: win) : nil,
+                             visibleWindowCount: WindowControlSystem().windowCounts(pid: pid, layout: layout).visible)
 }
 
 /// 在后台队列上读，读完回到调用方。元素和结果都不是 Sendable：用 HandOff 交接，
 /// 调用方在等待期间不使用它们。
 func readWindowForFoldInBackground(_ input: HandOff<(win: AXUIElement, preparedProfile: WindowChromeProfile?)>,
-                                   id: CGWindowID, pid: pid_t,
+                                   id: CGWindowID, pid: pid_t, layout: ScreenLayout,
                                    localChromeHeight: CGFloat?) async -> HandOff<FoldWindowReadout?> {
     await withCheckedContinuation { continuation in
         foldReadQueue.async {
             continuation.resume(returning: HandOff(readWindowForFold(
-                input.value.win, id: id, pid: pid, localChromeHeight: localChromeHeight,
+                input.value.win, id: id, pid: pid, layout: layout, localChromeHeight: localChromeHeight,
                 preparedProfile: input.value.preparedProfile)))
         }
     }
