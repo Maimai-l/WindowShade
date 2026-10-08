@@ -1,13 +1,18 @@
 name: Demo recording
 
-# 在 macOS 机器上编出 App，录一段收起 / 看一眼 / 展开的视频。
-# 手动触发；录屏脚本本身改动时也跑一次。
+# 在 macOS 机器上编出 App，录收起 / 看一眼 / 展开的视频。
+# PR 里改了 App 或录屏脚本就跑；同一分支推了新提交，旧的那遍取消。也可以手动触发。
 on:
   workflow_dispatch:
   pull_request:
     paths:
+      - "prototype/**"
       - ".github/demo/**"
       - ".github/workflows/demo.yml"
+
+concurrency:
+  group: demo-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   record:
