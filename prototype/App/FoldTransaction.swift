@@ -219,12 +219,28 @@ extension AppDelegate {
         }, then: { [weak self] window in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if dismissOverlayAfter, let overlay = held.value.overlay { self.dismissOverlay(overlay) }
+                if dismissOverlayAfter, let overlay = held.value.overlay {
+                    overlay.ignoresMouseEvents = true      // 窗口已经展开：等待期间卷帘条只是挡着，不再接点击
+                    self.dismissOverlayWhenSourceInFront(overlay, id: id, until: Date().addingTimeInterval(0.5))
+                }
                 self.scheduleRestoreFollowUps(id: id, request: request, window: window, focusToken: focusToken,
                                               pinToken: pinToken, hide: held.value.hide, reason: reason)
                 self.verifyRestoredWindow(held.value, to: pos, completion: verified.value)
             }
         })
+    }
+
+    /// 窗口已放回原处，但带到最前（激活应用程序）要过一会儿才生效：这期间别的应用程序的窗口还压在它的标题栏上，
+    /// 卷帘条一撤就露出来（CI 访达录像：文本编辑的窗口在标题栏位置露了 5 帧）。等标题栏之上没有别的窗口再撤，最多等到 deadline。
+    func dismissOverlayWhenSourceInFront(_ overlay: NSWindow, id: CGWindowID, until deadline: Date) {
+        if GlanceController.sourceIsInFront(id) || Date() >= deadline {
+            if Date() >= deadline { wlog("overlay: source not in front before deadline id=\(id); dismissing") }
+            dismissOverlay(overlay)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self] in
+            self?.dismissOverlayWhenSourceInFront(overlay, id: id, until: deadline)
+        }
     }
 
     /// 放回之后的补救：80、250 毫秒时再带到最前一次；之后几次再校正位置和大小（有的应用程序取消隐藏、
