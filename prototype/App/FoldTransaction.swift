@@ -231,15 +231,22 @@ extension AppDelegate {
     }
 
     /// 窗口已放回原处，但带到最前（激活应用程序）要过一会儿才生效：这期间别的应用程序的窗口还压在它的标题栏上，
-    /// 卷帘条一撤就露出来（CI 访达录像：文本编辑的窗口在标题栏位置露了 5 帧）。等标题栏之上没有别的窗口再撤，最多等到 deadline。
-    func dismissOverlayWhenSourceInFront(_ overlay: NSWindow, id: CGWindowID, until deadline: Date) {
-        if GlanceController.sourceIsInFront(id) || Date() >= deadline {
-            if Date() >= deadline { wlog("overlay: source not in front before deadline id=\(id); dismissing") }
+    /// 卷帘条一撤就露出来（CI 访达录像：文本编辑的窗口在标题栏位置露了 5 帧）。应用程序成为当前应用程序时，
+    /// 窗口从非活跃样式换成活跃样式，重画标题栏的一两帧是空的（同一录像又露了 2 帧）。所以等标题栏之上没有别的窗口、
+    /// 应用程序已在前台，再过两帧才撤（和“看一眼”的卡片同一条件），最多等到 deadline。
+    func dismissOverlayWhenSourceInFront(_ overlay: NSWindow, id: CGWindowID, until deadline: Date,
+                                         readySince: Date? = nil) {
+        let now = Date()
+        let ready = GlanceController.sourceIsInFront(id) && GlanceController.sourceAppIsActive(id)
+        let settled = ready && (readySince.map { now.timeIntervalSince($0) >= 2.0 / 60 } ?? false)
+        if settled || now >= deadline {
+            if !settled { wlog("overlay: source not in front and active before deadline id=\(id); dismissing") }
             dismissOverlay(overlay)
             return
         }
+        let since = ready ? (readySince ?? now) : nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self] in
-            self?.dismissOverlayWhenSourceInFront(overlay, id: id, until: deadline)
+            self?.dismissOverlayWhenSourceInFront(overlay, id: id, until: deadline, readySince: since)
         }
     }
 
