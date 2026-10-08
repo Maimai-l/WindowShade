@@ -200,8 +200,11 @@ extension AppDelegate {
         MainThreadActivity.push("fold: 折叠窗口")
         defer { MainThreadActivity.pop() }
         var handedToAsyncCapture = false
+        // installOverlay 接手之后，收起的成败由它（和它交给后台的移开原窗口）决定：
+        // 外面的中止处理不再把还在“截图中”的状态改成失败。
+        var installOwnsFold = false
         defer {
-            if !handedToAsyncCapture {
+            if !handedToAsyncCapture && !installOwnsFold {
                 shadeOperationIDs.remove(id)
                 // 未转入 async capture 就返回 = 本次折叠中止：capturing -> failed。
                 if currentOperationState(id) == .capturing {
@@ -262,6 +265,7 @@ extension AppDelegate {
                 transitionOperationState(id: id, to: .failed, reason: "presentation-changed")
                 completeFold(success: false); return
             }
+            installOwnsFold = true
             let installStartedAt = CFAbsoluteTimeGetCurrent()
             defer {
                 let installMilliseconds = (CFAbsoluteTimeGetCurrent() - installStartedAt) * 1000
@@ -494,7 +498,7 @@ extension AppDelegate {
             Task { @MainActor in
                 defer {
                     self.shadeOperationIDs.remove(id)
-                    if self.currentOperationState(id) == .capturing {
+                    if !installOwnsFold, self.currentOperationState(id) == .capturing {
                         self.transitionOperationState(id: id, to: .failed, reason: "shade-capture-abort")
                         completeFold(success: false)
                     }
@@ -524,7 +528,7 @@ extension AppDelegate {
             let captureTaskStartedAt = CFAbsoluteTimeGetCurrent()
             defer {
                 self.shadeOperationIDs.remove(id)
-                if self.currentOperationState(id) == .capturing {
+                if !installOwnsFold, self.currentOperationState(id) == .capturing {
                     self.transitionOperationState(id: id, to: .failed, reason: "shade-capture-abort")
                     completeFold(success: false)
                 }
