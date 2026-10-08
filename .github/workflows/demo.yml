@@ -22,6 +22,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select newest Xcode
         run: .github/scripts/select-xcode.sh
+      - name: Install ffmpeg for the frame check
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install ffmpeg
       - name: Build, grant permissions and record
         run: bash .github/demo/record.sh
       - name: Upload recording
