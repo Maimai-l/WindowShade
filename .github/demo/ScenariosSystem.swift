@@ -351,12 +351,11 @@ let systemScenarios: [Scenario] = [
         h.expect(tabs() == before, "A21: tabs changed from \(before) to \(tabs())")
         await pressKey(13, .maskCommand)   // W 关掉多开的标签页
     },
-    // 用户打开快速查看的方式：在访达里选中文件，按空格。以前用 `qlmanage -p` 代替，但那是命令行调试工具，
+    // 用户打开快速查看的方式：在访达里选中一项，按空格。以前用 `qlmanage -p` 代替，但那是命令行调试工具，
     // 它的预览窗口不回答辅助功能查询（命中测试很快返回 -25204），WindowShade 动不了它（docs/testing.md 第 5 节）。
+    // 选中的方式是在“应用程序”文件夹里键入名字（`open -R` 定位临时目录里的文件在 CI 上没有反应，5b53a02）。
     Scenario(id: "A32", title: "快速查看窗口收起、展开：展开时重新打开同一个文件", options: []) { _, h in
-        let name = "windowshade-ql.txt"
-        let file = NSTemporaryDirectory() + name
-        try? "Quick Look probe".write(toFile: file, atomically: true, encoding: .utf8)
+        let item = "Chess"
         let finderPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.processIdentifier
         func finderWindows() -> [AXUIElement] {
             guard let finderPID else { return [] }
@@ -366,7 +365,7 @@ let systemScenarios: [Scenario] = [
         }
         let before = Set(finderWindows().map { axString($0, kAXTitleAttribute as String) })
         defer {
-            // 关掉为这一条打开的访达窗口和预览，免得盖住后面场景的窗口。
+            // 关掉预览和为这一条打开的访达窗口，免得盖住后面场景的窗口。
             post(.keyDown, key: 53)
             post(.keyUp, key: 53)
             for window in finderWindows() where !before.contains(axString(window, kAXTitleAttribute as String)) {
@@ -374,28 +373,31 @@ let systemScenarios: [Scenario] = [
             }
             run("/usr/bin/killall", ["qlmanage"], timeout: 5)
         }
-        /// 预览窗口：标题是文件名（访达的快速查看），或者属于 qlmanage（展开时重新打开的）。
+        /// 预览窗口：标题是选中项的名字、不属于那个应用程序本身（访达的快速查看），或者属于 qlmanage（展开时重新打开的）。
         func qlWindow() -> CGRect? {
             (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { info -> CGRect? in
                 let owner = info[kCGWindowOwnerName as String] as? String ?? ""
                 let title = info[kCGWindowName as String] as? String ?? ""
-                guard title == name || owner.contains("qlmanage") || owner.contains("Quick Look"),
+                guard (title.hasPrefix(item) && owner != item && owner != "Finder") || owner.contains("qlmanage") || owner.contains("Quick Look"),
                       let bounds = info[kCGWindowBounds as String] as? NSDictionary,
                       let rect = CGRect(dictionaryRepresentation: bounds), rect.height > 100 else { return nil }
                 return rect
             }.first
         }
-        run("/usr/bin/open", ["-R", file])
-        await pause(1.5)
-        NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
-        await pause(0.5)
+        run("/usr/bin/open", ["/Applications"])
+        await pause(2)
+        _ = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+        await pause(0.6)
+        await typeText(item.lowercased())
+        await pause(0.6)
         await pressKey(49)   // 空格
         guard await eventually(6, { qlWindow() != nil }), let frame = qlWindow() else {
             h.result.violations.append("setup: Quick Look did not open from Finder")
             return
         }
-        h.result.notes["previewOwner"] = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
-            .first { ($0[kCGWindowName as String] as? String) == name }?[kCGWindowOwnerName as String] as? String ?? "?"
+        h.result.notes["preview"] = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+            .first { ($0[kCGWindowName as String] as? String)?.hasPrefix(item) == true }
+            .map { "\($0[kCGWindowOwnerName as String] as? String ?? "?") \"\($0[kCGWindowName as String] as? String ?? "")\"" } ?? "?"
         let point = CGPoint(x: frame.minX + frame.width * 0.6, y: frame.minY + 12)
         await glide(to: point, duration: 0.3)
         await doubleClick(at: point)
