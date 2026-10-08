@@ -307,9 +307,10 @@ func focusAXWindow(_ win: AXUIElement, pid: pid_t) {
 }
 
 // 三个交通灯在折叠条（view 坐标，左下原点，高 barH）里的命中区
+/// 露出一块看得见的部分才算可见；停在屏幕角上只剩一像素的窗口不算（见 Core/CornerParking.swift）。
 func windowIsVisible(pos: CGPoint, size: CGSize) -> Bool {
     let winRect = cocoaFrame(fromAXPosition: pos, size: size)
-    return NSScreen.screens.contains { $0.frame.intersects(winRect) }
+    return rectIsVisible(winRect, onScreens: NSScreen.screens.map(\.frame))
 }
 
 func cgWindowIsVisible(id: CGWindowID, fallbackSize: CGSize) -> Bool? {

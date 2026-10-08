@@ -530,6 +530,25 @@ extension AppDelegate {
         return nil
     }
 
+    /// 挪到所在屏幕的下角外面，只留一像素：没有最小化缩进 Dock 的动画，展开时挪回原位即可。
+    func cornerParkingHide(_ win: AXUIElement, originalPosition pos: CGPoint,
+                           size: CGSize, pid: pid_t) -> HideMethod? {
+        guard let screen = screenForAXWindow(pos: pos, size: size) else { return nil }
+        func axRect(_ frame: NSRect) -> CGRect { CGRect(origin: axPosition(fromCocoaFrame: frame), size: frame.size) }
+        let others = NSScreen.screens.filter { $0 !== screen }.map { axRect($0.frame) }
+        for spot in cornerParkingSpots(screen: axRect(screen.frame), otherScreens: others, windowSize: size) {
+            setAXPosition(win, spot)
+            guard let parked = axPosition(win) else { continue }
+            if !windowIsVisible(pos: parked, size: size) {
+                wlog("    corner → parked（pid=\(pid), pos=(\(Int(parked.x)),\(Int(parked.y)))）")
+                return .offscreen
+            }
+            wlog("    corner parking clamped（pid=\(pid), target=(\(Int(spot.x)),\(Int(spot.y))), actual=(\(Int(parked.x)),\(Int(parked.y)))）")
+        }
+        setAXPosition(win, pos)
+        return nil
+    }
+
     func ownWindow(id: CGWindowID?) -> NSWindow? {
         guard let id else { return nil }
         return NSApp.windows.first { window in
@@ -606,7 +625,7 @@ extension AppDelegate {
         }
     }
 
-    // 挪不出屏的 app：可安全整体隐藏时用 ⌘H 式隐藏；否则只最小化当前窗口。
+    // 挪不出屏的 app：可安全整体隐藏时用 ⌘H 式隐藏；否则依次试私有接口、停到屏幕角上，最后才最小化当前窗口。
     // 注意：app hide 只是现代 macOS 限制下的实现 fallback。产品语义仍然是
     // “折叠这个窗口”，所以只有当前 app 没有其它可见用户窗口时才允许整体隐藏。
     func fallbackHide(_ win: AXUIElement, pid: pid_t, id: CGWindowID?,
@@ -632,6 +651,9 @@ extension AppDelegate {
         }
         if let id,
            let hide = privateSLSAlphaHide(id: id, pid: pid, reason: "fallback") {
+            return hide
+        }
+        if let hide = cornerParkingHide(win, originalPosition: pos, size: size, pid: pid) {
             return hide
         }
         setAXMinimized(win, true)

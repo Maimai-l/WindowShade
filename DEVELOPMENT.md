@@ -147,6 +147,7 @@ cd prototype
 |---|---|
 | 设置、经典卷帘条、收起动画、看一眼与带到每张桌面的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
 | 看一眼的指针意图 | `bash tests/run-glance-tests.sh` |
+| 收起时把窗口停到屏幕角上 | `bash tests/run-corner-parking-tests.sh` |
 | 标题栏手势识别 | `bash tests/run-gesture-tests.sh` |
 | 缩略图布局与半透明 | `bash tests/run-thumbnail-tests.sh` |
 | 收起与展开的声音 | `bash tests/run-shade-sound-tests.sh` |
