@@ -567,15 +567,27 @@ extension AppDelegate {
                 try? await Task.sleep(nanoseconds: 35_000_000)       // 等 WindowServer 把整条 toolbar 重绘成非活跃态
             }
             let captureStartedAt = CFAbsoluteTimeGetCurrent()
-            let capturedImage: CGImage?
+            var capturedImage: CGImage?
+            var capturePath = "prepared"
             if let preparedImage { capturedImage = preparedImage }
-            else if let fast = await fastWindowCapture(id) {
-                // 快速截图（实测几十毫秒）优先；ScreenCaptureKit 单张截图在收起途中要 200ms 以上，
-                // 还会超时退回代理标题栏。拿不到快速截图时才走它。
-                capturedImage = fast
-            } else {
-                capturedImage = await captureWindowWithTimeout(id: id, axPos: pos, size: size,
-                    timeoutNanoseconds: shadeCaptureTimeoutNanoseconds)
+            else {
+                // 快速截图（实测几十毫秒）优先；ScreenCaptureKit 单张截图在收起途中要 200–700ms。
+                // 刚把焦点停开、窗口正重画成非活跃态时，快速截图会拿到一张全透明的图：
+                // 等一下再截，不要马上退到 ScreenCaptureKit。
+                capturePath = "fast"
+                capturedImage = await fastWindowCapture(id)
+                var retries = 0
+                while capturedImage == nil, retries < 3, FastCapture.isAvailable, hasScreenRecordingPermission() {
+                    try? await Task.sleep(nanoseconds: 30_000_000)
+                    retries += 1
+                    capturedImage = await fastWindowCapture(id)
+                    capturePath = "fast-retry\(retries)"
+                }
+                if capturedImage == nil {
+                    capturePath = "sck"
+                    capturedImage = await captureWindowWithTimeout(id: id, axPos: pos, size: size,
+                        timeoutNanoseconds: shadeCaptureTimeoutNanoseconds)
+                }
             }
             guard let full = capturedImage else {
                 if shouldParkFocus {
@@ -651,7 +663,7 @@ extension AppDelegate {
                 wlog("    capture indicator removed from strip id=\(id)")
             }
             let ms = { (a: CFAbsoluteTime, b: CFAbsoluteTime) in Int((b - a) * 1000) }
-            wlog("    fold-capture timing id=\(id) queued=\(ms(captureTaskQueuedAt, captureTaskStartedAt))ms park=\(ms(captureTaskStartedAt, captureStartedAt))ms capture=\(ms(captureStartedAt, capturedAt))ms prepare=\(ms(capturedAt, CFAbsoluteTimeGetCurrent()))ms")
+            wlog("    fold-capture timing id=\(id) queued=\(ms(captureTaskQueuedAt, captureTaskStartedAt))ms park=\(ms(captureTaskStartedAt, captureStartedAt))ms capture=\(ms(captureStartedAt, capturedAt))ms path=\(capturePath) prepare=\(ms(capturedAt, CFAbsoluteTimeGetCurrent()))ms")
             let barH = preparation.barH
             wlog("    capture full=\(full.width)x\(full.height) scale=\(preparation.scale) fixedBarH=\(preparation.fixedBarH.map { String(format: "%.1f", $0) } ?? "-") visualBarH=\(preparation.visualBarH.map { String(Int($0)) } ?? "-") fallbackBarH=\(Int(preparation.fallbackBarH)) standardBarH=\(String(format: "%.1f", preparation.standardBarH)) finalBarH=\(String(format: "%.1f", barH)) buttons=\(buttonRects.count) windowManagement=\(windowManagementCapability) cropPxH=\(max(1, Int(ceil(barH * preparation.scale)))) boundary=\(preparation.boundary)")
             guard let strip = preparation.strip else {
