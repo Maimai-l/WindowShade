@@ -117,17 +117,14 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     }
 
     /// 灰点画在系统按钮的位置上（截图条的按钮对齐原窗口的灯，代理标题栏的按钮按固定排版）。
+    /// 位置在画的时候现取，按钮被挪动时重画（见 InactiveTrafficLightsView）。
     private func layoutInactiveLights() {
         guard let content = contentView else { return }
         if inactiveLights.superview !== content { content.addSubview(inactiveLights) }
         inactiveLights.frame = content.bounds
         inactiveLights.autoresizingMask = [.width, .height]
-        inactiveLights.dots = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type in
-            guard let button = standardWindowButton(type), !button.isHidden, let superview = button.superview else { return nil }
-            let frame = content.convert(button.frame, from: superview)
-            let side = min(frame.width, frame.height)
-            return CGRect(x: frame.midX - side / 2, y: frame.midY - side / 2, width: side, height: side)
-        }
+        inactiveLights.buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { standardWindowButton($0) }
         refreshTrafficLightAppearance()
     }
 
@@ -151,6 +148,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         isClosingProgrammatically = true
         activationObservers.forEach { NotificationCenter.default.removeObserver($0) }
         activationObservers.removeAll()
+        inactiveLights.buttons = []
         onDoubleClick = nil
         onClick = nil
         onAction = nil
@@ -371,7 +369,31 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
 /// 没聚焦的窗口的红绿灯：三个灰点，照系统的样子（浅色时浅灰、深色时深灰，带一圈细边）。
 /// 不接收点击，点击落在下面透明的系统按钮上。
 final class InactiveTrafficLightsView: NSView {
-    var dots: [CGRect] = [] { didSet { needsDisplay = true } }
+    /// 要盖住的系统按钮。按钮的位置随时可能被标题栏重新排版挪动，所以不存位置，画的时候现取。
+    var buttons: [NSButton] = [] {
+        didSet {
+            frameObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            frameObservers = buttons.map { button in
+                button.postsFrameChangedNotifications = true
+                return NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification,
+                                                              object: button, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.needsDisplay = true }
+                }
+            }
+            needsDisplay = true
+        }
+    }
+    private var frameObservers: [NSObjectProtocol] = []
+
+    /// 每个看得见的按钮一个灰点：按钮框里居中的正方形（本视图坐标）。
+    var dots: [CGRect] {
+        buttons.compactMap { button in
+            guard !button.isHidden, let superview = button.superview else { return nil }
+            let frame = convert(button.frame, from: superview)
+            let side = min(frame.width, frame.height)
+            return CGRect(x: frame.midX - side / 2, y: frame.midY - side / 2, width: side, height: side)
+        }
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 

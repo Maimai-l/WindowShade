@@ -27,6 +27,10 @@ struct StripTrafficLightTests {
     }
 
     func centers(_ rects: [CGRect]) -> [CGPoint] { rects.map { CGPoint(x: $0.midX, y: $0.midY) } }
+    /// 位置比较留 0.5 点：坐标换算有浮点误差。
+    func same(_ a: [CGPoint], _ b: [CGPoint]) -> Bool {
+      a.count == b.count && zip(a, b).allSatisfy { abs($0.x - $1.x) <= 0.5 && abs($0.y - $1.y) <= 0.5 }
+    }
     func buttonCenters() -> [CGPoint] {
       centers(buttons.map { content.convert($0.frame, from: $0.superview) })
     }
@@ -37,7 +41,8 @@ struct StripTrafficLightTests {
     precondition(!strip.isKeyWindow, "The strip is not the key window")
     precondition(showsGray(), "Unfocused: gray dots, system buttons transparent")
     precondition(gray.dots.count == 3, "One gray dot per visible button")
-    precondition(centers(gray.dots) == buttonCenters(), "Gray dots sit on the system buttons")
+    precondition(same(centers(gray.dots), buttonCenters()),
+                 "Gray dots sit on the system buttons: \(centers(gray.dots)) vs \(buttonCenters())")
     precondition(gray.hitTest(NSPoint(x: gray.dots[0].midX, y: gray.dots[0].midY)) == nil,
                  "Clicks pass through the gray dots to the buttons")
 
@@ -48,7 +53,8 @@ struct StripTrafficLightTests {
       (CGRect(x: 64, y: 8, width: 14, height: 14), .zoom),
     ]
     strip.alignStandardTrafficButtons(to: source)
-    precondition(centers(gray.dots) == centers(source.map(\.0)), "Gray dots follow the original window's lights")
+    precondition(same(centers(gray.dots), buttonCenters()) && same(buttonCenters(), centers(source.map(\.0))),
+                 "Gray dots follow the original window's lights: \(centers(gray.dots))")
 
     // 指针移到按钮上：换回系统按钮（系统对没聚焦的窗口也是悬停时才显示颜色和符号）。
     let closeCenter = strip.contentView!.convert(NSPoint(x: source[0].0.midX, y: source[0].0.midY), to: nil)
