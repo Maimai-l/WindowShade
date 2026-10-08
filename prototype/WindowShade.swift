@@ -336,16 +336,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     Notification(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification))
             }
         }
-        // 应用内更新（App/Updater.swift）：最后启动；装好新版本后两项授权没了，翻到欢迎窗口的授权页请他再打开一次。
-        MainActor.assumeIsolated {
-            UpdaterController.shared.onPermissionsLostAfterUpdate = { [weak self] in self?.showPermissionsAgainAfterUpdate() }
-            UpdaterController.shared.start()
-        }
-    }
-
-    /// 更新下载、解包、把关的途中退出：先否决、确认 Sparkle 停了再放行（App/Updater.swift）；平时直接退出。
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        UpdaterController.shared.applicationShouldTerminate()
+        // 应用内更新（App/Updater.swift）：最后启动。
+        MainActor.assumeIsolated { UpdaterController.shared.start() }
     }
 
     /// 辅助功能外观变化：只刷新材质/边线/阴影，不动窗口状态、不触发任何捕获。
@@ -660,7 +652,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 
     func applicationWillTerminate(_ note: Notification) {
-        UpdaterController.shared.applicationWillTerminate()
         restoreAll()
         reconcileTimer?.invalidate()
         reconcileTimer = nil
@@ -761,8 +752,11 @@ enum PrivateSLSMemo {
         UserDefaults.standard.string(forKey: key(kind)) == systemVersion
     }
 
+    /// 写偏好要和 cfprefsd 同步往返，CI 上实测在主线程卡过 446ms：放到后台写，下次启动才读。
     static func markIneffective(_ kind: String) {
-        UserDefaults.standard.set(systemVersion, forKey: key(kind))
+        let version = systemVersion
+        let defaultsKey = key(kind)
+        DispatchQueue.global(qos: .utility).async { UserDefaults.standard.set(version, forKey: defaultsKey) }
     }
 }
 

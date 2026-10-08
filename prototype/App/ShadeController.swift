@@ -561,18 +561,25 @@ extension AppDelegate {
             let captureStartedAt = CFAbsoluteTimeGetCurrent()
             var capturedImage: CGImage?
             var capturePath = "prepared"
+            var captureAttempts: [String] = []
             if let preparedImage { capturedImage = preparedImage }
             else {
                 // 快速截图（实测几十毫秒）优先；ScreenCaptureKit 单张截图在收起途中要 200–700ms。
                 // 刚把焦点停开、窗口正重画成非活跃态时，快速截图会拿到一张全透明的图：
                 // 等一下再截，不要马上退到 ScreenCaptureKit。
+                // 每一次快速截图的耗时都记下来（“-empty”是拿到了全透明的图）：第一次收起偶尔要 0.6–1.7 秒，
+                // 要分清是哪一次慢。
                 capturePath = "fast"
-                capturedImage = await fastWindowCapture(id)
+                var attempt = await timedFastWindowCapture(id)
+                capturedImage = attempt.image
+                captureAttempts.append(attempt.label)
                 var retries = 0
                 while capturedImage == nil, retries < 3, FastCapture.isAvailable, hasScreenRecordingPermission() {
                     try? await Task.sleep(nanoseconds: 30_000_000)
                     retries += 1
-                    capturedImage = await fastWindowCapture(id)
+                    attempt = await timedFastWindowCapture(id)
+                    capturedImage = attempt.image
+                    captureAttempts.append(attempt.label)
                     capturePath = "fast-retry\(retries)"
                 }
                 if capturedImage == nil {
@@ -655,7 +662,7 @@ extension AppDelegate {
                 wlog("    capture indicator removed from strip id=\(id)")
             }
             let ms = { (a: CFAbsoluteTime, b: CFAbsoluteTime) in Int((b - a) * 1000) }
-            wlog("    fold-capture timing id=\(id) queued=\(ms(captureTaskQueuedAt, captureTaskStartedAt))ms park=\(ms(captureTaskStartedAt, captureStartedAt))ms capture=\(ms(captureStartedAt, capturedAt))ms path=\(capturePath) prepare=\(ms(capturedAt, CFAbsoluteTimeGetCurrent()))ms")
+            wlog("    fold-capture timing id=\(id) queued=\(ms(captureTaskQueuedAt, captureTaskStartedAt))ms park=\(ms(captureTaskStartedAt, captureStartedAt))ms capture=\(ms(captureStartedAt, capturedAt))ms path=\(capturePath) attempts=\(captureAttempts.joined(separator: ",")) prepare=\(ms(capturedAt, CFAbsoluteTimeGetCurrent()))ms")
             let barH = preparation.barH
             wlog("    capture full=\(full.width)x\(full.height) scale=\(preparation.scale) fixedBarH=\(preparation.fixedBarH.map { String(format: "%.1f", $0) } ?? "-") visualBarH=\(preparation.visualBarH.map { String(Int($0)) } ?? "-") fallbackBarH=\(Int(preparation.fallbackBarH)) standardBarH=\(String(format: "%.1f", preparation.standardBarH)) finalBarH=\(String(format: "%.1f", barH)) buttons=\(buttonRects.count) windowManagement=\(windowManagementCapability) cropPxH=\(max(1, Int(ceil(barH * preparation.scale)))) boundary=\(preparation.boundary)")
             guard let strip = preparation.strip else {
@@ -723,6 +730,13 @@ extension AppDelegate {
             CaptureIndicatorRemoval.removingIndicator(from: image, scale: pixelScale) ?? image
         }.value
     }
+    /// 同上，另外返回这一次的耗时（毫秒），全透明的图记为“-empty”。
+    func timedFastWindowCapture(_ id: CGWindowID) async -> (image: CGImage?, label: String) {
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let image = await fastWindowCapture(id)
+        return (image, "\(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))\(image == nil ? "-empty" : "")")
+    }
+
     /// 收起用的快速整窗截图，放到后台线程做，不占主线程。
     func fastWindowCapture(_ id: CGWindowID) async -> CGImage? {
         guard hasScreenRecordingPermission() else { return nil }
