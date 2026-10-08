@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   record:
-    # 场景一条一条跑要一个多小时：分成几台机器并行。recordings 录像并跑权限场景组，其余各跑主场景组的三分之一
+    # 场景一条一条跑要一个多小时：分成几台机器并行。recordings 录像并跑检查的检查和权限场景组，random 跑随机操作，
+    # 其余各跑主场景组的三分之一
     # （.github/demo/record.sh 的 RECORD_PART）。
     strategy:
       fail-fast: false
@@ -30,6 +31,8 @@ jobs:
             name: scenarios-2
           - part: "shard:2/3"
             name: scenarios-3
+          - part: random
+            name: random
     name: record (${{ matrix.name }})
     runs-on: macos-26
     timeout-minutes: 60

@@ -231,7 +231,9 @@ CI 虚拟机的耗时波动较大：2026-10-08 的 5 次运行中，访达的收
 | 测试数据 | `tests/fixtures/` |
 | 模拟平台层 | `tests/support/Fakes/`：`FakeWindowControl`（移开原窗口）、`FakeFocusControl`（转移焦点） |
 | 端到端驱动程序 | `.github/demo/DemoDriver.swift`、`.github/demo/record.sh` |
-| 录像检查程序 | `.github/demo/check_frames.py`，由 `record.sh` 在每段录像后执行，任一检查失败时 CI 失败 |
+| 录像检查程序 | `.github/demo/check_frames.py`，由 `record.sh` 在每段录像后执行，任一检查失败时 CI 失败；它自己的检查（K05）是 `tests/run-frame-check-selftest.sh`，需要 ffmpeg，在 `demo.yml` 的 recordings 任务里运行 |
+| 检查的检查 | `.github/demo/ScenariosChecks.swift`（K01 至 K04），`record.sh` 的 recordings 任务运行（`docs/test-catalog.md` 第 12 节） |
+| 随机操作 | `.github/demo/ScenariosRandom.swift`（Q01），`demo.yml` 的 random 任务运行，每次新种子（`docs/test-catalog.md` 第 11 节） |
 
 ## 8. 编写测试的规定
 

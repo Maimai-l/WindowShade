@@ -131,15 +131,18 @@ record() {
 }
 
 # CI 把这份脚本分成几个并行任务（.github/workflows/demo.yml 的 matrix），RECORD_PART 说明这一个做哪部分：
-#   recordings   录像（文本编辑、访达）、E13、两个权限场景组
+#   recordings   录像（文本编辑、访达）、E13、检查的检查（K01 至 K05）、两个权限场景组
 #   shard:i/n    主场景组里序号除以 n 余 i 的那些场景
+#   random       随机操作 Q01（300 步，十几分钟，单独一个任务）
 #   all（默认）  全部，本地运行用
 PART="${RECORD_PART:-all}"
 RECORDINGS=false
+RANDOM_OPS=false
 SHARD=""
 case "$PART" in
-  all) RECORDINGS=true; SHARD="main" ;;
+  all) RECORDINGS=true; RANDOM_OPS=true; SHARD="main" ;;
   recordings) RECORDINGS=true ;;
+  random) RANDOM_OPS=true ;;
   shard:*) SHARD="$PART" ;;
   *) echo "unknown RECORD_PART=$PART"; exit 1 ;;
 esac
@@ -161,6 +164,21 @@ record "$OUT/driver-finder.log" "$OUT/demo-finder.mp4" com.apple.finder 900 500 
 echo "==> scenario E13: close a folded window with unsaved changes"
 open -W --stderr "$OUT/driver-close-unsaved.log" "$DRIVER" --args "$OUT/close-unsaved.mp4" close-unsaved
 cat "$OUT/driver-close-unsaved.log" || true
+
+# 检查的检查（docs/test-catalog.md 第 12 节）：故意制造违反，确认 I2、I3、I4、I5、I6 的检查报出来。
+# K05（录像逐帧检查，I7）在下面和录像检查一起跑。
+echo "==> checks of the checks: K01-K04"
+open -W --stderr "$OUT/driver-checks.log" "$DRIVER" --args "$OUT/checks.json" scenarios "$PROBE" "$APP" "K01,K02,K03,K04"
+cat "$OUT/driver-checks.log" || true
+SCENARIO_RESULTS+=("$OUT/checks.json")
+fi
+
+# 随机操作（docs/test-catalog.md 第 11 节）：每次运行用新的种子，种子写在结果里。
+if $RANDOM_OPS; then
+  echo "==> random operations: Q01"
+  open -W --stderr "$OUT/driver-random.log" "$DRIVER" --args "$OUT/random.json" scenarios "$PROBE" "$APP" "Q01"
+  cat "$OUT/driver-random.log" || true
+  SCENARIO_RESULTS+=("$OUT/random.json")
 fi
 
 # 逐条场景和不变式检查（Scenarios*.swift）：每条一个新的 ProbeApp，跑完检查不变式。
@@ -242,6 +260,8 @@ if $RECORDINGS; then
 test -s "$OUT/demo.mp4" && test -s "$OUT/demo-finder.mp4"
 
 # 逐帧检查（docs/testing.md 第 6 节）：空帧、被别的窗口盖住、录屏指示器、展开后的位置和大小。
+echo "==> check the frame check (K05)"
+bash tests/run-frame-check-selftest.sh || status=1
 echo "==> check frames"
 for name in demo demo-finder; do
   python3 .github/demo/check_frames.py "$OUT/$name.mp4" "$OUT/$name.json" "$OUT/windowshade.log" || status=1

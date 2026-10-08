@@ -74,9 +74,9 @@ let stripScenarios: [Scenario] = [
         await clickStripButton(folded, 0, h)
         await answerSheet(probe, "Delete", h)
         h.expect(await eventually(3) { probe.count("closed") == 1 }, "C04: the window did not close after Delete")
-        h.expect(probe.count("sheet-shown") == 1, "I4: the sheet appeared \(probe.count("sheet-shown")) times")
-        h.expect(probe.count("close-request") == 1, "I4: close was requested \(probe.count("close-request")) times")
-        h.expect(forwardedCount(h, "close") == 1, "I4: WindowShade forwarded close \(forwardedCount(h, "close")) times")
+        h.expectOnce("the sheet appeared", probe.count("sheet-shown"))
+        h.expectOnce("close was requested", probe.count("close-request"))
+        h.expectOnce("WindowShade forwarded close", forwardedCount(h, "close"))
         await expectNoStrip(h, within: 2)
     },
     Scenario(id: "C04-cancel", title: "有未保存内容：点关闭后选 Cancel，窗口留下、不再收起", options: ["--sheet-on-close"]) { probe, h in
@@ -85,7 +85,7 @@ let stripScenarios: [Scenario] = [
         await answerSheet(probe, "Cancel", h)
         await pause(1)
         h.expect(probe.count("closed") == 0, "C04: the window closed after Cancel")
-        h.expect(probe.count("close-request") == 1, "I4: close was requested \(probe.count("close-request")) times")
+        h.expectOnce("close was requested", probe.count("close-request"))
         await expectRestored(probe, folded.frame, h, within: 3)
         await expectNoStrip(h, within: 2)
     },
@@ -101,7 +101,7 @@ let stripScenarios: [Scenario] = [
         guard let folded = await foldProbe(probe, h) else { return }
         await clickStripButton(folded, 0, h)
         h.expect(await eventually(3) { probe.count("closed") == 1 }, "C06: the window did not close")
-        h.expect(probe.count("close-request") == 1, "I4: close was requested \(probe.count("close-request")) times")
+        h.expectOnce("close was requested", probe.count("close-request"))
         await expectNoStrip(h, within: 2)
     },
     Scenario(id: "C07", title: "点卷帘条上的最小化按钮", options: []) { probe, h in
@@ -122,7 +122,7 @@ let stripScenarios: [Scenario] = [
         guard let folded = await foldProbe(probe, h) else { return }
         await pressOnStrip(folded, 13, .maskCommand, h)   // W
         h.expect(await eventually(3) { probe.count("closed") == 1 }, "C10: Command-W did not close the window")
-        h.expect(probe.count("close-request") == 1, "I4: close was requested \(probe.count("close-request")) times")
+        h.expectOnce("close was requested", probe.count("close-request"))
         await expectNoStrip(h, within: 2)
     },
     Scenario(id: "C11", title: "卷帘条是当前窗口时按 Command-M", options: []) { probe, h in
@@ -146,7 +146,7 @@ let stripScenarios: [Scenario] = [
         await pressOnStrip(folded, 12, .maskCommand, h)   // Q
         await expectRestored(probe, folded.frame, h, within: 4)
         await answerSheet(probe, "Delete", h)
-        h.expect(probe.count("sheet-shown") == 1, "I4: the quit sheet appeared \(probe.count("sheet-shown")) times")
+        h.expectOnce("the quit sheet appeared", probe.count("sheet-shown"))
         h.expect(await eventually(4) { !probe.isRunning }, "C14: the app did not quit after Delete")
     },
     Scenario(id: "C15", title: "卷帘条是当前窗口时按其他组合键：不转给原应用程序", options: [],

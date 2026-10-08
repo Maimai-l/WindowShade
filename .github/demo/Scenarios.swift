@@ -287,20 +287,38 @@ final class Harness {
         return false
     }
 
-    /// 场景结束时都要成立的不变式：I3、I5、I6、I9。
-    func finish() -> ScenarioResult {
-        for event in Set(audit.takeSynthetic()) {
-            result.violations.append("I3: WindowShade posted an input event (\(event))")
-        }
-        let lines = log.lines()
+    /// I3：被监视的进程（WindowShade）发出的输入事件，每种一条。检查的检查（K01）直接调用它。
+    static func inputViolations(_ synthetic: [String]) -> [String] {
+        Set(synthetic).sorted().map { "I3: WindowShade posted an input event (\($0))" }
+    }
+
+    /// I5、I6：日志里的非法状态转换、超过 500 毫秒的主线程停顿。检查的检查（K04）直接调用它。
+    static func logViolations(_ lines: [String]) -> [String] {
+        var violations: [String] = []
         for line in lines where line.contains("illegal transition") {
-            result.violations.append("I5: \(line)")
+            violations.append("I5: \(line)")
         }
         for line in lines {
             guard let range = line.range(of: #"main-thread stall ≈(\d+)ms"#, options: .regularExpression) else { continue }
             let digits = line[range].filter(\.isNumber)
-            if let ms = Int(digits), ms > 500 { result.violations.append("I6: \(line)") }
+            if let ms = Int(digits), ms > 500 { violations.append("I6: \(line)") }
         }
+        return violations
+    }
+
+    /// I4：不可撤销的动作（关闭、退出、弹出对话框）正好一次。检查的检查（K03）直接调用它。
+    static func onceViolation(_ what: String, _ count: Int) -> String? {
+        count == 1 ? nil : "I4: \(what) \(count) times"
+    }
+
+    func expectOnce(_ what: String, _ count: Int) {
+        if let violation = Self.onceViolation(what, count) { result.violations.append(violation) }
+    }
+
+    /// 场景结束时都要成立的不变式：I3、I5、I6、I9。
+    func finish() -> ScenarioResult {
+        result.violations += Self.inputViolations(audit.takeSynthetic())
+        result.violations += Self.logViolations(log.lines())
         if windowShadePID() == nil { result.violations.append("I9: WindowShade is not running") }
         result.notes["probeLatencies"] = latencies
         result.notes["probeWorstLatency"] = latencies.max() ?? 0
@@ -469,13 +487,11 @@ final class ScenarioWatchdog: @unchecked Sendable {
     private let lock = NSLock()
     private var results: [[String: Any]] = []
     private var failed = 0
-    private var current: (id: String, title: String, startedAt: Date)?
+    private var current: (id: String, title: String, startedAt: Date, limit: TimeInterval)?
     private let output: URL
-    let limit: TimeInterval
 
-    init(output: URL, limit: TimeInterval = 240) {
+    init(output: URL) {
         self.output = output
-        self.limit = limit
         let thread = Thread { [weak self] in
             while let self {
                 Thread.sleep(forTimeInterval: 5)
@@ -486,21 +502,23 @@ final class ScenarioWatchdog: @unchecked Sendable {
         thread.start()
     }
 
-    func begin(_ id: String, _ title: String) { lock.withLock { current = (id, title, Date()) } }
+    func begin(_ id: String, _ title: String, limit: TimeInterval) {
+        lock.withLock { current = (id, title, Date(), limit) }
+    }
 
     func end(results: [[String: Any]], failed: Int) {
         lock.withLock { self.results = results; self.failed = failed; current = nil }
     }
 
     private func check() {
-        let hung: (results: [[String: Any]], failed: Int, id: String, title: String)? = lock.withLock {
-            guard let current, Date().timeIntervalSince(current.startedAt) > limit else { return nil }
-            return (results, failed, current.id, current.title)
+        let hung: (results: [[String: Any]], failed: Int, id: String, title: String, limit: TimeInterval)? = lock.withLock {
+            guard let current, Date().timeIntervalSince(current.startedAt) > current.limit else { return nil }
+            return (results, failed, current.id, current.title, current.limit)
         }
         guard let hung else { return }
         let shot = "\(Suite.outputDir)/fail-\(hung.id).png"
         run("/usr/sbin/screencapture", ["-x", shot], timeout: 10)
-        let violation = "setup: the scenario did not finish within \(Int(limit)) s (the driver is blocked)"
+        let violation = "setup: the scenario did not finish within \(Int(hung.limit)) s (the driver is blocked)"
         let entry: [String: Any] = ["id": hung.id, "title": hung.title, "passed": false, "violations": [violation],
                                     "notes": ["diagnosis": ["screenshot": shot,
                                                             "frontmost": NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"]]]
@@ -709,15 +727,18 @@ struct Scenario {
     var changesSettings = false
     /// 需要先撤销某项权限的场景另成一组，由 record.sh 撤销权限后按编号单独运行。
     let group: String
+    /// 看门狗等多久（秒）：超过就判定驱动程序停住了。随机操作一条要跑十几分钟。
+    let timeLimit: TimeInterval
     let run: (Probe, Harness) async -> Void
 
     init(id: String, title: String, options: [String], changesSettings: Bool = false, group: String = "main",
-         run: @escaping (Probe, Harness) async -> Void) {
+         timeLimit: TimeInterval = 240, run: @escaping (Probe, Harness) async -> Void) {
         self.id = id
         self.title = title
         self.options = options
         self.changesSettings = changesSettings
         self.group = group
+        self.timeLimit = timeLimit
         self.run = run
     }
 }
@@ -756,7 +777,7 @@ let scenarios: [Scenario] = [
         }
         h.expect(shown, "C04/X03: the alert did not appear within 4 s")
         await h.probeFor(2)
-        h.expect(probe.count("alert-shown") == 1, "I4: the alert appeared \(probe.count("alert-shown")) times")
+        h.expectOnce("the alert appeared", probe.count("alert-shown"))
         if let button = findButton(AXUIElementCreateApplication(probe.pid), "Close Window") {
             AXUIElementPerformAction(button, kAXPressAction as CFString)
         } else if shown {
@@ -768,9 +789,9 @@ let scenarios: [Scenario] = [
             closed = probe.count("closed") > 0
         }
         h.expect(closed, "C04/X03: the window did not close after the alert")
-        h.expect(probe.count("close-request") == 1, "I4: close was requested \(probe.count("close-request")) times")
+        h.expectOnce("close was requested", probe.count("close-request"))
         let forwarded = h.logLines().filter { $0.contains("traffic: close forwarded") }.count
-        h.expect(forwarded == 1, "I4: WindowShade forwarded close \(forwarded) times")
+        h.expectOnce("WindowShade forwarded close", forwarded)
         await expectNoStrip(h, within: 2)
     },
     Scenario(id: "X04", title: "按下关闭的请求超时，但应用程序随后关掉了窗口", options: ["--slow-close=1.5"]) { probe, h in
@@ -785,7 +806,7 @@ let scenarios: [Scenario] = [
             closed = probe.count("closed") > 0
         }
         h.expect(closed, "X04: the window did not close")
-        h.expect(probe.count("close-request") == 1, "I4: close was requested \(probe.count("close-request")) times")
+        h.expectOnce("close was requested", probe.count("close-request"))
         await expectNoStrip(h, within: 2)
     },
     Scenario(id: "X05", title: "窗口没有红绿灯按钮：点卷帘条左端，再双击展开", options: ["--no-buttons"]) { probe, h in
@@ -879,6 +900,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
     var results: [[String: Any]] = []
     var failed = 0
     let all = scenarios + foldScenarios + unfoldScenarios + stripScenarios + glanceScenarios + systemScenarios
+        + checkScenarios + randomScenarios
     var needsRelaunch = false
     let watchdog = ScenarioWatchdog(output: output)
     func selected(_ index: Int, _ scenario: Scenario) -> Bool {
@@ -893,7 +915,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
         clearSystemPopups()
         needsRelaunch = scenario.changesSettings
         log("scenario \(scenario.id): \(scenario.title)")
-        watchdog.begin(scenario.id, scenario.title)
+        watchdog.begin(scenario.id, scenario.title, limit: scenario.timeLimit)
         let harness = Harness(id: scenario.id, title: scenario.title, audit: audit, probeApp: probeApp,
                               tagBase: Int64(0x5e00_0000 + index * 0x1000))
         if let probe = await Probe.launch(probeApp, name: scenario.id, options: scenario.options) {

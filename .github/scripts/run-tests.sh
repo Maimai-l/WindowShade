@@ -6,6 +6,8 @@ cd "$(dirname "$0")/../.."
 logs=.build/ci-logs
 mkdir -p "$logs"
 skip=" run-glance-probe.sh run-perf-check.sh "
+# Runs in .github/workflows/demo.yml, whose machines have ffmpeg installed.
+elsewhere=" run-frame-check-selftest.sh "
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
 failed=0
 {
@@ -16,6 +18,10 @@ for script in tests/run-*.sh; do
   name=$(basename "$script")
   if [[ "$skip" == *" $name "* ]]; then
     echo "| $name | skipped (needs signed build) | |" >> "$summary"
+    continue
+  fi
+  if [[ "$elsewhere" == *" $name "* ]]; then
+    echo "| $name | runs in demo.yml (needs ffmpeg) | |" >> "$summary"
     continue
   fi
   echo "::group::$name"
