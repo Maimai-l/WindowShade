@@ -635,13 +635,34 @@ extension AppDelegate {
                 return
             }
             if state.hide == .hidden {
-                guard let app = runningApp(pid: state.pid), !app.isTerminated, !app.isHidden,
-                      windowID(of: state.element) == id, foldCallbackIsCurrent(expected) else { return }
-                unshade(id)
+                unshadeAfterAppShown(id, expected: expected, attemptsLeft: 10)
             }
         } else {
             wlog("ignore reveal notification=\(notification) id=\(id) app=\(state.appName)")
         }
+    }
+
+    /// 用户把隐藏的应用程序叫回来了（点程序坞图标、Command-Tab）：展开它的窗口。
+    /// 辅助功能的“已显示”通知有时比 NSRunningApplication.isHidden 的更新早到（场景 B06）：
+    /// 这时每 0.1 秒再看一次，最多 1 秒，不能直接放弃，否则要等下一次定期检查（5 秒）才展开。
+    func unshadeAfterAppShown(_ id: CGWindowID, expected: FoldCallbackStamp, attemptsLeft: Int) {
+        guard foldCallbackIsCurrent(expected), let state = shaded[id],
+              let app = runningApp(pid: state.pid), !app.isTerminated else { return }
+        if app.isHidden {
+            guard attemptsLeft > 0 else {
+                wlog("reveal: app still reports hidden after 1 s; leaving it to reconcile id=\(id) app=\(state.appName)")
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.unshadeAfterAppShown(id, expected: expected, attemptsLeft: attemptsLeft - 1)
+            }
+            return
+        }
+        guard windowID(of: state.element) == id else {
+            wlog("reveal: the folded window's id changed; not unfolding id=\(id) app=\(state.appName)")
+            return
+        }
+        unshade(id)
     }
 
     @objc func appTerminated(_ note: Notification) {
