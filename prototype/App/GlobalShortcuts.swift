@@ -43,7 +43,7 @@ enum GlobalShortcut: String, CaseIterable {
 
 enum GlobalShortcutSettings {
     static let numberedExpandKey = "GlobalShortcut.numberedExpand"
-    /// ⌃⌘1…9 这一组的修饰键：编号和菜单顺序绑定，不单独改键，只能整组开关。
+    /// Control-Command-1 至 9 这一组的修饰键：编号和菜单顺序绑定，不单独改键，只能整组开关。
     static let numberedModifiers = UInt32(controlKey | cmdKey)
     static let numberedKeyCodes: [UInt32] = [
         kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
@@ -80,7 +80,7 @@ enum GlobalShortcutSettings {
         }
     }
 
-    /// ⌃⌘1…9 没动过时开不开：和别的 ⌃⌘ 组合一样，新装的不占，升级上来的照旧开着。
+    /// Control-Command-1 至 9 没动过时开不开：和别的 Control-Command 组合一样，新装的不占，升级上来的照旧开着。
     static var numberedExpandDefault: Bool { history.hadFactoryShortcuts }
 
     static var numberedExpandEnabled: Bool {
@@ -119,13 +119,13 @@ enum GlobalShortcutSettings {
         hotKey(for: shortcut).map(HotKey.displayName(for:))
     }
 
-    static let numberedDisplayName = "⌃⌘1…9"
+    /// 提示文字里这一组的名字。
+    static let numberedDisplayName = "Control-Command-1 至 9"
 
     /// 菜单项上显示的按键：只处理单个字符的键；功能键等显示不了的返回 nil，
     /// 快捷键本身照常生效。
     static func menuKeyEquivalent(for hotKey: HotKey) -> (key: String, modifiers: NSEvent.ModifierFlags)? {
-        let key = HotKey.displayName(for: hotKey)
-            .drop { "⌃⌥⇧⌘".contains($0) }
+        let key = HotKey.keyName(for: hotKey.keyCode, shift: hotKey.modifiers & UInt32(shiftKey) != 0)
         guard key.count == 1, let character = key.first,
               character.isLetter || character.isNumber || character.isPunctuation else { return nil }
         var modifiers: NSEvent.ModifierFlags = []

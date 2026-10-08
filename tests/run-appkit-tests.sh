@@ -57,7 +57,7 @@ if [ -f "$(xcrun --show-sdk-path --sdk macosx)/System/Library/Frameworks/AppKit.
 fi
 swiftc -module-cache-path "$(pwd)/.build/module-cache" -whole-module-optimization -target "$(uname -m)-apple-macosx14.0" ${GLASS_DEFINE[@]+"${GLASS_DEFINE[@]}"} \
   "${SOURCES[@]}" ${TEST_SOURCE[@]+"${TEST_SOURCE[@]}"} \
-  -framework Cocoa -framework Carbon -framework ApplicationServices -framework LocalAuthentication -framework LocalAuthenticationEmbeddedUI \
+  -framework Cocoa -framework SwiftUI -framework Carbon -framework ApplicationServices -framework LocalAuthentication -framework LocalAuthenticationEmbeddedUI \
   -framework ScreenCaptureKit -framework QuartzCore -framework CoreText \
   -framework AVFoundation -framework Vision -framework ServiceManagement \
   -framework CoreAudio -framework MapKit -framework IOKit -framework CoreImage -framework VideoToolbox \

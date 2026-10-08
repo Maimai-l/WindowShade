@@ -279,8 +279,7 @@ WWDC25 356、WWDC23 10158 和 HIG 是其他讲者或文档给的补充来源。�
 ### 4.11 符号（SF Symbols）
 
 Aaron 2026-10-03：“整个 app 多用 SF Symbols，不要大段大段文字。”规则见 copy-guide 第 7 条。下表的符号名都在这台 Mac 上用
-`NSImage(systemSymbolName:)` 核对过（`trackpad` 不存在，用 `rectangle.and.hand.point.up.left`）。设置行的符号放在系统设置那样的圆角色块里，
-用 hierarchical 渲染。
+`NSImage(systemSymbolName:)` 核对过（`trackpad` 不存在，用 `rectangle.and.hand.point.up.left`）。设置窗口里符号只用在分页工具栏上，行里不放符号（2026-10-08，见 design-grammar.md“设置窗口用系统的零件”）。
 
 | 概念 | 符号 |
 | --- | --- |
@@ -292,6 +291,9 @@ Aaron 2026-10-03：“整个 app 多用 SF Symbols，不要大段大段文字。
 | 调度中心 / 窗口浏览 | `rectangle.3.group` / `rectangle.on.rectangle` |
 | 快捷键 | `command` |
 | 权限与启动 | `lock.shield` |
+| 高级 | `gearshape.2` |
+| 已授权 | `checkmark.circle.fill`（绿色） |
+| 按键 | `control` / `option` / `shift` / `command`；`arrow.left` 等方向键、`return`、`delete.left`、`delete.right`、`escape`、`arrow.right.to.line`（Tab）、`space` |
 
 ## 5. 组件
 

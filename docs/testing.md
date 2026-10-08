@@ -88,7 +88,8 @@
 | 需求 | 测试内容 | 层级 | 状态 |
 |---|---|---|---|
 | M1 | 菜单分区、前 9 项的快捷键、标题截断 | 1 | 已有：`run-standard-menu-tests.sh` |
-| M2 | 设置窗口的分页切换、行布局、浅色和深色截图 | 3 | 已有：`run-appkit-tests.sh`（`SettingsNavigationTests`） |
+| M2 | 设置窗口：每页一个工具栏分页（有符号）、选哪页显示哪页、换页窗口不变大小；显示的是实际生效的值；用到的 SF Symbols 都存在；文案里没有字符画符号、说明句、进度旁白；设置各页和欢迎窗口的浅色、深色截图 | 3 | 已有：`run-appkit-tests.sh`（`SettingsNavigationTests`） |
+| M3 | 快捷键显示：修饰键、方向键用 SF Symbols，读屏和提示文字用键名，功能键有名字 | 1 | 已有：`run-quiet-defaults-tests.sh` |
 | M3 | 新安装不设置快捷键；升级保留原快捷键；录制规则 | 1 | 已有：`run-quiet-defaults-tests.sh` |
 | M4 | 欢迎窗口的步骤和授权状态显示 | 3 | 待编写 |
 

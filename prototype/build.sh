@@ -47,6 +47,7 @@ if [ -d "$SPARKLE_FRAMEWORK" ]; then SPARKLE_FLAGS=(-F "$(pwd)/Vendor"); fi
 
 FRAMEWORKS=(
   -framework Cocoa
+  -framework SwiftUI
   -framework Carbon
   -framework ApplicationServices
   -framework ScreenCaptureKit

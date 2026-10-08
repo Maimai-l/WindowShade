@@ -37,11 +37,11 @@ enum StandardMenu {
                                   build: String)
         -> [NSApplication.AboutPanelOptionKey: Any] {
         let credits = NSMutableAttributedString(
-            string: "卷起挡路的窗口，钉住要一直看的，或者停在 Dock 图标上翻出那个应用的所有窗口。\n",
+            string: "双击标题栏，窗口卷成一条留在原处。\nMIT License\n",
             attributes: [.font: NSFont.systemFont(ofSize: 11),
                          .foregroundColor: NSColor.secondaryLabelColor])
         credits.append(NSAttributedString(
-            string: "MIT License · github.com/surfine/WindowShade",
+            string: "github.com/surfine/WindowShade",
             attributes: [.font: NSFont.systemFont(ofSize: 11),
                          .link: URL(string: "https://github.com/surfine/WindowShade")!]))
         return [

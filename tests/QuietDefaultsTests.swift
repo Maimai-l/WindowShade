@@ -180,9 +180,20 @@ struct QuietDefaultsTests {
         expect(HotKey.isReserved(hotKey(kVK_ANSI_K, cmdKey | shiftKey)), "⌘⇧ combinations are rejected as well")
         expect(!HotKey.isReserved(hotKey(kVK_ANSI_K, cmdKey | optionKey)), "a deliberate combination is accepted")
         expect(!HotKey.isReserved(hotKey(kVK_ANSI_K, controlKey)), "control combinations are accepted")
-        let name = HotKey.displayName(for: hotKey(kVK_ANSI_K, cmdKey | shiftKey))
-        expect(name.contains("⌘") && name.contains("⇧") && !name.isEmpty,
-               "display name renders modifier glyphs and a layout key name")
+        let shiftCommandK = hotKey(kVK_ANSI_K, cmdKey | shiftKey)
+        let name = HotKey.displayName(for: shiftCommandK)
+        expect(name.hasPrefix("Shift-Command-") && name.count > "Shift-Command-".count,
+               "the spoken name lists modifier names in menu order, then a layout key name (\(name))")
+        expect(Array(HotKey.keyCaps(for: shiftCommandK).prefix(2)) == [.symbol("shift"), .symbol("command")],
+               "key caps show modifiers as SF Symbols in menu order")
+        expect(HotKey.keyCaps(for: hotKey(kVK_LeftArrow, controlKey | optionKey))
+                == [.symbol("control"), .symbol("option"), .symbol("arrow.left")],
+               "arrow keys are SF Symbols too")
+        let glyphs = CharacterSet(charactersIn: "⌃⌥⇧⌘←→↑↓↩⇥⌫⌦⇞⇟↖↘…")
+        for keyCode in [kVK_LeftArrow, kVK_Return, kVK_Tab, kVK_Delete, kVK_ForwardDelete, kVK_Space, kVK_Home, kVK_PageUp, kVK_F5, kVK_ANSI_K] {
+            let spoken = HotKey.displayName(for: hotKey(keyCode, controlKey | optionKey | shiftKey | cmdKey))
+            expect(spoken.rangeOfCharacter(from: glyphs) == nil, "names are words, not glyph characters (\(spoken))")
+        }
         expect(HotKey.isModifierOnlyKeyCode(UInt16(kVK_Command)) && HotKey.isModifierOnlyKeyCode(UInt16(kVK_RightOption)),
                "modifier-only presses are not recorded as shortcuts")
         expect(!HotKey.isModifierOnlyKeyCode(UInt16(kVK_ANSI_K)), "a real key can be recorded")
@@ -195,8 +206,11 @@ struct QuietDefaultsTests {
         expect(menu?.modifiers == [.control, .command] && menu?.key.count == 1 && menu?.key == menu?.key.lowercased(),
                "menu items show a lower-case key so AppKit does not add a phantom ⇧")
         let f5 = ctrlCmd(kVK_F5)
-        let f5Name = HotKey.displayName(for: f5)
-        expect(GlobalShortcutSettings.menuKeyEquivalent(for: f5) == nil || f5Name.drop { "⌃⌥⇧⌘".contains($0) }.count == 1,
+        let f5Name = HotKey.keyName(for: f5.keyCode, shift: false)
+        expect(GlobalShortcutSettings.menuKeyEquivalent(for: f5) == nil || f5Name.count == 1,
                "keys whose name is not one character are not squeezed into a menu key (\(f5Name))")
+        expect(GlobalShortcutSettings.menuKeyEquivalent(for: ctrlCmd(kVK_LeftArrow)) == nil,
+               "arrow keys are not squeezed into a menu key")
+        expect(HotKey.displayName(for: f5) == "Control-Command-F5", "function keys have names (\(HotKey.displayName(for: f5)))")
     }
 }

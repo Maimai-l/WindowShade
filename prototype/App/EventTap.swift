@@ -57,9 +57,8 @@ extension AppDelegate {
         }
         if GlobalShortcutSettings.numberedExpandEnabled {
             for (index, keyCode) in GlobalShortcutSettings.numberedKeyCodes.enumerated() {
-                register(HotKey(keyCode: keyCode,
-                                                       modifiers: GlobalShortcutSettings.numberedModifiers),
-                         id: UInt32(101 + index), name: "⌃⌘\(index + 1)")
+                let hotKey = HotKey(keyCode: keyCode, modifiers: GlobalShortcutSettings.numberedModifiers)
+                register(hotKey, id: UInt32(101 + index), name: HotKey.displayName(for: hotKey))
             }
         }
         unavailableHotKeyIDs = Set(failed.keys)

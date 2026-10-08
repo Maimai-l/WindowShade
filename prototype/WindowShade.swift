@@ -219,11 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 上一次看到的显示器，用来分辨“真的换了屏”和“只是菜单栏、Dock 变了”。
     var lastDisplayLayout = DisplayLayout(screens: [])
     private var appNapActivity: NSObjectProtocol?
-    weak var onboardingPermissionStack: NSStackView?
-    weak var onboardingDoneButton: NSButton?
-    weak var onboardingCaption: NSTextField?
+    var onboardingPermissions: PermissionStatus?
     var onboardingRefreshTimer: Timer?
-    let onboardingContentWidth: CGFloat = 452
     var suppressUnshadeSounds = false
     var ownsGlobalInput = true
     var pendingTitlebarTripleClick: PendingTitlebarTripleClick?
