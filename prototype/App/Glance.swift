@@ -120,6 +120,8 @@ private final class GlanceSession {
     var growFrom: NSRect?
     /// 看一眼展开时已经开始把真窗口挪回来了。
     var restoreStarted = false
+    /// 展开开始的时刻：展开后 80、250 毫秒还会再把原窗口升起、聚焦一次，画面要撑过这两次。
+    var restoreStartedAt: Date?
 
     init(id: CGWindowID, preparedAt: TimeInterval, stripFrame: NSRect, liveExpected: Bool) {
         self.id = id
@@ -669,6 +671,7 @@ final class GlanceController {
     private func restoreForExpand(_ session: GlanceSession) -> Bool {
         guard !session.restoreStarted, !session.cancelled else { return true }
         session.restoreStarted = true
+        session.restoreStartedAt = Date()
         let restored = owner.unshadeReturningElement(session.id, onVerified: { [weak self, weak session] _ in
             guard let self, let session else { return }
             self.finishWhenSourceInFront(session, deadline: Date().addingTimeInterval(0.6))
@@ -689,7 +692,9 @@ final class GlanceController {
     /// 1. 原窗口排到别的应用程序窗口前面，否则撤掉的那一两帧露出盖在它上面的窗口
     ///    （2026-10-08 CI 录像：访达展开时文本编辑的窗口露出 2 帧）；
     /// 2. 它的应用程序已经成为当前应用程序，再多等两帧：窗口从非活跃换成活跃样式时会重画标题栏，
-    ///    重画期间标题栏是空的（同日 CI 录像：文本编辑展开后标题栏黑了 2 帧）。
+    ///    重画期间标题栏是空的（同日 CI 录像：文本编辑展开后标题栏黑了 2 帧）；
+    /// 3. 展开后 80、250 毫秒那两次补升起、补聚焦已经做过：应用程序本来就在前台时，第 2 条一开始就成立，
+    ///    窗口却要等这两次聚焦才换成活跃样式，重画的那一帧标题栏是黑的（同日 19:05 CI 录像，黑了 1 帧）。
     /// 每帧查一次，最多等到 deadline。
     private func finishWhenSourceInFront(_ session: GlanceSession, deadline: Date, readyFrames: Int = 0) {
         if Date() >= deadline {
@@ -697,7 +702,8 @@ final class GlanceController {
             finish(session, reason: "expanded")
             return
         }
-        let ready = Self.sourceIsInFront(session.id) && Self.sourceAppIsActive(session.id)
+        let refocusDone = session.restoreStartedAt.map { Date().timeIntervalSince($0) >= Self.refocusSettleDelay } ?? true
+        let ready = refocusDone && Self.sourceIsInFront(session.id) && Self.sourceAppIsActive(session.id)
         if ready && readyFrames >= 2 {
             finish(session, reason: "expanded")
             return
@@ -707,6 +713,9 @@ final class GlanceController {
             self.finishWhenSourceInFront(session, deadline: deadline, readyFrames: ready ? readyFrames + 1 : 0)
         }
     }
+
+    /// 展开之后最后一次补聚焦在 250 毫秒，交给应用程序的队列执行，留出约 70 毫秒。
+    static let refocusSettleDelay: TimeInterval = 0.32
 
     /// 原窗口所属的应用程序是当前应用程序。
     static func sourceAppIsActive(_ id: CGWindowID) -> Bool {
