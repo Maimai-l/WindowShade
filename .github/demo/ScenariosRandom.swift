@@ -185,13 +185,22 @@ private final class RandomRun {
         let dx = delta(offset.x), dy = delta(offset.y)
         let start = window.titleBar
         await drag(from: start, to: CGPoint(x: start.x + dx, y: start.y + dy))
-        windows[index].frame = window.frame.offsetBy(dx: dx, dy: dy)
-        windows[index].close = window.close.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
         await glide(to: h.neutral, duration: 0.2)
-        let target = windows[index].frame
-        if !(await eventually(2, { stripFrames().contains { abs($0.minX - target.minX) <= 4 && abs($0.minY - target.minY) <= 4 } })) {
-            fail("drag \(window.title) by (\(Int(dx)),\(Int(dy))): no strip at (\(Int(target.minX)),\(Int(target.minY))); strips \(stripFrames())")
+        let target = window.frame.offsetBy(dx: dx, dy: dy)
+        var moved: CGRect?
+        if !(await eventually(2, {
+            moved = stripFrames().first { abs($0.minX - target.minX) <= 6 && abs($0.minY - target.minY) <= 6 }
+            return moved != nil
+        })) {
+            fail("drag \(window.title) by (\(Int(dx)),\(Int(dy))): no strip near (\(Int(target.minX)),\(Int(target.minY))); strips \(stripFrames())")
+            return
         }
+        // 窗口展开时回到卷帘条所在的地方（S2）。系统拖动窗口时卷帘条和指针会差两三点，
+        // 所以按卷帘条实际停下的位置记，不按指针移动的距离推算（种子 2875042576 第 129 步：差了 3 点）。
+        guard let moved else { return }
+        let actual = CGPoint(x: moved.minX - window.frame.minX, y: moved.minY - window.frame.minY)
+        windows[index].frame = window.frame.offsetBy(dx: actual.x, dy: actual.y)
+        windows[index].close = window.close.map { CGPoint(x: $0.x + actual.x, y: $0.y + actual.y) }
     }
 
     private func drag(from start: CGPoint, to end: CGPoint) async {
