@@ -680,9 +680,7 @@ final class GlanceController {
         session.restoreStarted = true
         let restored = owner.unshadeReturningElement(session.id, onVerified: { [weak self, weak session] _ in
             guard let self, let session else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                self.finish(session, reason: "expanded")
-            }
+            self.finishWhenSourceInFront(session, deadline: Date().addingTimeInterval(0.4))
         })
         if restored == nil {
             finish(session, reason: "expand-failed")
@@ -695,6 +693,34 @@ final class GlanceController {
         return true
     }
 
+
+    /// 位置对了还不够：原窗口要排到别的应用程序窗口前面，画面才能撤，否则撤掉的那一两帧露出盖在它上面的窗口
+    /// （2026-10-08 CI 录像：访达展开时文本编辑的窗口露出 2 帧）。每帧查一次窗口顺序，最多等到 deadline。
+    private func finishWhenSourceInFront(_ session: GlanceSession, deadline: Date) {
+        if Self.sourceIsInFront(session.id) || Date() >= deadline {
+            if Date() >= deadline { wlog("glance: source not in front before deadline id=\(session.id)") }
+            finish(session, reason: "expanded")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self, weak session] in
+            guard let self, let session else { return }
+            self.finishWhenSourceInFront(session, deadline: deadline)
+        }
+    }
+
+    /// 屏幕上的窗口顺序里，原窗口标题栏那一条之上没有别的应用程序的普通窗口（WindowShade 自己的画面和卷帘条不算）。
+    static func sourceIsInFront(_ id: CGWindowID) -> Bool {
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        guard let index = windows.firstIndex(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id }),
+              let bounds = cgWindowBounds(windows[index]) else { return false }
+        let titleBand = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: min(60, bounds.height))
+        return !windows[..<index].contains { info in
+            ((info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1) == 0
+                && (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value != selfPID
+                && (cgWindowBounds(info)?.intersects(titleBand) ?? false)
+        }
+    }
 
     // MARK: 被隐藏的 App：盖住再取消隐藏
 
