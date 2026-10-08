@@ -3,6 +3,8 @@ import Cocoa
 private final class Provider: @unchecked Sendable {
     private let condition = NSCondition()
     private var blocked: Set<WindowListCache.Kind> = []
+    /// 只卡住第一次读取（模拟一个迟迟不回来的刷新者），之后的读取照常返回。
+    private var firstCallBlocked: Set<WindowListCache.Kind> = []
     private var calls: [WindowListCache.Kind: Int] = [:]
     private var values: [WindowListCache.Kind: [[String: Any]]] = [:]
     func set(_ kind: WindowListCache.Kind, _ rows: [[String: Any]], blocked shouldBlock: Bool = false) {
@@ -16,7 +18,13 @@ private final class Provider: @unchecked Sendable {
         calls[kind, default: 0] += 1
         condition.broadcast()
         while blocked.contains(kind) { condition.wait() }
+        if calls[kind] == 1 { while firstCallBlocked.contains(kind) { condition.wait() } }
         return values[kind] ?? []
+    }
+    func blockFirstCall(_ kind: WindowListCache.Kind, _ shouldBlock: Bool) {
+        condition.lock(); defer { condition.unlock() }
+        if shouldBlock { firstCallBlocked.insert(kind) } else { firstCallBlocked.remove(kind) }
+        condition.broadcast()
     }
     func count(_ kind: WindowListCache.Kind) -> Int {
         condition.lock(); defer { condition.unlock() }
@@ -81,6 +89,22 @@ struct WindowListCacheTests {
         precondition(expiring.pidsWithWindows() == [60])
         precondition(expiring.allWindows(ofPID: 30).isEmpty)
         precondition(freshProvider.count(.all) == 2)
-        print("PASS: WindowListCache — 12 concurrent callers, one refresh, independent kinds, TTL and indexes")
+
+        // R6：正在刷新的那一方迟迟不回来，别的调用方最多等 refreshWait，然后自己取一份（不无限等）。
+        let stuck = Provider()
+        stuck.set(.all, [row(7, 70)])
+        stuck.blockFirstCall(.all, true)
+        let bounded = WindowListCache(ttl: 10, provider: stuck.read)
+        DispatchQueue.global().async { _ = bounded.allWindows() }
+        stuck.waitForCall(.all)
+        let start = Date()
+        let rows = bounded.allWindows()
+        let elapsed = Date().timeIntervalSince(start)
+        precondition(rows.count == 1, "the waiting caller reads the list itself")
+        precondition(elapsed >= WindowListCache.refreshWait - 0.05 && elapsed < WindowListCache.refreshWait + 0.5,
+                     "the waiting caller gives up after refreshWait (\(elapsed) s)")
+        precondition(stuck.count(.all) == 2, "exactly one extra read")
+        stuck.blockFirstCall(.all, false)
+        print("PASS: WindowListCache — 12 concurrent callers, one refresh, independent kinds, TTL, indexes, bounded wait")
     }
 }

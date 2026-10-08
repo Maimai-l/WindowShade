@@ -23,9 +23,8 @@ extension AppDelegate {
         switch key {
         case "n":
             app.activate()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                postCommandKey(UInt16(kVK_ANSI_N), to: pid)
-            }
+            let pressed = pressCommandMenuItem("N", pid: pid)
+            wlog("strip-key: new window via menu pressed=\(pressed) id=\(id)")
         case "h":
             app.hide()
         case "w":
@@ -42,12 +41,27 @@ extension AppDelegate {
     }
 }
 
-/// 给某个 App 发一个 ⌘+键（不经过当前前台 App）。
-func postCommandKey(_ keyCode: UInt16, to pid: pid_t) {
-    let source = CGEventSource(stateID: .hidSystemState)
-    for down in [true, false] {
-        guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { continue }
-        event.flags = .maskCommand
-        event.postToPid(pid)
+/// 按下某个 App 菜单栏里快捷键是 Command 加这个字母的那一项（辅助功能的“按下”，不合成按键）。
+/// 只看菜单栏下的第一层菜单，“新建”这类命令都在那里。
+func pressCommandMenuItem(_ character: String, pid: pid_t) -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    var barRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString, &barRef) == .success,
+          let barValue = barRef, CFGetTypeID(barValue) == AXUIElementGetTypeID() else { return false }
+    let bar = unsafeDowncast(barValue, to: AXUIElement.self)
+    for barItem in axChildren(bar) {
+        for menu in axChildren(barItem) {
+            for item in axChildren(menu) {
+                var charRef: CFTypeRef?
+                var modifiersRef: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(item, kAXMenuItemCmdCharAttribute as CFString, &charRef) == .success,
+                      (charRef as? String)?.uppercased() == character.uppercased(),
+                      AXUIElementCopyAttributeValue(item, kAXMenuItemCmdModifiersAttribute as CFString, &modifiersRef) == .success,
+                      (modifiersRef as? NSNumber)?.intValue == 0,   // 0：只有 Command
+                      axBoolAttribute(item, kAXEnabledAttribute as String) else { continue }
+                return AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+            }
+        }
     }
+    return false
 }

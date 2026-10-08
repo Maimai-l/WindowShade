@@ -73,7 +73,8 @@ extension AppDelegate {
         var pid: pid_t = 0
         AXUIElementGetPid(win, &pid)
         if isStickies(pid: pid) {
-            performNativeStickiesShade(win)
+            // 便笺自己会收起（双击它的标题栏）。WindowShade 不替它合成双击，也不收它的窗口。
+            wlog("toggle: skip Stickies id=\(id)")
             return
         }
 
@@ -82,23 +83,6 @@ extension AppDelegate {
         } else {
             shade(win, id)
         }
-    }
-    func performNativeStickiesShade(_ win: AXUIElement) {
-        guard let pos = axPosition(win), let size = axSize(win) else {
-            wlog("stickies: 取不到 pos/size，交还给原 app")
-            return
-        }
-        let x = pos.x + min(max(size.width / 2, 24), max(24, size.width - 24))
-        let y = pos.y + min(max(size.height * 0.08, 8), max(8, size.height / 2))
-        let p = CGPoint(x: x, y: y)
-        let source = CGEventSource(stateID: .hidSystemState)
-        for _ in 0..<2 {
-            CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
-                    mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
-            CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
-                    mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
-        }
-        wlog("stickies: delegated native shade at (\(Int(p.x)),\(Int(p.y)))")
     }
     /// 读好窗口信息交给 FoldPlanner（Domain/FoldPlanner.swift）决定收不收、怎么收。
     func makeShadePlan(pos: CGPoint, size: CGSize,

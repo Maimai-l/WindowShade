@@ -90,9 +90,9 @@ CoreGraphics 窗口的进程，不可能有 AX 窗口**。发现阶段因此从�
 AX API 可在任意线程调用。各 App / 各窗口之间没有依赖的只读工作都可以
 `DispatchQueue.concurrentPerform`，总耗时从「求和」变成「最慢的那一个」：
 
-- 窗口枚举（`concurrentAppWindows`）
 - 外框画像解析（`ChromeProfileCache.prewarm`）——980ms → 0ms
-- 快速预览截图（`concurrentQuickPreviews`）——串行 70ms → 并发 41ms（2 窗口）
+
+（窗口枚举和快速预览截图原来也有并发版本，后来已无调用方，2026-10-08 删除。）
 
 写入侧不能这么做：建 overlay 是 AppKit、改 `shaded` 字典是共享状态，都必须
 留在主线程串行。**并发只用在「读」上，是这一节全部收益的边界。**

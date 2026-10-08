@@ -176,115 +176,14 @@ extension AppDelegate {
         wlog("front: \(reason) immediate-only")
     }
 
-    func restoredWindowIsGeometryReady(_ win: AXUIElement) -> Bool {
-        guard let pos = axPosition(win), let size = axSize(win) else { return false }
-        return pos.x.isFinite && pos.y.isFinite && size.width > 1 && size.height > 1
-    }
-
-    func buttonIsReady(_ win: AXUIElement, _ attr: String) -> Bool {
-        guard let button = axButtonElement(win, attr),
-              let pos = axPosition(button),
-              let size = axSize(button),
-              size.width > 1,
-              size.height > 1,
-              pos.x.isFinite,
-              pos.y.isFinite else { return false }
-        var ref: CFTypeRef?
-        if AXUIElementCopyAttributeValue(button, kAXEnabledAttribute as CFString, &ref) == .success,
-           let value = ref {
-            return cfBooleanValue(value) ?? true
-        }
-        return true
-    }
-
-    func forwardedTrafficActionSucceeded(state: ShadeState, id: CGWindowID,
-                                                 win: AXUIElement,
-                                                 action: TrafficAction) -> Bool {
-        switch action {
-        case .minimize:
-            return axBoolAttribute(win, kAXMinimizedAttribute as String)
-        case .close:
-            guard runningApp(pid: state.pid) != nil else { return true }
-            let windows = appWindows(pid: state.pid)
-            guard !windows.isEmpty else { return true }
-            let sameWindowExists = windows.contains { window in
-                if let currentID = windowID(of: window), currentID == id { return true }
-                let expectedTitle = cleanDisplayTitle(state.title)
-                return !expectedTitle.isEmpty && cleanDisplayTitle(axTitle(window)) == expectedTitle
-            }
-            guard sameWindowExists else { return true }
-            guard let pos = axPosition(win), let size = axSize(win) else { return true }
-            return !windowIsVisible(pos: pos, size: size)
-        case .zoom, .fullScreen:
-            return true
-        }
-    }
-
     func performForwardedTrafficAction(state: ShadeState, pos: CGPoint,
                                                id: CGWindowID, action: TrafficAction) {
-        let attrs: [String]
+        let forwarded: ForwardedTrafficAction
         switch action {
-        case .close:
-            attrs = [kAXCloseButtonAttribute as String]
-        case .minimize:
-            attrs = [kAXMinimizeButtonAttribute as String]
-        case .zoom:
-            attrs = [kAXFullScreenButtonAttribute as String, kAXZoomButtonAttribute as String]
-        case .fullScreen:
-            attrs = [kAXFullScreenButtonAttribute as String]
-        }
-
-        func retryOrFallback(_ index: Int, note: String) {
-            if action == .minimize, index >= forwardedTrafficRetryDelays.count - 1 {
-                let win = resolvedWindowElement(for: state)
-                setAXMinimized(win, true)
-                wlog("traffic: minimize fallback AXMinimized id=\(id) note=\(note)")
-                return
-            }
-            if action == .zoom, index >= forwardedTrafficRetryDelays.count - 1 {
-                pressFullScreenShortcut()
-                wlog("traffic: zoom fallback ctrl-cmd-f id=\(id) note=\(note)")
-                return
-            }
-            if action == .fullScreen, index >= forwardedTrafficRetryDelays.count - 1 {
-                pressFullScreenShortcut()
-                wlog("traffic: fullscreen fallback ctrl-cmd-f id=\(id) note=\(note)")
-                return
-            }
-            if action == .close, index >= forwardedTrafficRetryDelays.count - 1 {
-                wlog("traffic: close failed id=\(id) note=\(note)")
-                return
-            }
-            schedule(index + 1, note: note)
-        }
-
-        func verifyAfterAXPress(_ win: AXUIElement, index: Int, attr: String) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
-                let latest = self.resolvedWindowElement(for: state)
-                if self.forwardedTrafficActionSucceeded(state: state, id: id,
-                                                        win: latest, action: action) {
-                    wlog("traffic: \(action) AXPress verified id=\(id) attr=\(attr) attempt=\(index)")
-                    return
-                }
-                retryOrFallback(index, note: "axpress-no-effect")
-            }
-        }
-
-        func verifyAfterPointerClick(_ win: AXUIElement, index: Int, attr: String) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                let latest = self.resolvedWindowElement(for: state)
-                if self.forwardedTrafficActionSucceeded(state: state, id: id,
-                                                        win: latest, action: action) {
-                    wlog("traffic: \(action) pointer-click verified id=\(id) attr=\(attr) attempt=\(index)")
-                    return
-                }
-                if pressAXButton(latest, attr) {
-                    wlog("traffic: \(action) AXPress fallback id=\(id) attr=\(attr) attempt=\(index)")
-                    verifyAfterAXPress(latest, index: index, attr: attr)
-                    return
-                }
-                retryOrFallback(index, note: "click-no-effect")
-            }
+        case .close: forwarded = .close
+        case .minimize: forwarded = .minimize
+        case .zoom: forwarded = .zoom
+        case .fullScreen: forwarded = .fullScreen
         }
 
         func attempt(_ index: Int) {
@@ -293,84 +192,19 @@ extension AppDelegate {
                                             reason: "traffic \(action) id=\(id)")
             prepareForwardedTrafficAction(win, pid: state.pid,
                                           reason: "traffic-\(action) id=\(id) attempt=\(index)")
-            guard restoredWindowIsGeometryReady(win) else {
-                schedule(index + 1, note: "geometry-not-ready")
-                return
-            }
-
-            if let attr = attrs.first(where: { buttonIsReady(win, $0) }) {
-                // Forward as a real pointer click at the real traffic-light
-                // center. Nonstandard apps such as WeChat may ignore AXPress
-                // here, but they still honor the native mouse path.
-                if clickAXButton(win, attr) {
-                    wlog("traffic: \(action) pointer-click forwarded id=\(id) attr=\(attr) attempt=\(index)")
-                    if action == .zoom || action == .fullScreen { return }
-                    verifyAfterPointerClick(win, index: index, attr: attr)
-                    return
-                }
-                if pressAXButton(win, attr) {
-                    wlog("traffic: \(action) AXPress forwarded id=\(id) attr=\(attr) attempt=\(index)")
-                    verifyAfterAXPress(win, index: index, attr: attr)
-                    return
-                }
-            }
-
-            retryOrFallback(index, note: "button-not-ready")
-        }
-
-        func schedule(_ index: Int, note: String) {
-            guard index < forwardedTrafficRetryDelays.count else {
-                wlog("traffic: \(action) failed id=\(id) note=\(note)")
-                return
-            }
-            let delay = forwardedTrafficRetryDelays[index]
-            wlog("traffic: \(action) retry id=\(id) attempt=\(index) delay=\(String(format: "%.2f", delay)) note=\(note)")
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                attempt(index)
+            let forwarder = TrafficForwarder(control: AXTrafficButtons(window: win))
+            switch forwarder.step(forwarded, attempt: index) {
+            case .done(let how):
+                wlog("traffic: \(action) forwarded id=\(id) how=\(how) attempt=\(index)")
+            case .wait(let delay):
+                wlog("traffic: \(action) waiting id=\(id) attempt=\(index) delay=\(String(format: "%.2f", delay))")
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { attempt(index + 1) }
+            case .gaveUp:
+                wlog("traffic: \(action) gave up id=\(id) attempt=\(index)")
             }
         }
 
         attempt(0)
-    }
-
-    func showRealWindowManagementPopover(_ id: CGWindowID) {
-        guard let state = shaded[id], let overlay = state.overlay else { return }
-        guard state.hide != .quickLookClosed else {
-            wlog("proxy wm: skip QuickLook proxy id=\(id)")
-            return
-        }
-        let pos = axPosition(fromCocoaFrame: restoreReferenceFrame(id: id, overlay: overlay))
-        removeProxyForForwardedAction(id, state: state)
-        let immediate = restoreWindow(state, to: pos)
-        prepareForwardedTrafficAction(immediate, pid: state.pid,
-                                      reason: "wm-popover id=\(id) immediate")
-
-        let delays: [TimeInterval] = [0.05, 0.12, 0.22, 0.38, 0.60]
-        func attempt(_ index: Int) {
-            let win = applyRestoredGeometry(state, to: pos,
-                                            label: "wm-\(index)",
-                                            reason: "wm-popover id=\(id)")
-            prepareForwardedTrafficAction(win, pid: state.pid,
-                                          reason: "wm-popover id=\(id) attempt=\(index)")
-            let attrs = [kAXFullScreenButtonAttribute as String, kAXZoomButtonAttribute as String]
-            if let attr = attrs.first(where: { buttonIsReady(win, $0) }),
-               hoverAXButtonForWindowManagement(win, attr) {
-                wlog("proxy wm: forwarded hover to real green button id=\(id) attr=\(attr) attempt=\(index)")
-                return
-            }
-            if index + 1 < delays.count {
-                wlog("proxy wm: retry hover id=\(id) attempt=\(index + 1)")
-                DispatchQueue.main.asyncAfter(deadline: .now() + delays[index + 1]) {
-                    attempt(index + 1)
-                }
-            } else {
-                wlog("proxy wm: cannot find real green button id=\(id)")
-            }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + delays[0]) {
-            attempt(0)
-        }
     }
 
 
@@ -807,5 +641,52 @@ extension AppDelegate {
         }
         spaceRefreshWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+}
+
+/// TrafficButtonControl 的真实实现：原窗口的辅助功能按钮和属性。
+private struct AXTrafficButtons: TrafficButtonControl {
+    let window: AXUIElement
+
+    private func attribute(_ action: ForwardedTrafficAction) -> String {
+        switch action {
+        case .close: return kAXCloseButtonAttribute as String
+        case .minimize: return kAXMinimizeButtonAttribute as String
+        case .zoom: return kAXZoomButtonAttribute as String
+        case .fullScreen: return kAXFullScreenButtonAttribute as String
+        }
+    }
+
+    var windowReady: Bool {
+        guard let pos = axPosition(window), let size = axSize(window) else { return false }
+        return pos.x.isFinite && pos.y.isFinite && size.width > 1 && size.height > 1
+    }
+
+    func buttonReady(_ action: ForwardedTrafficAction) -> Bool {
+        guard let button = axButtonElement(window, attribute(action)),
+              let pos = axPosition(button), let size = axSize(button),
+              size.width > 1, size.height > 1, pos.x.isFinite, pos.y.isFinite else { return false }
+        var ref: CFTypeRef?
+        if AXUIElementCopyAttributeValue(button, kAXEnabledAttribute as CFString, &ref) == .success,
+           let value = ref {
+            return cfBooleanValue(value) ?? true
+        }
+        return true
+    }
+
+    func press(_ action: ForwardedTrafficAction) -> Bool {
+        pressAXButton(window, attribute(action))
+    }
+
+    func setAttribute(for action: ForwardedTrafficAction) -> Bool {
+        switch action {
+        case .minimize:
+            return setAXMinimizedReturningError(window, true) == .success
+        case .fullScreen:
+            return isAXAttributeSettable(window, axFullScreenAttribute)
+                && AXUIElementSetAttributeValue(window, axFullScreenAttribute as CFString, kCFBooleanTrue) == .success
+        case .close, .zoom:
+            return false
+        }
     }
 }

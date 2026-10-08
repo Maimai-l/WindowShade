@@ -113,39 +113,6 @@ func reopenQuickLookPreview(url: URL) -> Bool {
     }
 }
 
-func postSpacebarKey() {
-    let source = CGEventSource(stateID: .hidSystemState)
-    let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Space), keyDown: true)
-    let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Space), keyDown: false)
-    down?.post(tap: .cghidEventTap)
-    up?.post(tap: .cghidEventTap)
-}
-
-@discardableResult
-func reopenQuickLookFromFinderSelection(pid: pid_t) -> Bool {
-    let finder = runningApp(pid: pid)
-        ?? NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" })
-    guard let finder else {
-        return false
-    }
-    let finderPID = finder.processIdentifier
-    finder.unhide()
-    finder.activate(options: [])
-    if let visibleWindow = appWindows(pid: finderPID).first(where: { win in
-        guard !axBoolAttribute(win, kAXMinimizedAttribute as String) else { return false }
-        guard let size = axSize(win), size.width > 40, size.height > 40 else { return false }
-        guard let pos = axPosition(win) else { return true }
-        return windowIsVisible(pos: pos, size: size)
-    }) {
-        raiseAXWindow(visibleWindow)
-        focusAXWindow(visibleWindow, pid: finderPID)
-    }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-        postSpacebarKey()
-    }
-    return true
-}
-
 enum SystemTitlebarDoubleClickAction: Equatable {
     case zoom
     case minimize

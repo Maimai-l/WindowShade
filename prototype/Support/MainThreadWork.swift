@@ -19,23 +19,6 @@ struct HandOff<Value>: @unchecked Sendable {
     init(_ value: Value) { self.value = value }
 }
 
-/// 并发填写的定长数组：每个下标由一个任务写，读写都在锁里。
-final class LockedSlots<Element>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [Element]
-
-    init(count: Int, initial: Element) {
-        storage = Array(repeating: initial, count: count)
-    }
-
-    subscript(index: Int) -> Element {
-        get { lock.withLock { storage[index] } }
-        set { lock.withLock { storage[index] = newValue } }
-    }
-
-    var values: [Element] { lock.withLock { storage } }
-}
-
 /// 把闭包排到主队列上执行；`delay` 为 0 时等同于 `DispatchQueue.main.async`。
 func runOnMainQueue(after delay: TimeInterval = 0, _ work: @escaping () -> Void) {
     let box = MainThreadWork(work)

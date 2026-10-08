@@ -44,8 +44,6 @@ extension AppDelegate {
             onVerified?(false)
             if let url = state.quickLookReopenURL, reopenQuickLookPreview(url: url) {
                 wlog("quicklook: reopened via qlmanage id=\(id) path=\(url.path)")
-            } else if reopenQuickLookFromFinderSelection(pid: state.pid) {
-                wlog("quicklook: reopened via Finder Space fallback id=\(id)")
             } else {
                 wlog("quicklook: reopen unavailable id=\(id)")
             }
@@ -215,94 +213,24 @@ extension AppDelegate {
             wlog("quicklook fullscreen: reopen via qlmanage id=\(id) path=\(url.path)")
             return true
         }
-        if reopenQuickLookFromFinderSelection(pid: state.pid) {
-            wlog("quicklook fullscreen: reopen via Finder Space id=\(id)")
-            return true
-        }
         wlog("quicklook fullscreen: reopen unavailable id=\(id)")
         return false
     }
-    func clickQuickLookVisualFullScreenButton(_ win: AXUIElement, pid: pid_t,
-                                                      id: CGWindowID, attempt: Int) -> Bool {
-        let offsets: [CGFloat] = [28, 26, 30, 24, 32]
-        let offset = offsets[min(attempt, offsets.count - 1)]
-        let point: CGPoint
-        if let close = axButtonFrame(win, kAXCloseButtonAttribute as String) {
-            point = CGPoint(x: close.midX + offset, y: close.midY)
-            wlog("quicklook fullscreen: visual point from close id=\(id) pid=\(pid) attempt=\(attempt) close=(\(Int(close.minX)),\(Int(close.minY)) \(Int(close.width))x\(Int(close.height))) offset=\(Int(offset))")
-        } else if let pos = axPosition(win), let size = axSize(win),
-                  size.width > 80, size.height > 30 {
-            let fallbackOffsets: [CGFloat] = [50, 48, 52, 46, 54]
-            point = CGPoint(x: pos.x + fallbackOffsets[min(attempt, fallbackOffsets.count - 1)],
-                            y: pos.y + 20)
-            wlog("quicklook fullscreen: visual point from window id=\(id) pid=\(pid) attempt=\(attempt) pos=(\(Int(pos.x)),\(Int(pos.y)))")
-        } else {
-            return false
-        }
-
-        return humanClickAXPoint(point,
-                                 reason: "quicklook-visual-fullscreen",
-                                 logLabel: "quicklook-visual-fullscreen id=\(id) pid=\(pid) attempt=\(attempt)")
-    }
+    /// 只用辅助功能：先写 AXFullScreen，不行再按一次全屏或缩放按钮。
     func triggerQuickLookFullScreen(_ win: AXUIElement, pid: pid_t,
                                             id: CGWindowID, attempt: Int) -> Bool {
-        if clickQuickLookVisualFullScreenButton(win, pid: pid, id: id, attempt: attempt) {
-            wlog("quicklook fullscreen: visual click scheduled id=\(id) pid=\(pid) attempt=\(attempt)")
-            return true
-        }
-
         if isAXAttributeSettable(win, axFullScreenAttribute),
            AXUIElementSetAttributeValue(win, axFullScreenAttribute as CFString, kCFBooleanTrue) == .success {
             wlog("quicklook fullscreen: AXFullScreen set id=\(id) pid=\(pid) attempt=\(attempt)")
             return true
         }
-
-        let attrs = [kAXFullScreenButtonAttribute as String, kAXZoomButtonAttribute as String]
-        for attr in attrs {
+        for attr in [kAXFullScreenButtonAttribute as String, kAXZoomButtonAttribute as String] {
             if pressAXButton(win, attr) {
                 wlog("quicklook fullscreen: AXPress attr=\(attr) id=\(id) pid=\(pid) attempt=\(attempt)")
                 return true
             }
         }
-        for attr in attrs {
-            if clickAXButton(win, attr) {
-                wlog("quicklook fullscreen: pointer click attr=\(attr) id=\(id) pid=\(pid) attempt=\(attempt)")
-                return true
-            }
-        }
         return false
-    }
-    func verifyQuickLookFullScreenOrSendShortcut(_ win: AXUIElement, pid: pid_t,
-                                                         id: CGWindowID, attempt: Int) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.70) {
-            if axBoolAttribute(win, axFullScreenAttribute) {
-                wlog("quicklook fullscreen: verified after trigger id=\(id) pid=\(pid) attempt=\(attempt)")
-                return
-            }
-
-            runningApp(pid: pid)?.activate(options: [])
-            raiseAXWindow(win)
-            focusAXWindow(win, pid: pid)
-            if attempt < 4,
-               self.clickQuickLookVisualFullScreenButton(win, pid: pid, id: id, attempt: attempt + 1) {
-                wlog("quicklook fullscreen: retry visual click id=\(id) pid=\(pid) attempt=\(attempt + 1)")
-                self.verifyQuickLookFullScreenOrSendShortcut(win, pid: pid, id: id, attempt: attempt + 1)
-                return
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                runningApp(pid: pid)?.activate(options: [])
-                raiseAXWindow(win)
-                focusAXWindow(win, pid: pid)
-                pressFullScreenShortcut()
-                wlog("quicklook fullscreen: shortcut fallback sent id=\(id) pid=\(pid) attempt=\(attempt)")
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.10) {
-                let ok = axBoolAttribute(win, axFullScreenAttribute)
-                wlog("quicklook fullscreen: shortcut verification id=\(id) pid=\(pid) ok=\(ok)")
-            }
-        }
     }
     func openQuickLookFullScreenFromProxy(state: ShadeState, id: CGWindowID) {
         let delays: [TimeInterval] = [0.08, 0.18, 0.32, 0.55, 0.85, 1.20]
@@ -318,7 +246,6 @@ extension AppDelegate {
                 raiseAXWindow(target.win)
                 focusAXWindow(target.win, pid: target.pid)
                 if triggerQuickLookFullScreen(target.win, pid: target.pid, id: id, attempt: index) {
-                    verifyQuickLookFullScreenOrSendShortcut(target.win, pid: target.pid, id: id, attempt: index)
                     return
                 }
                 wlog("quicklook fullscreen: target not ready id=\(id) attempt=\(index)")

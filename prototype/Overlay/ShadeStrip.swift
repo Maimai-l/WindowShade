@@ -61,7 +61,6 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var onDoubleClick: (() -> Void)?
     var onClick: (() -> Void)?
     var onAction: ((TrafficAction) -> Void)?
-    var onWindowManagementPopover: (() -> Void)?
     var onResize: ((NSWindow) -> Void)?
     var onFrameMoved: ((NSRect) -> Void)?
 
@@ -76,14 +75,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var usesProxyTitleLayout = false
     var trafficLightConfiguration = ProxyTrafficLightConfiguration.standard
     private var redirectingFullScreen = false
-    private var pendingWindowManagementHover: DispatchWorkItem?
     private var zoomMouseDown = false
-    private var zoomPopoverForwarded = false
-    /// 卷帘条可能直接出现在一个停着的指针下面（在标题栏上两指上滑收起时，指针停在哪都有可能，
-    /// 正好停在绿色按钮的位置就会被当成悬停，窗口随即被展开去弹系统菜单）。这不是想打开窗口
-    /// 管理菜单：出现那一刻指针就在绿色按钮上的话，先离开一次，悬停转发才恢复。指针从别处
-    /// 移过来、按下绿色按钮都不受影响。
-    private var zoomHoverArmed = true
     private var potentialWindowDrag = false
     private var didWindowDrag = false
     private var isClosingProgrammatically = false
@@ -162,7 +154,6 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         onDoubleClick = nil
         onClick = nil
         onAction = nil
-        onWindowManagementPopover = nil
         onResize = nil
         onFrameMoved = nil
         onDragEnded = nil
@@ -321,54 +312,14 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         }
     }
 
-    override func orderFrontRegardless() {
-        let appearing = !isVisible
-        super.orderFrontRegardless()
-        if appearing {
-            let pointer = convertPoint(fromScreen: NSEvent.mouseLocation)
-            zoomHoverArmed = !pointHitsStandardButton(.zoomButton, pointer)
-        }
-    }
-
-    private func cancelWindowManagementHover() {
-        pendingWindowManagementHover?.cancel()
-        pendingWindowManagementHover = nil
-    }
-
-    private func forwardWindowManagementPopover() {
-        cancelWindowManagementHover()
-        zoomPopoverForwarded = true
-        onWindowManagementPopover?()
-    }
-
-    private func scheduleWindowManagementPopover(delay: TimeInterval = 0.55) {
-        if pendingWindowManagementHover != nil { return }
-        let work = DispatchWorkItem { [weak self] in
-            self?.pendingWindowManagementHover = nil
-            self?.forwardWindowManagementPopover()
-        }
-        pendingWindowManagementHover = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-    }
-
     override func sendEvent(_ event: NSEvent) {
         let greenAction = greenTrafficAction
         if event.type == .mouseMoved || event.type == .mouseEntered {
             updatePointerOverLights(event.locationInWindow)
-            let hitsZoomButton = pointHitsStandardButton(.zoomButton, event.locationInWindow)
-            if !hitsZoomButton { zoomHoverArmed = true }
-            if allowsWindowManagement && hitsZoomButton && greenAction != .fullScreen {
-                if zoomHoverArmed { scheduleWindowManagementPopover() }
-                return
-            } else {
-                cancelWindowManagementHover()
-            }
         }
         if event.type == .mouseExited {
             // 离开的可能是按钮，也可能是卷帘条上别的跟踪区域：按离开时指针在哪里算。
             updatePointerOverLights(event.locationInWindow)
-            zoomHoverArmed = true
-            cancelWindowManagementHover()
             // AppKit must also deliver the exit to content tracking areas so
             // the paper title's hover hint can disappear.
         }
@@ -376,10 +327,6 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
            allowsWindowManagement,
            pointHitsStandardButton(.zoomButton, event.locationInWindow) {
             zoomMouseDown = true
-            zoomPopoverForwarded = false
-            if greenAction != .fullScreen {
-                scheduleWindowManagementPopover(delay: 0.45)
-            }
             return
         }
         if event.type == .leftMouseDown,
@@ -389,10 +336,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         }
         if event.type == .leftMouseUp, zoomMouseDown {
             zoomMouseDown = false
-            let wasForwarded = zoomPopoverForwarded
-            zoomPopoverForwarded = false
-            cancelWindowManagementHover()
-            if !wasForwarded, allowsWindowManagement, pointHitsStandardButton(.zoomButton, event.locationInWindow) {
+            if allowsWindowManagement, pointHitsStandardButton(.zoomButton, event.locationInWindow) {
                 onAction?(greenAction)
             }
             return

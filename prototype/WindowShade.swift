@@ -52,9 +52,10 @@ let shadeDebugWindowDumpDefaultsKey = "ShadeDebugWindowDump"
 let shadeJournalMaxAge: TimeInterval = 14 * 24 * 60 * 60
 let shadedWindowReconcileInterval: TimeInterval = 5
 let journalRescueRetryInterval: TimeInterval = 30
-let forwardedTrafficRetryDelays: [TimeInterval] = [0.035, 0.08, 0.14, 0.24, 0.40, 0.65]
 let shadeTranslucentAlpha: CGFloat = 0.82
 let axFullScreenAttribute = "AXFullScreen"
+/// 一次辅助功能调用最多等多久（秒）。
+let axMessagingTimeout: Float = 1.0
 // AX 子树遍历预算：限制「顶部控件扫描」（collectTopChromeControlSamples）和
 // firstToolbar 在最坏情况下的同步 IPC 数量。复杂窗口（浏览器等）的 AX 树可达
 // 数千节点，无界遍历会让折叠/双击判定在忙 app 上长时间卡住主线程。
@@ -227,7 +228,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var ownsGlobalInput = true
     var pendingTitlebarTripleClick: PendingTitlebarTripleClick?
     var restorePinTokens: [CGWindowID: UUID] = [:]
-    var titlebarEventTapBypassUntil: Date?
     var soundEnabled: Bool = {
         if UserDefaults.standard.object(forKey: shadeSoundEnabledDefaultsKey) == nil { return true }
         return UserDefaults.standard.bool(forKey: shadeSoundEnabledDefaultsKey)
@@ -287,11 +287,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logIfSlow("launch dockEffect", threshold: 0.1) { enableScaleMinimizeEffectForSession() }
         logIfSlow("launch hotKey", threshold: 0.1) { registerHotKey() }
         logIfSlow("launch ensureAX", threshold: 0.1) { _ = ensureAccessibility() }
-        // 把本进程所有同步 AX 调用的超时从系统默认 6s 收紧到 2s。
-        // 目标 app 无响应时，event tap 回调和主线程最多被拖 2s 而不是 6s；
-        // 正常 app 的 AX 属性读取都在毫秒级，不受影响。
+        // 把本进程所有同步 AX 调用的超时从系统默认 6s 收紧到 axMessagingTimeout。
+        // 目标 app 无响应时，主线程最多被拖这么久；正常 app 的 AX 属性读取都在毫秒级，不受影响。
         logIfSlow("launch axTimeout", threshold: 0.1) {
-            AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 2.0)
+            AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axMessagingTimeout)
         }
         logIfSlow("launch onboarding", threshold: 0.1) { showPermissionOnboardingIfNeeded(force: false) }
         logIfSlow("launch eventTap", threshold: 0.1) { setupEventTapWhenTrusted() }

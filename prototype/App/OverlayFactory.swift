@@ -78,7 +78,6 @@ extension AppDelegate {
             overlay.alignStandardTrafficButtons(to: buttons)
             overlay.configureWindowManagementButton(capability: effectiveWindowManagement)
             overlay.onAction = { [weak self] action in self?.handleTrafficLight(action, id) }
-            overlay.onWindowManagementPopover = { [weak self] in self?.showRealWindowManagementPopover(id) }
             overlay.onFrameMoved = { [weak self] frame in
                 self?.noteUserMovedOverlay(id: id, frame: frame)
             }
@@ -206,7 +205,6 @@ extension AppDelegate {
         }
 
         overlay.onAction = { [weak self] action in self?.handleTrafficLight(action, id) }
-        overlay.onWindowManagementPopover = { [weak self] in self?.showRealWindowManagementPopover(id) }
         overlay.onClick = { [weak self] in self?.stripClicked(id) }
         overlay.onFrameMoved = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)

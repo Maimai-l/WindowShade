@@ -23,22 +23,12 @@ func pointMayLieInTitlebarBand(_ point: CGPoint) -> Bool {
 
 /// 按下鼠标的钩子（主动钩子，能吞事件）。它跑在自己的线程上：WindowShade 的主线程在等某个慢吞吞的 App
 /// 回答辅助功能查询时（实测几百毫秒），全系统的单击不再跟着排队。单击直接放行；只有双击、三击才问主线程
-/// 要不要吞掉（标题栏双击收起、三击铺满本来就要问那个 App）。
+/// 要不要吞掉（标题栏双击收起、三击铺满本来就要问那个 App），而且最多等 TapDecision.deadline。
 nonisolated(unsafe) var mouseDownTapPort: CFMachPort?
 
 /// 吞掉了一次按下，就把跟它配对的那次松开也吞掉：macOS 26 起，系统在第二次松开时执行“双击标题栏缩放”，
 /// 只吞按下的话窗口照样被放大，卷帘条截到的就是放大后的窗口。只在钩子线程上读写。
 nonisolated(unsafe) private var swallowNextMouseUp = false
-
-/// 双击、三击时问主线程的结果。主线程 0.5 秒内还没开始处理（比如正在跟踪菜单）就放行，那边也不再处理，
-/// 免得既放行又收起；已经开始处理了就等它做完。
-private final class TapDecision: @unchecked Sendable {
-    let lock = NSLock()
-    let done = DispatchSemaphore(value: 0)
-    var started = false
-    var abandoned = false
-    var swallow = false
-}
 
 func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
                       event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
@@ -64,31 +54,23 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
     let location = event.location
     let decision = TapDecision()
     DispatchQueue.main.async {
-        decision.lock.lock()
-        guard !decision.abandoned else {
-            decision.lock.unlock()
-            return
-        }
-        decision.started = true
-        decision.lock.unlock()
-        decision.swallow = MainActor.assumeIsolated { () -> Bool in
-            guard let delegate = appDelegate, !delegate.shouldBypassTitlebarEventTap else { return false }
+        guard decision.begin() else { return }
+        let swallow = MainActor.assumeIsolated { () -> Bool in
+            guard let delegate = appDelegate else { return false }
             if clickState >= 3 {
                 return delegate.handleTitleBarTripleClick(at: location, clickCount: clickState)
             }
             return delegate.handleTitleBarDoubleClick(at: location)   // 吞掉，阻止系统「双击缩放」
         }
-        decision.done.signal()
+        decision.finish(swallow: swallow)
     }
-    if decision.done.wait(timeout: .now() + 0.5) == .timedOut {
-        decision.lock.lock()
-        let started = decision.started
-        if !started { decision.abandoned = true }
-        decision.lock.unlock()
-        guard started else { return Unmanaged.passUnretained(event) }
-        decision.done.wait()
+    // 有硬时限（见 Core/TapDecision.swift）：过时放行，绝不无限等主线程。
+    let swallow = decision.waitForSwallow()
+    if decision.isAbandoned {
+        // 写日志可能要等文件锁：不在钩子线程上写。
+        DispatchQueue.global(qos: .utility).async { wlog("event-tap: main thread did not answer in time; click passed through") }
     }
-    guard decision.swallow else { return Unmanaged.passUnretained(event) }
+    guard swallow else { return Unmanaged.passUnretained(event) }
     swallowNextMouseUp = true
     return nil
 }

@@ -13,6 +13,8 @@ import Cocoa
 // 可变状态只在持有 `lock` 时读写；`provider` 构造后不变。
 final class WindowListCache: @unchecked Sendable {
     static let shared = WindowListCache()
+    /// 等另一方刷新的时限（秒）。
+    static let refreshWait: TimeInterval = 1.0
 
     private struct Snapshot {
         let windows: [[String: Any]]
@@ -113,9 +115,13 @@ final class WindowListCache: @unchecked Sendable {
 
             // 已有调用在锁外刷新同一种快照：等待其完成（锁在此期间被释放，
             // 因此慢 provider 不会阻塞状态锁），被唤醒后回到循环顶部重查 TTL。
+            // 最多等 refreshWait：那一方迟迟不回来时自己取一份，不陪着一直等。
             if isRefreshing(kind) {
-                lock.wait()
-                continue
+                if lock.wait(until: Date(timeIntervalSinceNow: Self.refreshWait)) { continue }
+                lock.unlock()
+                let fresh = build(provider(kind))
+                lock.lock()
+                return fresh
             }
 
             // 成为该 kind 的唯一刷新者。锁外取数，完成后写回缓存并广播唤醒全部等待者。

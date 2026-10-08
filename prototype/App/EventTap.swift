@@ -194,13 +194,6 @@ extension AppDelegate {
         let cocoaPoint = cocoaMousePoint(fromAXPoint: point)
         return overlay.frame.insetBy(dx: -28, dy: -28).contains(cocoaPoint)
     }
-    var shouldBypassTitlebarEventTap: Bool {
-        if let deadline = titlebarEventTapBypassUntil, deadline >= Date() {
-            return true
-        }
-        titlebarEventTapBypassUntil = nil
-        return false
-    }
     func titlebarContains(point: CGPoint, in win: AXUIElement) -> (CGWindowID, pid_t)? {
         guard let id = windowID(of: win), !isDesktopWidgetWindow(id: id) else { return nil }
         if overlayIDs.contains(id) { return nil }
@@ -309,49 +302,6 @@ extension AppDelegate {
                                                         source: source)
         }
     }
-    func titlebarSystemDoubleClickPoint(for win: AXUIElement, id: CGWindowID,
-                                                originalClickPoint: CGPoint) -> CGPoint? {
-        guard let pos = axPosition(win), let size = axSize(win) else { return nil }
-        var pid: pid_t = 0
-        AXUIElementGetPid(win, &pid)
-        let barH = titlebarHitHeight(of: win, id: id, winTop: pos.y, winSize: size, pid: pid)
-        let safeLeft = pos.x + min(max(size.width * 0.18, 120), max(120, size.width - 40))
-        let safeRight = pos.x + max(40, size.width - 40)
-        let x: CGFloat
-        if originalClickPoint.x >= safeLeft, originalClickPoint.x <= safeRight {
-            x = originalClickPoint.x
-        } else {
-            x = min(max(pos.x + size.width * 0.5, safeLeft), safeRight)
-        }
-        return CGPoint(x: x, y: pos.y + max(8, min(barH * 0.5, barH - 4)))
-    }
-    func postSystemTitlebarDoubleClick(at axPoint: CGPoint, id: CGWindowID, source: String) {
-        let eventPoint = movePointerVisibly(to: axPoint, reason: "titlebar-triple-double-click")
-        let eventSource = CGEventSource(stateID: .hidSystemState)
-        titlebarEventTapBypassUntil = Date().addingTimeInterval(0.35)
-        let schedule: [(TimeInterval, CGEventType, Int64)] = [
-            (0.000, .leftMouseDown, 1),
-            (0.026, .leftMouseUp, 1),
-            (0.078, .leftMouseDown, 2),
-            (0.104, .leftMouseUp, 2),
-        ]
-        for (delay, type, clickState) in schedule {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                let event = CGEvent(mouseEventSource: eventSource,
-                                    mouseType: type,
-                                    mouseCursorPosition: eventPoint,
-                                    mouseButton: .left)
-                event?.setIntegerValueField(.mouseEventClickState, value: clickState)
-                event?.post(tap: .cghidEventTap)
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak self] in
-            if self?.titlebarEventTapBypassUntil ?? .distantPast < Date() {
-                self?.titlebarEventTapBypassUntil = nil
-            }
-        }
-        wlog("titlebar-triple-click: posted system double-click source=\(source) id=\(id) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) event=(\(Int(eventPoint.x)),\(Int(eventPoint.y)))")
-    }
     func performAXZoomForTitlebarTripleClick(on win: AXUIElement,
                                                      id: CGWindowID,
                                                      source: String) -> Bool {
@@ -371,8 +321,6 @@ extension AppDelegate {
         guard titlebarDoubleClickEnabled, systemTitlebarDoubleClickAction() != .none,
               windowID(of: win) == id else { return }
         cancelRestorePin(for: id)
-        var pid: pid_t = 0
-        AXUIElementGetPid(win, &pid)
         let beforePos = axPosition(win)
         let beforeSize = axSize(win)
         switch systemTitlebarDoubleClickAction() {
@@ -380,29 +328,15 @@ extension AppDelegate {
             if performAXZoomForTitlebarTripleClick(on: win, id: id, source: source) {
                 break
             }
-            raiseAXWindow(win)
-            focusAXWindow(win, pid: pid)
-            if let target = titlebarSystemDoubleClickPoint(for: win, id: id,
-                                                           originalClickPoint: originalClickPoint) {
-                postSystemTitlebarDoubleClick(at: target, id: id, source: source)
-            } else {
-                let ok = pressAXButton(win, kAXZoomButtonAttribute as String)
-                wlog("titlebar-triple-click: fallback AX zoom source=\(source) id=\(id) ok=\(ok)")
-            }
+            // 绿色按钮是全屏的窗口没有能用辅助功能做的“缩放”：不做，不合成双击。
+            wlog("titlebar-triple-click: zoom unavailable source=\(source) id=\(id)")
         case .minimize:
             let err = setAXMinimizedReturningError(win, true)
             if err == .success {
                 wlog("titlebar-triple-click: AX minimize source=\(source) id=\(id)")
                 break
             }
-            raiseAXWindow(win)
-            focusAXWindow(win, pid: pid)
-            if let target = titlebarSystemDoubleClickPoint(for: win, id: id,
-                                                           originalClickPoint: originalClickPoint) {
-                postSystemTitlebarDoubleClick(at: target, id: id, source: source)
-            } else {
-                wlog("titlebar-triple-click: fallback AX minimize failed source=\(source) id=\(id) err=\(err)")
-            }
+            wlog("titlebar-triple-click: AX minimize failed source=\(source) id=\(id) err=\(err)")
         case .none:
             wlog("titlebar-triple-click: system none source=\(source) id=\(id)")
         }
