@@ -71,30 +71,12 @@ sleep 3
 open "$APP"
 sleep 6
 
-# 录一遍：$1 是视频文件名，$2 是这一遍的日志名。
-record() {
-  echo "==> record $1"
-  open -W --stderr "$OUT/driver-$2.log" "$DRIVER" --args "$OUT/$1"
-  cat "$OUT/driver-$2.log" || true
-  cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade-$2.log" 2>/dev/null || true
-  grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|duo-window|space:|screen:" \
-    "$OUT/windowshade-$2.log" | tail -60 || true
-}
-
-record demo.mp4 default
-
-# 第二遍打开“收起窗口时的动画”（默认关）。设置在启动时读，所以重开 App。
-osascript -e 'quit app "WindowShade"' 2>/dev/null || killall WindowShade 2>/dev/null || true
-sleep 2
-defaults write com.windowshade.prototype duo.v2.windows -bool true
-# 这台虚拟机默认开着“减弱动态效果”，App 遵守它就不播动画；这一遍关掉。
-defaults write com.apple.universalaccess reduceMotion -bool false || true
-echo "reduceMotion=$(defaults read com.apple.universalaccess reduceMotion 2>&1)"
-rm -f ~/Library/Logs/WindowShade/windowshade.log
-open "$APP"
-sleep 6
-record demo-animated.mp4 animated
+echo "==> record"
+open -W --stderr "$OUT/driver.log" "$DRIVER" --args "$OUT/demo.mp4"
+cat "$OUT/driver.log" || true
+cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
+grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|space:|screen:" "$OUT/windowshade.log" | tail -60 || true
 
 screencapture -x "$OUT/end.png" 2>/dev/null || true
 ls -la "$OUT"
-test -s "$OUT/demo.mp4" && test -s "$OUT/demo-animated.mp4"
+test -s "$OUT/demo.mp4"
