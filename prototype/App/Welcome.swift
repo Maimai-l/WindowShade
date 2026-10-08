@@ -1,7 +1,7 @@
 // 欢迎使用 WindowShade：首次打开时出现，菜单里随时能再打开。
 // 一页：两项授权、标题和一句说明。关窗口也算看过，下次不再自动弹出。
 
-import Foundation
+import AppKit
 import SwiftUI
 
 enum WelcomeCopy {
@@ -65,5 +65,6 @@ struct WelcomeContent: View {
         }
         .padding(.top, 28)
         .frame(width: Self.size.width, height: Self.size.height)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }

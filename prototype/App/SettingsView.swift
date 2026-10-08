@@ -219,7 +219,7 @@ private struct ShadeSettings: View {
             LabeledContent(model.appearance == .thumbnail ? SettingsCopy.thumbnailTranslucency
                                                          : SettingsCopy.stripTranslucency) {
                 HStack {
-                    Slider(value: $model.translucency, in: 0...(ShadeTranslucency.maximum * 100), step: 1)
+                    Slider(value: $model.translucency, in: 0...(ShadeTranslucency.maximum * 100))
                         .frame(width: 160)
                     Text(verbatim: "\(Int(model.translucency))%")
                         .monospacedDigit()
@@ -253,14 +253,16 @@ private struct ShortcutSettings: View {
         Section(SettingsCopy.currentWindow) {
             ShortcutRow(model: model, shortcut: .toggleShade, note: nil)
         }
-        Section(SettingsCopy.shadedWindows) {
+        Section {
             ShortcutRow(model: model, shortcut: .arrange, note: SettingsCopy.arrangeNote)
             Toggle(isOn: $model.numbered) {
                 Text(SettingsCopy.numbered)
                 Text("\(KeyCaps.text(HotKey.modifierCaps(GlobalShortcutSettings.numberedModifiers))) \(SettingsCopy.numberedNote)")
             }
-        }
-        Section {
+        } header: {
+            Text(SettingsCopy.shadedWindows)
+        } footer: {
+            // 放在分组下面，不单独占一张卡片。
             HStack {
                 Spacer()
                 Button(SettingsCopy.resetShortcuts) { model.perform { $0.resetShortcuts() } }
