@@ -99,3 +99,11 @@ grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|space:|scree
 screencapture -x "$OUT/end.png" 2>/dev/null || true
 ls -la "$OUT"
 test -s "$OUT/demo.mp4" && test -s "$OUT/demo-finder.mp4"
+
+# 逐帧检查（docs/testing.md 第 6 节）：空帧、被别的窗口盖住、录屏指示器、展开后的位置和大小。
+echo "==> check frames"
+status=0
+for name in demo demo-finder; do
+  python3 .github/demo/check_frames.py "$OUT/$name.mp4" "$OUT/$name.json" "$OUT/windowshade.log" || status=1
+done
+exit $status

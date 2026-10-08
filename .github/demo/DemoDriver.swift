@@ -141,6 +141,14 @@ struct DemoDriver {
 
         let recorder = Recorder()
         do { try await recorder.start(to: video) } catch { log("cannot record: \(error)"); exit(3) }
+        // 双击的时刻（从开始录像算起的秒数），连同窗口位置一起写给逐帧检查（.github/demo/check_frames.py）。
+        let recordingStarted = Date()
+        var events: [String: Any] = [
+            "window": ["x": origin.x, "y": origin.y, "w": size.width, "h": size.height],
+            "screen": ["w": CGDisplayBounds(CGMainDisplayID()).width, "h": CGDisplayBounds(CGMainDisplayID()).height],
+            "scale": 2,
+        ]
+        func mark(_ name: String) { events[name] = Date().timeIntervalSince(recordingStarted) }
         await pause(1.5)
 
         // 标题栏上靠右的一点：避开中间的标题文字和左边的红绿灯；有工具栏的窗口点在按钮上面的空白。
@@ -148,6 +156,7 @@ struct DemoDriver {
         log("double-click title bar at \(titleBar)")
         await glide(to: titleBar)
         await pause(0.3)
+        mark("fold")
         await doubleClick(at: titleBar)
         await pause(2.0)
 
@@ -164,10 +173,15 @@ struct DemoDriver {
         log("double-click the strip to unroll")
         await glide(to: titleBar)
         await pause(0.4)
+        mark("unfold")
         await doubleClick(at: titleBar)
         await pause(2.5)
 
         await recorder.stop()
+        let eventsURL = video.deletingPathExtension().appendingPathExtension("json")
+        if let data = try? JSONSerialization.data(withJSONObject: events, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: eventsURL)
+        }
         log("done")
         exit(0)
     }

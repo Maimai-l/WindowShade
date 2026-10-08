@@ -34,3 +34,4 @@ jobs:
             .build/demo/*.png
             .build/demo/*.log
             .build/demo/*.ips
+            .build/demo/*.json
