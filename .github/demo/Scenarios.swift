@@ -724,7 +724,8 @@ let scenarios: [Scenario] = [
 ]
 
 /// 逐条运行场景，每条用一个新的 ProbeApp；结果写进 json。有一条不合格就以 6 退出。
-func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set<String>?) async {
+func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set<String>?,
+                      shard: (index: Int, count: Int)? = nil) async {
     let audit = EventAudit()
     guard audit.start() else { log("cannot install the event audit tap"); exit(2) }
     Suite.probeApp = probeApp
@@ -740,7 +741,13 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
     var failed = 0
     let all = scenarios + foldScenarios + unfoldScenarios + stripScenarios + glanceScenarios + systemScenarios
     var needsRelaunch = false
-    for (index, scenario) in all.enumerated() where only?.contains(scenario.id) ?? (scenario.group == "main") {
+    func selected(_ index: Int, _ scenario: Scenario) -> Bool {
+        if let only { return only.contains(scenario.id) }
+        guard scenario.group == "main" else { return false }
+        guard let shard else { return true }
+        return index % shard.count == shard.index
+    }
+    for (index, scenario) in all.enumerated() where selected(index, scenario) {
         // 改过设置的场景之后，回到基准设置再跑下一个。
         if needsRelaunch || windowShadePID() == nil { _ = await relaunchWindowShade() }
         needsRelaunch = scenario.changesSettings
@@ -758,12 +765,18 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
         if !result.violations.isEmpty { failed += 1 }
         log("scenario \(scenario.id): \(result.violations.isEmpty ? "passed" : "failed \(result.violations)")")
         results.append(result.json)
+        // 每条场景之后都写一次：整个任务超时被停掉时，已经跑完的结果仍在。
+        writeSuite(results, failed: failed, finished: false, to: output)
     }
 
     await recorder.stop()
-    let summary: [String: Any] = ["scenarios": results, "failed": failed]
+    writeSuite(results, failed: failed, finished: true, to: output)
+    exit(failed == 0 ? 0 : 6)
+}
+
+func writeSuite(_ results: [[String: Any]], failed: Int, finished: Bool, to output: URL) {
+    let summary: [String: Any] = ["scenarios": results, "failed": failed, "finished": finished]
     if let data = try? JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys]) {
         try? data.write(to: output)
     }
-    exit(failed == 0 ? 0 : 6)
 }

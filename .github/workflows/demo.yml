@@ -16,8 +16,23 @@ concurrency:
 
 jobs:
   record:
+    # 场景一条一条跑要一个多小时：分成几台机器并行。recordings 录像并跑权限场景组，其余各跑主场景组的三分之一
+    # （.github/demo/record.sh 的 RECORD_PART）。
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: recordings
+            name: recordings
+          - part: "shard:0/3"
+            name: scenarios-1
+          - part: "shard:1/3"
+            name: scenarios-2
+          - part: "shard:2/3"
+            name: scenarios-3
+    name: record (${{ matrix.name }})
     runs-on: macos-26
-    timeout-minutes: 75
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Select newest Xcode
@@ -25,12 +40,14 @@ jobs:
       - name: Install ffmpeg for the frame check
         run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install ffmpeg
       - name: Build, grant permissions and record
+        env:
+          RECORD_PART: ${{ matrix.part }}
         run: bash .github/demo/record.sh
       - name: Upload recording
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: demo
+          name: demo-${{ matrix.name }}
           path: |
             .build/demo/*.mp4
             .build/demo/*.png
@@ -38,7 +55,7 @@ jobs:
             .build/demo/*.ips
             .build/demo/*.json
       - name: Upload the app for manual testing
-        if: always()
+        if: always() && matrix.name == 'recordings'
         uses: actions/upload-artifact@v4
         with:
           name: WindowShade-app

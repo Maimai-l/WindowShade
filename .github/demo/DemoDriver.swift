@@ -380,10 +380,19 @@ struct DemoDriver {
             return
         }
         // scenarios：逐条场景和不变式检查（Scenarios*.swift）。参数：ProbeApp.app 路径、WindowShade.app 路径，
-        // 可选的逗号分隔场景编号。
+        // 可选的逗号分隔场景编号，或者 shard:i/n（只跑主组里序号除以 n 余 i 的场景，供 CI 分成几个任务并行）。
         if args.count > 3, args[1] == "scenarios" {
-            let only = args.count > 4 ? Set(args[4].split(separator: ",").map(String.init)) : nil
-            await runScenarioSuite(output: video, probeApp: args[2], shadeApp: args[3], only: only)
+            var only: Set<String>?
+            var shard: (index: Int, count: Int)?
+            if args.count > 4 {
+                if args[4].hasPrefix("shard:") {
+                    let parts = args[4].dropFirst(6).split(separator: "/").compactMap { Int($0) }
+                    if parts.count == 2, parts[1] > 0 { shard = (parts[0], parts[1]) }
+                } else {
+                    only = Set(args[4].split(separator: ",").map(String.init))
+                }
+            }
+            await runScenarioSuite(output: video, probeApp: args[2], shadeApp: args[3], only: only, shard: shard)
             return
         }
         let bundleID = args.count > 1 ? args[1] : "com.apple.TextEdit"

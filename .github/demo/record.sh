@@ -115,6 +115,22 @@ record() {
   fi
 }
 
+# CI 把这份脚本分成几个并行任务（.github/workflows/demo.yml 的 matrix），RECORD_PART 说明这一个做哪部分：
+#   recordings   录像（文本编辑、访达）、E13、两个权限场景组
+#   shard:i/n    主场景组里序号除以 n 余 i 的那些场景
+#   all（默认）  全部，本地运行用
+PART="${RECORD_PART:-all}"
+RECORDINGS=false
+SHARD=""
+case "$PART" in
+  all) RECORDINGS=true; SHARD="main" ;;
+  recordings) RECORDINGS=true ;;
+  shard:*) SHARD="$PART" ;;
+  *) echo "unknown RECORD_PART=$PART"; exit 1 ;;
+esac
+SCENARIO_RESULTS=()
+
+if $RECORDINGS; then
 echo "==> record TextEdit"
 record "$OUT/driver.log" "$OUT/demo.mp4"
 
@@ -130,11 +146,19 @@ record "$OUT/driver-finder.log" "$OUT/demo-finder.mp4" com.apple.finder 900 500 
 echo "==> scenario E13: close a folded window with unsaved changes"
 open -W --stderr "$OUT/driver-close-unsaved.log" "$DRIVER" --args "$OUT/close-unsaved.mp4" close-unsaved
 cat "$OUT/driver-close-unsaved.log" || true
+fi
 
-# 逐条场景和不变式检查（Scenarios.swift）：ProbeApp 卡住、弹提示框、关闭超时、没有按钮、退出、崩溃，连点。
-echo "==> scenarios with invariant checks"
-open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE" "$APP"
-cat "$OUT/driver-scenarios.log" || true
+# 逐条场景和不变式检查（Scenarios*.swift）：每条一个新的 ProbeApp，跑完检查不变式。
+if [ -n "$SHARD" ]; then
+  echo "==> scenarios with invariant checks ($SHARD)"
+  if [ "$SHARD" = "main" ]; then
+    open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE" "$APP"
+  else
+    open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE" "$APP" "$SHARD"
+  fi
+  cat "$OUT/driver-scenarios.log" || true
+  SCENARIO_RESULTS+=("$OUT/scenarios.json")
+fi
 
 # 权限场景组：收回一项权限，重启 WindowShade 后只跑这一组，跑完把权限还回去。
 grant_all() {
@@ -151,6 +175,7 @@ run_group() {
   cat "$OUT/driver-$name.log" || true
   grant_all
 }
+if $RECORDINGS; then
 run_group scenarios-noscreen ScreenCapture "A26,D08"
 # H09 在场景中途要求授予辅助功能：驱动程序建 /tmp/windowshade-e2e-grant-accessibility，这里授权后回一个 .done。
 rm -f /tmp/windowshade-e2e-grant-accessibility /tmp/windowshade-e2e-grant-accessibility.done
@@ -172,6 +197,8 @@ pkill -x WindowShade 2>/dev/null || true
 sleep 1
 open "$APP"
 sleep 3
+SCENARIO_RESULTS+=("$OUT/scenarios-noscreen.json" "$OUT/scenarios-noax.json")
+fi
 
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
 collect_crashes
@@ -180,11 +207,12 @@ grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|space:|scree
 
 screencapture -x "$OUT/end.png" 2>/dev/null || true
 ls -la "$OUT"
+status=0
+if $RECORDINGS; then
 test -s "$OUT/demo.mp4" && test -s "$OUT/demo-finder.mp4"
 
 # 逐帧检查（docs/testing.md 第 6 节）：空帧、被别的窗口盖住、录屏指示器、展开后的位置和大小。
 echo "==> check frames"
-status=0
 for name in demo demo-finder; do
   python3 .github/demo/check_frames.py "$OUT/$name.mp4" "$OUT/$name.json" "$OUT/windowshade.log" || status=1
 done
@@ -203,9 +231,10 @@ if not result.get("passed"):
     sys.exit(1)
 print("PASS E13: save sheet once, window closed, worst probe %.3f s" % result.get("probeWorstLatency", 0))
 PY
+fi
 grep -n "event-tap: main thread did not answer\|traffic: " "$OUT/windowshade.log" | tail -20 || true
 echo "==> check scenarios"
-python3 - "${GITHUB_STEP_SUMMARY:-/dev/null}" "$OUT/scenarios.json" "$OUT/scenarios-noscreen.json" "$OUT/scenarios-noax.json" <<'PY' || status=1
+python3 - "${GITHUB_STEP_SUMMARY:-/dev/null}" "${SCENARIO_RESULTS[@]}" <<'PY' || status=1
 import json, sys
 rows = ["| 场景 | 内容 | 结果 | 违反的不变式 |", "|---|---|---|---|"]
 failed = 0
@@ -225,6 +254,10 @@ for path in sys.argv[2:]:
         for v in s["violations"]:
             print("     " + v)
     failed += suite["failed"]
+    if not suite.get("finished", True):
+        print(f"FAIL {path}: the suite stopped before its last scenario")
+        rows.append(f"| {path} | 没有跑完 | 未通过 | 场景组在最后一条之前停止 |")
+        failed += 1
 with open(sys.argv[1], "a") as summary:
     summary.write("\n".join(rows) + "\n")
 sys.exit(0 if failed == 0 else 1)
