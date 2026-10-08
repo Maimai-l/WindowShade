@@ -443,6 +443,7 @@ extension AppDelegate {
                                          size: CGSize,
                                          pid: pid_t,
                                          reason: String) -> HideMethod? {
+        guard !privateOffscreenKnownIneffective else { return nil }
         let mover = PrivateSLSWindowMover.shared
         guard mover.isAvailable else {
             wlog("    private SLS offscreen unavailable（pid=\(pid), reason=\(reason)）")

@@ -313,6 +313,16 @@ func windowIsVisible(pos: CGPoint, size: CGSize) -> Bool {
     return rectIsVisible(winRect, onScreens: NSScreen.screens.map(\.frame))
 }
 
+/// 卷帘条还够得着：某块屏幕的可用区域里露出它完整的高度和至少 120 点宽（整条更窄时就是整条）。
+/// 原来的窗口就伸出屏幕边时，卷帘条跟着伸出去是对的，不用拉回来。
+func overlayIsReachable(_ frame: NSRect) -> Bool {
+    let needWidth = min(frame.width, 120)
+    return NSScreen.screens.contains { screen in
+        let overlap = screen.visibleFrame.intersection(frame)
+        return !overlap.isNull && overlap.width >= needWidth && overlap.height >= frame.height - 1
+    }
+}
+
 func cgWindowIsVisible(id: CGWindowID, fallbackSize: CGSize) -> Bool? {
     guard let info = cgWindowInfo(id), let bounds = cgWindowBounds(info) else { return nil }
     let size = bounds.size.width > 0 && bounds.size.height > 0 ? bounds.size : fallbackSize

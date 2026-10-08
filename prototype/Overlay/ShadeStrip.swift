@@ -68,6 +68,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var onWindowManagementPopover: (() -> Void)?
     var onResize: ((NSWindow) -> Void)?
     var onFrameMoved: ((NSRect) -> Void)?
+
+    /// 卷帘条要正好盖在原来的标题栏上：原窗口伸出屏幕边，卷帘条也跟着伸出去，不让 AppKit 推回屏幕里
+    /// （推回来以后展开位置跟着变，窗口就不在原处了）。够不着时由 overlayIsReachable 的调用方拉回。
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     var onDragEnded: ((NSRect) -> Void)?
     var fixedTitlebarHeight: CGFloat = proxyTitleBarHeight
     var minimumReadableWidth: CGFloat = 260

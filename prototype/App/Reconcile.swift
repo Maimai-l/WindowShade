@@ -247,6 +247,7 @@ extension AppDelegate {
                 continue
             }
             let oldFrame = overlay.frame
+            guard !overlayIsReachable(oldFrame) else { continue }
             let newFrame = clampedFrame(oldFrame, margin: 8, preferredDisplayID: state.sourceDisplayID)
             if !framesAlmostEqual(oldFrame, newFrame) {
                 overlay.setFrame(newFrame, display: true)
