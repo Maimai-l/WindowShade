@@ -351,28 +351,51 @@ let systemScenarios: [Scenario] = [
         h.expect(tabs() == before, "A21: tabs changed from \(before) to \(tabs())")
         await pressKey(13, .maskCommand)   // W 关掉多开的标签页
     },
+    // 用户打开快速查看的方式：在访达里选中文件，按空格。以前用 `qlmanage -p` 代替，但那是命令行调试工具，
+    // 它的预览窗口不回答辅助功能查询（命中测试很快返回 -25204），WindowShade 动不了它（docs/testing.md 第 5 节）。
     Scenario(id: "A32", title: "快速查看窗口收起、展开：展开时重新打开同一个文件", options: []) { _, h in
-        let file = NSTemporaryDirectory() + "windowshade-ql.txt"
+        let name = "windowshade-ql.txt"
+        let file = NSTemporaryDirectory() + name
         try? "Quick Look probe".write(toFile: file, atomically: true, encoding: .utf8)
-        let ql = Process()
-        ql.executableURL = URL(fileURLWithPath: "/usr/bin/qlmanage")
-        ql.arguments = ["-p", file]
-        ql.standardOutput = FileHandle.nullDevice
-        ql.standardError = FileHandle.nullDevice
-        try? ql.run()
-        defer { ql.terminate(); run("/usr/bin/killall", ["qlmanage"]) }
+        let finderPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.processIdentifier
+        func finderWindows() -> [AXUIElement] {
+            guard let finderPID else { return [] }
+            var value: CFTypeRef?
+            AXUIElementCopyAttributeValue(AXUIElementCreateApplication(finderPID), kAXWindowsAttribute as CFString, &value)
+            return value as? [AXUIElement] ?? []
+        }
+        let before = Set(finderWindows().map { axString($0, kAXTitleAttribute as String) })
+        defer {
+            // 关掉为这一条打开的访达窗口和预览，免得盖住后面场景的窗口。
+            post(.keyDown, key: 53)
+            post(.keyUp, key: 53)
+            for window in finderWindows() where !before.contains(axString(window, kAXTitleAttribute as String)) {
+                _ = pressCloseButton(window)
+            }
+            run("/usr/bin/killall", ["qlmanage"], timeout: 5)
+        }
+        /// 预览窗口：标题是文件名（访达的快速查看），或者属于 qlmanage（展开时重新打开的）。
         func qlWindow() -> CGRect? {
             (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { info -> CGRect? in
-                guard (info[kCGWindowOwnerName as String] as? String)?.contains("qlmanage") == true
-                        || (info[kCGWindowOwnerName as String] as? String)?.contains("Quick Look") == true,
+                let owner = info[kCGWindowOwnerName as String] as? String ?? ""
+                let title = info[kCGWindowName as String] as? String ?? ""
+                guard title == name || owner.contains("qlmanage") || owner.contains("Quick Look"),
                       let bounds = info[kCGWindowBounds as String] as? NSDictionary,
                       let rect = CGRect(dictionaryRepresentation: bounds), rect.height > 100 else { return nil }
                 return rect
             }.first
         }
+        run("/usr/bin/open", ["-R", file])
+        await pause(1.5)
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+        await pause(0.5)
+        await pressKey(49)   // 空格
         guard await eventually(6, { qlWindow() != nil }), let frame = qlWindow() else {
-            h.result.notes["skipped"] = "Quick Look did not open"; return
+            h.result.violations.append("setup: Quick Look did not open from Finder")
+            return
         }
+        h.result.notes["previewOwner"] = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+            .first { ($0[kCGWindowName as String] as? String) == name }?[kCGWindowOwnerName as String] as? String ?? "?"
         let point = CGPoint(x: frame.minX + frame.width * 0.6, y: frame.minY + 12)
         await glide(to: point, duration: 0.3)
         await doubleClick(at: point)
