@@ -87,9 +87,9 @@ struct WindowRestorerTests {
 
             let start = Date()
             done.enter()
-            slow.run(pid: 7, callbackQueue: callback, { _ = slow.restore(request(.hidden)) }, then: { _ in
-                order.add("frozen-restore"); done.leave()
-            })
+            // 顺序在操作本身里记：完成回调在另一条队列上，可能晚于下一个操作开始。
+            slow.run(pid: 7, callbackQueue: callback, { _ = slow.restore(request(.hidden)); order.add("frozen-restore") },
+                     then: { _ in done.leave() })
             done.enter()
             slow.run(pid: 7, callbackQueue: callback, { order.add("frozen-second") }, then: { _ in done.leave() })
             let returned = Date().timeIntervalSince(start)
@@ -98,9 +98,8 @@ struct WindowRestorerTests {
             let responsive = FakeRestoreControl()
             let fast = WindowRestorer(control: responsive, queues: queues)
             done.enter()
-            fast.run(pid: 8, callbackQueue: callback, { _ = fast.restore(request(.offscreen, pid: 8)) }, then: { _ in
-                order.add("other-app"); done.leave()
-            })
+            fast.run(pid: 8, callbackQueue: callback, { _ = fast.restore(request(.offscreen, pid: 8)); order.add("other-app") },
+                     then: { _ in done.leave() })
             t.expect(done.wait(timeout: .now() + 5) == .success, "全部在 5 秒内完成")
             let seen = order.values
             t.expect(seen.first == "other-app", "别的应用程序先完成，不等卡住的那个（实际 \(seen)）")
