@@ -675,8 +675,8 @@ extension AppDelegate {
         return axPosition(fromCocoaFrame: clamped)
     }
 
-    // trustFallback：调用方已经在别处确认过这个元素可用（专注模式在预热阶段
-    // 并发读过它的位置和尺寸），这里直接用，一次 IPC 都不发。
+    // trustFallback：调用方已经在别处确认过这个元素可用（标题栏双击时刚读过它的
+    // 位置和尺寸），这里直接用，一次 IPC 都不发。
     //
     // 这里曾经再做一次存活探测，代价被严重低估：单个 AX 属性读只有在目标 App
     // 空闲时才是 0.1ms，而级联折叠时它正忙着隐藏自己，实测一次 axPosition 要
@@ -873,17 +873,7 @@ extension AppDelegate {
         }
         state.originalSize = newSize
         shaded[id] = state
-        if focusPulledOutOverlayIDs.contains(id) {
-            if shouldReturnPulledOutOverlayToStack(id: id, frame: proxyFrame) {
-                _ = restorePulledOutOverlayToStack(id: id)
-                return
-            }
-            focusPulledOutRestoreFrames[id] = focusRestoreFrame(fromOverlayFrame: proxyFrame,
-                                                                 restoredSize: newSize)
-        }
-        if !focusPulledOutOverlayIDs.contains(id) {
-            arrangedOverlayFrames.removeValue(forKey: id)
-        }
+        arrangedOverlayFrames.removeValue(forKey: id)
         syncRestoreJournal(id: id, fromOverlayFrame: state.overlay?.frame ?? proxyFrame, restoredSize: newSize)
         wlog("resize: proxy id=\(id) width=\(Int(newWidth)) restoredSize=(\(Int(newSize.width))x\(Int(newSize.height)))")
     }
@@ -942,10 +932,6 @@ extension AppDelegate {
                 guard windowID(of: state.element) == id,
                       axObservedBoolAttribute(state.element, kAXMinimizedAttribute as String) == false,
                       foldCallbackIsCurrent(expected) else { return }
-                if isFocusShelfMember(id: id) {
-                    revealFocusShelfMemberFromOutside(id: id, state: state, reason: "deminiaturized")
-                    return
-                }
                 unshade(id)
             }
         } else if notification == (kAXApplicationShownNotification as String) {
@@ -960,10 +946,6 @@ extension AppDelegate {
             if state.hide == .hidden {
                 guard let app = runningApp(pid: state.pid), !app.isTerminated, !app.isHidden,
                       windowID(of: state.element) == id, foldCallbackIsCurrent(expected) else { return }
-                if isFocusShelfMember(id: id) {
-                    revealFocusShelfMemberFromOutside(id: id, state: state, reason: "app-shown")
-                    return
-                }
                 unshade(id)
             }
         } else {

@@ -19,29 +19,13 @@ extension AppDelegate {
             ? state.overlay.map { restoreReferenceFrame(id: id, overlay: $0) } : nil
         let interruptedWaiters = foldWaiters[id].map { Array($0.keys) } ?? []
         defer { MainActor.assumeIsolated { cancelFoldWaiters(id: id, tokens: interruptedWaiters) } }
-        let shouldRememberFocusRejoin = focusPulledOutOverlayIDs.contains(id) && focusSession?.stage == .arrangedAway
-        let rejoinEntry = shouldRememberFocusRejoin ? focusSession?.entries[id] : nil
-        let rejoinStackFrame = shouldRememberFocusRejoin ? focusSideStackFrames[id] : nil
         hideHoverPreview(id: id)
         hideMenuHoverPreview(id: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         reconcileInvalidCounts.removeValue(forKey: id)
         pendingSpaceReturns.removeValue(forKey: id)
         hoverPreviewSuppressedUntil.removeValue(forKey: id)
-        focusSideStackFrames.removeValue(forKey: id)
-        focusPulledOutOverlayIDs.remove(id)
-        focusPulledOutRestoreFrames.removeValue(forKey: id)
-        focusPulledOutOriginalSizes.removeValue(forKey: id)
-        focusRejoinStackFrames.removeValue(forKey: id)
-        focusRejoinEntries.removeValue(forKey: id)
         arrangedOverlayFrames.removeValue(forKey: id)
-        if !shouldRememberFocusRejoin {
-            removeFocusSessionEntry(id)
-        }
-        if let rejoinEntry, let rejoinStackFrame {
-            focusRejoinEntries[id] = rejoinEntry
-            focusRejoinStackFrames[id] = rejoinStackFrame
-        }
         accessibilityActionTargets.removeValue(forKey: id)
         if let overlayID = state.overlayID { overlayIDs.remove(overlayID) }
         removeObserver(state)                          // 先停掉监听，避免下面的恢复动作反过来触发自己
@@ -102,7 +86,7 @@ extension AppDelegate {
         }
         return unshadeReturningElement(id) != nil
     }
-    func forceCleanup(_ id: CGWindowID, preserveFocusEntry: Bool = false, preserveRecovery: Bool = false) {
+    func forceCleanup(_ id: CGWindowID, preserveRecovery: Bool = false) {
         restoreVerificationTokens.removeValue(forKey: id)
         guard shaded[id] != nil else { return }
         markShadeLifecycle(id: id, .cleaned, reason: "forceCleanup")
@@ -117,16 +101,7 @@ extension AppDelegate {
         reconcileInvalidCounts.removeValue(forKey: id)
         privateAlphaOriginalValues.removeValue(forKey: id)
         hoverPreviewSuppressedUntil.removeValue(forKey: id)
-        focusSideStackFrames.removeValue(forKey: id)
-        focusPulledOutOverlayIDs.remove(id)
-        focusPulledOutRestoreFrames.removeValue(forKey: id)
-        focusPulledOutOriginalSizes.removeValue(forKey: id)
-        focusRejoinStackFrames.removeValue(forKey: id)
-        focusRejoinEntries.removeValue(forKey: id)
         arrangedOverlayFrames.removeValue(forKey: id)
-        if !preserveFocusEntry {
-            removeFocusSessionEntry(id)
-        }
         accessibilityActionTargets.removeValue(forKey: id)
         if let overlayID = state.overlayID { overlayIDs.remove(overlayID) }
         removeObserver(state)
@@ -145,14 +120,7 @@ extension AppDelegate {
         MainActor.assumeIsolated { glance.detach(id: id) }
         clearShadeJournal(id: id)
         reconcileInvalidCounts.removeValue(forKey: id)
-        focusSideStackFrames.removeValue(forKey: id)
-        focusPulledOutOverlayIDs.remove(id)
-        focusPulledOutRestoreFrames.removeValue(forKey: id)
-        focusPulledOutOriginalSizes.removeValue(forKey: id)
-        focusRejoinStackFrames.removeValue(forKey: id)
-        focusRejoinEntries.removeValue(forKey: id)
         arrangedOverlayFrames.removeValue(forKey: id)
-        removeFocusSessionEntry(id)
         accessibilityActionTargets.removeValue(forKey: id)
         shaded.removeValue(forKey: id)
         if let overlayID = state.overlayID { overlayIDs.remove(overlayID) }

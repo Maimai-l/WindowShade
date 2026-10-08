@@ -7,13 +7,14 @@ import Carbon.HIToolbox
 
 enum GlobalShortcut: String, CaseIterable {
     case toggleShade
-    case arrangeOrFocus
+    /// 存储键沿用旧名，升级上来的人录过的组合照样生效。
+    case arrange = "arrangeOrFocus"
 
     /// Carbon 热键编号：事件处理按它分派，与 1.0 起的编号一致；拿掉的动作空出的编号不再复用。
     var hotKeyID: UInt32 {
         switch self {
         case .toggleShade: return 1
-        case .arrangeOrFocus: return 2
+        case .arrange: return 2
         }
     }
 
@@ -21,7 +22,7 @@ enum GlobalShortcut: String, CaseIterable {
     var title: String {
         switch self {
         case .toggleShade: return "收起或展开当前窗口"
-        case .arrangeOrFocus: return "整理卷帘条"
+        case .arrange: return "整理卷帘条"
         }
     }
 
@@ -33,7 +34,7 @@ enum GlobalShortcut: String, CaseIterable {
         func key(_ code: Int) -> HotKey { HotKey(keyCode: UInt32(code), modifiers: controlCommand) }
         switch self {
         case .toggleShade: return key(kVK_ANSI_C)
-        case .arrangeOrFocus: return key(kVK_ANSI_0)
+        case .arrange: return key(kVK_ANSI_0)
         }
     }
 

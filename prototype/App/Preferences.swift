@@ -623,7 +623,7 @@ extension AppDelegate {
         stack.setCustomSpacing(18, after: window)
 
         let strips = makeUnifiedSettingsCard([
-            recorderRow(.arrangeOrFocus, subtitle: "外观选“统一标题栏”时，改为专注当前 App；选“缩略图”时，把缩略图排到屏幕下边，再按放回原位"),
+            recorderRow(.arrange, subtitle: "把卷帘条排到屏幕一侧，再按放回原位"),
             makeUnifiedToggleRow(
                 name: "按编号展开已收起的窗口",
                 subtitle: "\(GlobalShortcutSettings.numberedDisplayName) 对应菜单里的前 9 个窗口",

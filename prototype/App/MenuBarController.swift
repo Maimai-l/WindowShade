@@ -64,19 +64,14 @@ extension AppDelegate {
       if let shortcut { applyShortcut(shortcut, to: item) }
       (menu ?? statusMenu).addItem(item)
     }
-    let ax = AXIsProcessTrusted()
     let foldTitle = foldToggleMenuTitle().replacingOccurrences(of: "当前窗口", with: "窗口")
     action(foldTitle,
            foldTitle.contains("展开") ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
            #selector(toggleAction), .toggleShade)
-    if appearanceMode == .proxyTitleBar {
-      action(focusMenuTitle(), "macwindow", #selector(focusCurrentAppAction), .arrangeOrFocus, enabled: ax)
-    } else {
-      let title = thumbnailsInUse ? (hasArrangedOverlayFrames ? "恢复缩略图原位" : "整理缩略图")
-                                : (hasArrangedOverlayFrames ? "恢复卷帘条原位" : "整理卷帘条")
-      action(title, "rectangle.grid.1x2", #selector(arrangeShadedWindows), .arrangeOrFocus,
-             enabled: menuState.canArrangeShades)
-    }
+    let arrangeTitle = thumbnailsInUse ? (hasArrangedOverlayFrames ? "恢复缩略图原位" : "整理缩略图")
+                                       : (hasArrangedOverlayFrames ? "恢复卷帘条原位" : "整理卷帘条")
+    action(arrangeTitle, "rectangle.grid.1x2", #selector(arrangeShadedWindows), .arrange,
+           enabled: menuState.canArrangeShades)
 
     if !menuState.foldedWindows.isEmpty {
       statusMenu.addItem(.separator())
@@ -199,15 +194,6 @@ extension AppDelegate {
       let bTitle = descriptiveDisplayTitle(appName: $1.value.appName, windowTitle: $1.value.title)
       if aTitle != bTitle { return aTitle < bTitle }
       return $0.key < $1.key
-    }
-  }
-  func focusMenuTitle() -> String {
-    guard let session = focusSession else { return "专注当前 App" }
-    switch session.stage {
-    case .arrangedAway:
-      return "专注：显示卷帘条原位"
-    case .barsRestoredHome:
-      return "专注：恢复专注前状态"
     }
   }
   var hasArrangedOverlayFrames: Bool {

@@ -233,10 +233,6 @@ extension AppDelegate {
                                             onScreenWindowIDs: onScreenIDs,
                                             sourceIsMinimized: snapshot.isMinimized),
                foldCallbackIsCurrent(snapshot.stamp) {
-                if isFocusShelfMember(id: snapshot.id) {
-                    revealFocusShelfMemberFromOutside(id: snapshot.id, state: state, reason: "reconcile-\(reason)")
-                    continue
-                }
                 wlog("reconcile: source already visible; cleanup overlay id=\(snapshot.id) app=\(state.appName)")
                 forceCleanup(snapshot.id)
                 continue

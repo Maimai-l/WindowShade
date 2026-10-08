@@ -56,7 +56,7 @@ extension AppDelegate {
         guard !entries.isEmpty else { return }
         var rescued = 0
 
-        // 与专注同理：救援扫描原本对每个运行中的进程都发一次 AX 枚举，
+        // 救援扫描原本对每个运行中的进程都发一次 AX 枚举，
         // 启动期这条路径直接决定「launch」有多慢。
         let pidsOwningWindows = WindowListCache.shared.pidsWithWindows()
 

@@ -80,8 +80,7 @@ extension AppDelegate {
         if shaded[id] != nil {
             unshade(id)
         } else {
-            let options = focusRejoinEntries[id] != nil ? focusShadeOptions : nil
-            shade(win, id, options: options)
+            shade(win, id)
         }
     }
     func performNativeStickiesShade(_ win: AXUIElement) {
@@ -186,7 +185,7 @@ extension AppDelegate {
         guard admissionCurrent() else { completeFold(success: false); return }
         MainThreadActivity.push("fold: 折叠窗口")
         defer { MainThreadActivity.pop() }
-        // 单窗口折叠不像专注会话那样有阶段汇总：这里记一个起点，安装阶段慢的时候补一行
+        // 折叠没有阶段汇总：这里记一个起点，安装阶段慢的时候补一行
         // `perf: fold install …`（2026-10-01：折叠期间 0.5–1.5s 的主线程卡顿只能靠猜哪一段贵）。
         let foldStartedAt = CFAbsoluteTimeGetCurrent()
         // 各段耗时的全局累计在折叠前先拍一张，结束做差就是「这一次」的分段——一次折叠就能定位。
@@ -248,8 +247,7 @@ extension AppDelegate {
         let appName = appDisplayName(pid: pid)
         let title = axTitle(win)
         foldPhaseTotals["窗口属性读取", default: 0] += CFAbsoluteTimeGetCurrent() - readStartedAt
-        let autoJoinFocusShelf = foldPhase("shelf 判定") { shouldAutoJoinFocusShelf(id: id, pid: pid) }
-        let options = options ?? (autoJoinFocusShelf ? focusShadeOptions : defaultShadeOptions)
+        let options = options ?? defaultShadeOptions
         if UserDefaults.standard.bool(forKey: shadeDebugWindowDumpDefaultsKey) {
             dumpWindow(win)
         }
@@ -472,12 +470,6 @@ extension AppDelegate {
                 }
             }
             hoverPreviewSuppressedUntil[id] = Date().addingTimeInterval(0.7)
-            foldPhase("重回专注栈") { rejoinFocusStackAfterShadeIfNeeded(id: id, overlay: overlay) }
-            if autoJoinFocusShelf {
-                foldPhase("加入专注 shelf") {
-                    joinFocusShelfAfterShadeIfNeeded(id: id, overlay: overlay)
-                }
-            }
             if options.rebuildMenuAfterInstall {
                 rebuildMenu()
             }
@@ -503,8 +495,8 @@ extension AppDelegate {
             let quickPreview = preparedImage.map { NSImage(cgImage: $0, size: size) }
                 ?? quickWindowPreviewImage(id: id, logicalSize: size)
             if quickPreview != nil || !options.capturePreview {
-                // legacy 快照已经成功，或者这次折叠本来就不需要预览（比如专注 shelf
-                // 批量折叠）——两种情况都跟以前一样同步立刻装上，不引入任何延迟。
+                // legacy 快照已经成功，或者这次折叠本来就不需要预览——
+                // 两种情况都同步立刻装上，不引入任何延迟。
                 let overlay = foldPhase("建 overlay") {
                     makeProxyOverlay(axPos: pos, width: size.width, height: barH,
                                                    pid: pid, appName: appName, title: title, id: id,

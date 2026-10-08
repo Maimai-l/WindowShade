@@ -69,7 +69,7 @@ New setups in 1.0.16 preset none of these ⌃⌘ combinations; record your own i
 | --- | --- |
 | `⌃⌘C` | Roll up or unroll the current window |
 | `⌃⌘1…9` | Unroll a rolled-up window, in menu order |
-| `⌃⌘0` | Line up the bars, or switch to a focus layout |
+| `⌃⌘0` | Line up the bars; press again to put them back |
 
 Double-click a title bar to roll up; double-click the bar to unroll. Every shortcut can be changed or turned off in Settings, and if another app already uses a combination, WindowShade tells you once.
 

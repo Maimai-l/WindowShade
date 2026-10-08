@@ -29,7 +29,7 @@ struct QuietDefaultsTests {
     }
 
     static let shipped: [GlobalShortcut: HotKey] = [
-        .toggleShade: ctrlCmd(kVK_ANSI_C), .arrangeOrFocus: ctrlCmd(kVK_ANSI_0),
+        .toggleShade: ctrlCmd(kVK_ANSI_C), .arrange: ctrlCmd(kVK_ANSI_0),
     ]
 
     static func main() {
@@ -115,7 +115,7 @@ struct QuietDefaultsTests {
             GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_C), for: .toggleShade)
             expect(GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_C) && !GlobalShortcutSettings.isAllDefault,
                    "recording ⌃⌘C on a new install works and counts as a change")
-            expect(GlobalShortcutSettings.conflictName(for: ctrlCmd(kVK_ANSI_C), excluding: .arrangeOrFocus) == GlobalShortcut.toggleShade.title,
+            expect(GlobalShortcutSettings.conflictName(for: ctrlCmd(kVK_ANSI_C), excluding: .arrange) == GlobalShortcut.toggleShade.title,
                    "a recorded combination is reported as taken")
             GlobalShortcutSettings.setHotKey(nil, for: .toggleShade)
             expect(GlobalShortcutSettings.hotKey(for: .toggleShade) == nil && GlobalShortcutSettings.isAllDefault,
@@ -123,7 +123,7 @@ struct QuietDefaultsTests {
             GlobalShortcutSettings.numberedExpandEnabled = true
             expect(GlobalShortcutSettings.numberedExpandEnabled && !GlobalShortcutSettings.isAllDefault,
                    "⌃⌘1…9 can be switched on in Settings")
-            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_N), for: .arrangeOrFocus)
+            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_N), for: .arrange)
             GlobalShortcutSettings.resetAll()
             expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == nil }
                     && !GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.isAllDefault,
@@ -137,10 +137,10 @@ struct QuietDefaultsTests {
             expect(GlobalShortcutSettings.isAllDefault, "an untouched upgrade still counts as the defaults (restore button stays off)")
             expect(defaults.object(forKey: "GlobalShortcut.toggleShade") == nil, "nothing is copied into the per-shortcut settings")
             // 他关掉一个、改掉一个：照他的；恢复默认回到他原来的那一套，而不是清空。
-            GlobalShortcutSettings.setHotKey(nil, for: .arrangeOrFocus)
+            GlobalShortcutSettings.setHotKey(nil, for: .arrange)
             GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_K), for: .toggleShade)
             GlobalShortcutSettings.numberedExpandEnabled = false
-            expect(GlobalShortcutSettings.hotKey(for: .arrangeOrFocus) == nil && GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_K)
+            expect(GlobalShortcutSettings.hotKey(for: .arrange) == nil && GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_K)
                     && !GlobalShortcutSettings.numberedExpandEnabled,
                    "an upgrade can still clear or re-record its shortcuts")
             GlobalShortcutSettings.resetAll()
@@ -152,9 +152,9 @@ struct QuietDefaultsTests {
         // 1.0.15 时关掉过 ⌃⌘1…9、清掉过一个：升级后照旧关着。
         withDefaults({
             $0.set(false, forKey: GlobalShortcutSettings.numberedExpandKey)
-            $0.set([Int](), forKey: "GlobalShortcut.arrangeOrFocus")
+            $0.set([Int](), forKey: "GlobalShortcut.arrange")
         }) { _ in
-            expect(!GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.hotKey(for: .arrangeOrFocus) == nil
+            expect(!GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.hotKey(for: .arrange) == nil
                     && GlobalShortcutSettings.hotKey(for: .toggleShade) == shipped[.toggleShade],
                    "what an upgrade had switched off stays off, the rest keep working")
         }

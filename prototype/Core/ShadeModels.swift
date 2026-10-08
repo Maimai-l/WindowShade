@@ -1,4 +1,4 @@
-// 折叠相关的值类型：隐藏方式、生命周期、外观模式、策略、外框画像、专注会话与 ShadeState。
+// 折叠相关的值类型：隐藏方式、生命周期、外观模式、策略、外框画像与 ShadeState。
 
 import Cocoa
 
@@ -85,27 +85,6 @@ struct WindowChromeProfile {
         if preciseChrome { return "precise" }
         return "AX"
     }
-}
-
-enum FocusSessionStage {
-    case arrangedAway
-    case barsRestoredHome
-}
-
-struct FocusSessionEntry {
-    let id: CGWindowID
-    let wasAlreadyShaded: Bool
-    let homeOverlayFrame: NSRect?
-    let pid: pid_t
-    let appName: String
-}
-
-struct FocusSession {
-    let focusedPID: pid_t
-    let focusedAppName: String
-    let focusedWindowID: CGWindowID?
-    var stage: FocusSessionStage
-    var entries: [CGWindowID: FocusSessionEntry]
 }
 
 func shadePolicyDescription(_ policy: ShadePolicy) -> String {

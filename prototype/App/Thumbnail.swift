@@ -448,7 +448,7 @@ final class ShadeThumbnailView: NSView {
             entranceCover = nil
             flight = cover
         } else {
-            // 缩略图已经挪得够不着（比如马上排进了专注栏）：从原处另起一张，盖着的那张一起换掉。
+            // 缩略图已经挪得够不着（比如马上被整理挪走）：从原处另起一张，盖着的那张一起换掉。
             flight = SnapshotFlight(image: entrance.image, from: entrance.from, to: thumbnail)
             flights.append(flight)
             dropEntranceCover(fade: false)
@@ -669,7 +669,6 @@ extension AppDelegate {
             let slots = ThumbnailLayout.tidy(sizes, in: screen.visibleFrame)
             for ((id, overlay), slot) in zip(sorted, slots) {
                 arrangedOverlayFrames[id] = arrangedOverlayFrames[id] ?? overlay.frame
-                focusSideStackFrames.removeValue(forKey: id)
                 let frame = ThumbnailLayout.overlayFrame(thumbnail: slot)
                 if !framesAlmostEqual(overlay.frame, frame) { moves.append((overlay, frame)) }
                 wlog("arrange: thumbnail id=\(id) frame=(\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height)))")

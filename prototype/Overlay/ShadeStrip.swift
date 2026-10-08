@@ -362,7 +362,6 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
 
 final class NativeProxyTitleContentView: NSView {
     static let minimumVisibleTextWidth: CGFloat = 96
-    static let arrangedColumnFallbackWidth: CGFloat = 402
 
     private var hoverArea: NSTrackingArea?
     private var hovered = false

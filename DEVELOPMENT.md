@@ -31,8 +31,7 @@ prototype/
 │   ├── OverlayPresentation.swift     # 覆盖层展示与 Space 不变量
 │   ├── HoverPreview.swift            # 悬停预览（peek / 菜单悬停）
 │   ├── OverlayFactory.swift          # 覆盖层窗口工厂（截图条/代理标题栏）
-│   ├── ArrangeController.swift       # 卷帘条整理与专注 shelf
-│   ├── FocusSession.swift            # 专注会话
+│   ├── ArrangeController.swift       # 卷帘条整理
 │   ├── FoldTransaction.swift         # 折叠事务辅助（隐藏/恢复/验证/转发/通知）
 │   ├── FoldCompletion.swift          # 等折叠终态的回调（标题栏三击）
 │   ├── ShadeController.swift         # 折叠入口（shade/toggle/折叠计划/截图）

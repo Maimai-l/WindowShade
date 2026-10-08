@@ -143,15 +143,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var shaded: [CGWindowID: ShadeState] = [:]
     var overlayIDs: Set<CGWindowID> = []      // 我们自己的覆盖层，tap 里要跳过它们
     var arrangedOverlayFrames: [CGWindowID: NSRect] = [:]
-    var focusSideStackFrames: [CGWindowID: NSRect] = [:]
-    var focusPulledOutOverlayIDs: Set<CGWindowID> = []
-    var focusPulledOutRestoreFrames: [CGWindowID: NSRect] = [:]
-    var focusPulledOutOriginalSizes: [CGWindowID: CGSize] = [:]
-    var focusRejoinStackFrames: [CGWindowID: NSRect] = [:]
-    var focusRejoinEntries: [CGWindowID: FocusSessionEntry] = [:]
-    var focusSession: FocusSession?
-    // 分帧折叠进行中：期间不接受新的专注请求，避免两次级联交叉污染会话状态。
-    var focusCascadeActive = false
     var accessibilityActionTargets: [CGWindowID: ShadedAccessibilityActionTarget] = [:]   // FoldExit/ShadeStrip 扩展跨文件访问
     var isProgrammaticOverlayArrangement = false
     private var scaleMinimizeActive = false           // 临时把最小化动画改成 scale（退出还原用户原设置）
@@ -273,10 +264,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                              capturePreview: true,
                                                              emitFoldFeedback: true,
                                                              rebuildMenuAfterInstall: true)
-    let focusShadeOptions = ShadeInvocationOptions(forcedAppearanceMode: .proxyTitleBar,
-                                                           capturePreview: false,
-                                                           emitFoldFeedback: false,
-                                                           rebuildMenuAfterInstall: false)
     /// 看一眼：指针停在卷帘条上，窗口原样出现，移开就收回。
     lazy var glance = MainActor.assumeIsolated { GlanceController(owner: self) }
 
@@ -462,47 +449,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 
 
-
-
-    let focusMotionDuration: TimeInterval = 0.065
-
-    func focusSizedFrame(pos: CGPoint, size: CGSize,
-                                 visible: NSRect, areaRatio: CGFloat,
-                                 canResize: Bool) -> NSRect {
-        guard canResize, size.width > 1, size.height > 1 else {
-            let width = min(size.width, visible.width)
-            let height = min(size.height, visible.height)
-            return NSRect(x: visible.midX - width / 2,
-                          y: visible.midY - height / 2,
-                          width: width,
-                          height: height)
-        }
-        if areaRatio >= 0.999 {
-            return NSRect(x: round(visible.minX),
-                          y: round(visible.minY),
-                          width: round(visible.width),
-                          height: round(visible.height))
-        }
-
-        let aspect = size.width / size.height
-        let targetArea = max(1, visible.width * visible.height * areaRatio)
-        var width = sqrt(targetArea * aspect)
-        var height = width / aspect
-        if width > visible.width {
-            width = visible.width
-            height = width / aspect
-        }
-        if height > visible.height {
-            height = visible.height
-            width = height * aspect
-        }
-        width = min(max(width, min(size.width, visible.width, 420)), visible.width)
-        height = min(max(height, min(size.height, visible.height, 260)), visible.height)
-        return NSRect(x: visible.midX - width / 2,
-                      y: visible.midY - height / 2,
-                      width: round(width),
-                      height: round(height))
-    }
 
 
     func configureShadedAccessibility(for overlay: NSWindow, id: CGWindowID,
@@ -746,29 +692,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: 触发
 
     @objc func toggleAction() { toggle() }
-
-    // ⌃⌘C 的"当前窗口"必须在用户正看着的 Space 上。切换 Space 后未点击任何窗口时，
-    // 前台 app 的 AX 聚焦窗口可能还留在原 Space；直接折叠它会作用于一个不可见窗口，
-    // 后续的激活/聚焦还可能把系统拽回那个 Space。这里在当前 Space 上按 z 序找该 app
-    // 的最前真实窗口作为替代目标。
-
-
-    // 每轮 runloop 折叠的时间预算。超过就让出主线程，下一轮继续。
-    let focusFoldFrameBudget: TimeInterval = 0.12
-
-    @objc func focusCurrentAppAction() {
-        // 这条路径会同步折叠其它 App 的全部窗口，是主线程上最长的一段工作：
-        // 自报耗时，并让卡顿哨兵能把阻塞归因到它。
-        // 级联进行中再按一次会让两次专注交叉修改同一份会话状态，直接忽略。
-        guard !focusCascadeActive else {
-            wlog("focus: 折叠仍在进行中，忽略本次请求")
-            return
-        }
-        let before = axWindowListEnumerations
-        foldPhaseTotals.removeAll()
-        logIfSlow("focus: 专注当前 App", threshold: 0.2) { focusCurrentAppCycle() }
-        wlog("focus: 主线程 AX 窗口列表枚举 \(axWindowListEnumerations - before) 次（每次约 20ms）")
-    }
 
     @objc func unshadeFromMenu(_ sender: NSMenuItem) {
         guard let n = sender.representedObject as? NSNumber else { return }

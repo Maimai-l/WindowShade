@@ -235,8 +235,8 @@ extension AppDelegate {
             showHoverPreview(id, requireMouseInside: false)
             return
         }
-        // 专注 shelf 成员折叠当下不截图（保持批量折叠/reflow 快），但这里是用户
-        // 主动点击、不在热路径上：懒截图一次，与菜单悬停本来就允许的行为对齐。
+        // 折叠时没留下预览图的，这里是用户主动点击、不在热路径上：懒截图一次，
+        // 与菜单悬停本来就允许的行为一致。
         requestCachedPreview(id, reason: "click") { [weak self] in
             guard let self,
                   self.peekHoverID == id else { return }

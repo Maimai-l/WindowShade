@@ -102,7 +102,7 @@ extension AppDelegate {
             return
         }
         if id == 2 {
-            focusCurrentAppCycle()
+            arrangeShadedWindows()
             return
         }
         guard id >= 101, id <= 109 else { return }
@@ -525,9 +525,7 @@ extension AppDelegate {
             if shaded[id] != nil {
                 unshade(id)
             } else {
-                let options = focusRejoinEntries[id] != nil ? focusShadeOptions : nil
-                // 收起了就是顺利：不另外提示（docs/direction.md，顺利的时候一声不吐）。
-                shade(win, id, options: options, trustElement: true)
+                shade(win, id, trustElement: true)
             }
         }
     }

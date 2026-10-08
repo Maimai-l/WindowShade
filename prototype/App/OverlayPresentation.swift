@@ -9,13 +9,8 @@ extension AppDelegate {
     }
 
     func overlayLevel(for overlay: NSWindow) -> NSWindow.Level {
-        guard !floatingOnTop,
-              let entry = shaded.first(where: { $0.value.overlay === overlay }) else {
+        guard !floatingOnTop, shaded.values.contains(where: { $0.overlay === overlay }) else {
             return overlayLevel
-        }
-        let id = entry.key
-        if isFocusShelfMember(id: id) || focusPulledOutOverlayIDs.contains(id) {
-            return .floating
         }
         return .normal
     }

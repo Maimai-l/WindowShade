@@ -30,7 +30,7 @@ func isWindowLikeRole(_ role: String?, pid: pid_t) -> Bool {
 nonisolated(unsafe) var axWindowListEnumerations = 0
 
 // 折叠内部的分段耗时累计。单次折叠每段都只有几十毫秒，逐次打日志会淹掉日志，
-// 所以累计起来在一次专注结束时一并报出。
+// 所以累计起来，按需要做差报出一次折叠的分段。
 nonisolated(unsafe) var foldPhaseTotals: [String: Double] = [:]
 
 @discardableResult
