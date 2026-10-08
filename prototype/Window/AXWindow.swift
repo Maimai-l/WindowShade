@@ -70,7 +70,10 @@ func setAXMinimized(_ e: AXUIElement, _ v: Bool) {
 func setAXAppHidden(pid: pid_t, _ hidden: Bool) -> Bool {
     let app = AXUIElementCreateApplication(pid)
     let value: CFTypeRef = (hidden ? kCFBooleanTrue : kCFBooleanFalse)!
-    return AXUIElementSetAttributeValue(app, kAXHiddenAttribute as CFString, value) == .success
+    let ok = AXUIElementSetAttributeValue(app, kAXHiddenAttribute as CFString, value) == .success
+    // 每一次隐藏、取消隐藏都记下来：场景里应用程序“不知被谁隐藏”时，日志能说清是不是 WindowShade。
+    wlog("ax: app hidden=\(hidden) pid=\(pid) ok=\(ok)")
+    return ok
 }
 
 func axBoolAttribute(_ e: AXUIElement, _ attr: String) -> Bool {

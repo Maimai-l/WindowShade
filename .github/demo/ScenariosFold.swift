@@ -46,6 +46,8 @@ func realAppRoundTrip(_ bundleID: String, launch: [String], size: CGSize?, barY:
                       quitAfter: Bool, _ harness: Harness) async {
     guard let window = await standardWindow(of: bundleID, launch: launch) else {
         harness.result.notes["skipped"] = "\(bundleID) has no window on this machine"
+        // 启动了但没有窗口（多半停在系统的确认框上）：结束它，确认框由下一个场景前的 clearSystemPopups 撤掉。
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).forEach { $0.forceTerminate() }
         return
     }
     if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {

@@ -113,6 +113,8 @@ private final class GlanceSession {
     var unhideAt: TimeInterval?
     var unhiddenAt: TimeInterval?
     var frontmostBeforeUnhide: pid_t?
+    /// 画面打开后用户单击了卷帘条：键盘要落在卷帘条上，不再取消隐藏原应用程序。
+    var stripClicked = false
     var rehiddenAt: TimeInterval?
     /// 卡片在屏幕上的位置：“指针在画面上”只看卡片，不算投影边距。
     var cardScreen: NSRect?
@@ -236,6 +238,7 @@ final class GlanceController {
     /// 单击卷帘条：不等计时，马上看。
     func stripClicked(_ id: CGWindowID) {
         guard Self.isEnabled, stripFrame(id) != nil else { return }
+        sessions[id]?.stripClicked = true
         apply(intent.clicked(id, at: clock()))
     }
 
@@ -743,10 +746,10 @@ final class GlanceController {
         guard session.viaUnhide else { return }
         if session.stage == .shown, session.unhiddenAt == nil,
            let at = session.unhideAt, now >= at, session.frontmostBeforeUnhide == nil {
-            // 用户刚单击了卷帘条，卷帘条是当前窗口：取消隐藏有时会把原应用程序换到前台（场景 C13、C14 里晚了 0.5 秒），
+            // 用户单击了卷帘条，卷帘条要成为当前窗口：取消隐藏有时会把原应用程序换到前台（场景 C13、C14 里晚了 0.5 秒），
             // 卷帘条随之失去键盘，⌘N、⌘Q 落不到它上面，这次激活还会被当成用户切回原应用程序而展开窗口。
-            // 这时不取消隐藏，只给截图。
-            if NSApp.isActive {
+            // 这时不取消隐藏，只给截图。单击后 WindowShade 要过一会儿才成为当前应用程序，所以两样都看。
+            if NSApp.isActive || session.stripClicked {
                 session.unhideAt = nil
                 session.captureFailed = true
                 wlog("glance: strip has the keyboard; snapshot only id=\(session.id)")

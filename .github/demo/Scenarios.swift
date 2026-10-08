@@ -434,6 +434,17 @@ func run(_ tool: String, _ arguments: [String], timeout: Double = 30) {
     }
 }
 
+/// 系统自己弹出来、盖在测试窗口上的东西：“从互联网下载的应用程序”确认框（CoreServicesUIAgent）、
+/// 提示（Tips）的使用手册窗口。2026-10-08 打开 Chrome 时弹出确认框，之后 13 个场景的标题栏都被它盖住，双击收不起来。
+func clearSystemPopups() {
+    let onScreenOwners = Set((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+        .compactMap { $0[kCGWindowOwnerName as String] as? String })
+    for name in ["CoreServicesUIAgent", "Tips"] where onScreenOwners.contains(name) {
+        log("closing \(name), which has a window on screen")
+        run("/usr/bin/killall", [name], timeout: 5)
+    }
+}
+
 /// 场景看门狗：一个场景超过 limit 秒还没结束（驱动程序自己停在某个同步调用里），
 /// 截一张图，把已有结果连同这一条“没有结束”写进结果文件，然后退出，不让整个任务等到超时。
 final class ScenarioWatchdog: @unchecked Sendable {
@@ -851,6 +862,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
     for (index, scenario) in all.enumerated() where selected(index, scenario) {
         // 改过设置的场景之后，回到基准设置再跑下一个。
         if needsRelaunch || windowShadePID() == nil { _ = await relaunchWindowShade() }
+        clearSystemPopups()
         needsRelaunch = scenario.changesSettings
         log("scenario \(scenario.id): \(scenario.title)")
         watchdog.begin(scenario.id, scenario.title)
@@ -872,6 +884,12 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
         }
         if !result.violations.isEmpty { failed += 1 }
         log("scenario \(scenario.id): \(result.violations.isEmpty ? "passed" : "failed \(result.violations)")")
+        // 场景结束时还留着卷帘条（多半是这一条失败了）：从菜单退出 WindowShade，窗口全部放回原处，
+        // 免得后面的场景数卷帘条时把它算进去（2026-10-08 A03 留下的访达卷帘条让 D06、E05、L01、X08 跟着失败）。
+        if !stripFrames().isEmpty {
+            log("scenario \(scenario.id): left \(stripFrames().count) strips on screen; relaunching WindowShade")
+            needsRelaunch = true
+        }
         results.append(result.json)
         // 每条场景之后都写一次：整个任务超时被停掉时，已经跑完的结果仍在。
         writeSuite(results, failed: failed, finished: false, to: output)

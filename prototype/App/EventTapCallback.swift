@@ -25,26 +25,32 @@ func pointMayLieInTitlebarBand(_ point: CGPoint) -> Bool {
 /// 应用程序卡住时这一次就要放弃，不能等满 axMessagingTimeout（I6）。
 let titlebarHitTestTimeout: Float = 0.3
 
-/// 点下面的元素。只问这个点上最前面那扇窗口所属的应用程序，最多等 titlebarHitTestTimeout；
-/// 点在 WindowShade 自己的窗口上或找不到窗口时，照旧问系统级元素。
-/// timedOut：等满了时限还没有回答，应用程序卡住了。很快就返回错误的应用程序在响应，只是不支持命中测试。
+/// 点下面的元素。只问这个点上最前面那扇普通窗口所属的应用程序，最多等 titlebarHitTestTimeout；
+/// 程序坞（层级 20，一扇铺满屏幕的透明窗口）、菜单栏等系统层级不算：它们不接点击，问它们只会立即出错（CI 场景 A03）。
+/// 点在 WindowShade 自己的窗口上、找不到窗口，或者应用程序很快就返回错误（它在响应，只是不支持这样问）时，
+/// 照旧问系统级元素。
+/// timedOut：等满了时限还没有回答，应用程序卡住了。
 func titlebarHitTest(at point: CGPoint) -> (error: AXError, element: AXUIElement?, timedOut: Bool) {
     let owner = WindowListCache.shared.onScreenWindows().first { info in
-        guard let bounds = cgWindowBounds(info), bounds.contains(point) else { return false }
+        let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+        guard layer >= 0, layer < 20, let bounds = cgWindowBounds(info), bounds.contains(point) else { return false }
         return ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0
     }.flatMap { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value }
-    let target: AXUIElement
-    if let owner, owner != getpid() {
-        target = AXUIElementCreateApplication(owner)
-        AXUIElementSetMessagingTimeout(target, titlebarHitTestTimeout)
-    } else {
-        target = AXUIElementCreateSystemWide()
-    }
     var element: AXUIElement?
-    let startedAt = CFAbsoluteTimeGetCurrent()
-    let error = AXUIElementCopyElementAtPosition(target, Float(point.x), Float(point.y), &element)
-    let waited = CFAbsoluteTimeGetCurrent() - startedAt
-    return (error, element, error == .cannotComplete && waited >= Double(titlebarHitTestTimeout) * 0.9)
+    if let owner, owner != getpid() {
+        let app = AXUIElementCreateApplication(owner)
+        AXUIElementSetMessagingTimeout(app, titlebarHitTestTimeout)
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let error = AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &element)
+        if error == .success { return (error, element, false) }
+        if error == .cannotComplete,
+           CFAbsoluteTimeGetCurrent() - startedAt >= Double(titlebarHitTestTimeout) * 0.9 {
+            return (error, nil, true)
+        }
+        element = nil
+    }
+    let error = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &element)
+    return (error, element, false)
 }
 
 /// 按下鼠标的钩子（主动钩子，能吞事件）。它跑在自己的线程上：WindowShade 的主线程在等某个慢吞吞的 App

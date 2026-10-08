@@ -248,7 +248,8 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         if let descriptor = NSAppleEventManager.shared().currentAppleEvent {
             appleEvent = "\(descriptor.eventClass)/\(descriptor.eventID)"
         }
-        record("hidden", ["trigger": trigger, "appleEvent": appleEvent])
+        record("hidden", ["trigger": trigger, "appleEvent": appleEvent,
+                          "frontmost": NSWorkspace.shared.frontmostApplication?.localizedName ?? "none"])
     }
     func applicationDidUnhide(_ notification: Notification) { record("unhidden") }
 
