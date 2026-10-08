@@ -107,6 +107,13 @@ open /Applications
 sleep 3
 record "$OUT/driver-finder.log" "$OUT/demo-finder.mp4" com.apple.finder 900 500 8
 
+# 场景 E13：关闭一个收起的、有未保存内容的文本编辑窗口（2026-10-08 曾让整台 Mac 不响应输入）。
+# 驱动程序自己新建文档、打字、收起、点卷帘条上的关闭按钮、在“是否保存”里选删除，并不停地发探测点击。
+# 不重录：重录时文档已经关掉了。结果在 close-unsaved.json，下面检查。
+echo "==> scenario E13: close a folded window with unsaved changes"
+open -W --stderr "$OUT/driver-close-unsaved.log" "$DRIVER" --args "$OUT/close-unsaved.mp4" close-unsaved
+cat "$OUT/driver-close-unsaved.log" || true
+
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
 collect_crashes
 pgrep -x WindowShade >/dev/null || { echo "WindowShade exited during the recording"; exit 1; }
@@ -122,4 +129,20 @@ status=0
 for name in demo demo-finder; do
   python3 .github/demo/check_frames.py "$OUT/$name.mp4" "$OUT/$name.json" "$OUT/windowshade.log" || status=1
 done
+echo "==> check scenario E13"
+python3 - "$OUT/close-unsaved.json" <<'PY' || status=1
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        result = json.load(f)
+except (OSError, ValueError) as error:
+    print(f"FAIL E13: no result ({error})")
+    sys.exit(1)
+print(json.dumps(result, ensure_ascii=False, indent=1))
+if not result.get("passed"):
+    print("FAIL E13:", "; ".join(result.get("failures", [])))
+    sys.exit(1)
+print("PASS E13: save sheet once, window closed, worst probe %.3f s" % result.get("probeWorstLatency", 0))
+PY
+grep -n "event-tap: main thread did not answer\|traffic: " "$OUT/windowshade.log" | tail -20 || true
 exit $status
