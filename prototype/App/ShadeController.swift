@@ -351,14 +351,39 @@ extension AppDelegate {
                 dismissOverlay(overlay); transitionOperationState(id: id, to: .failed, reason: "changed-before-hide")
                 completeFold(success: false); return
             }
+            /// 卷帘条记进自己的窗口表，并挪到源窗口所在的桌面。挪桌面会让窗口短暂消失，
+            /// 所以要在它亮出来之前做；先亮出来的那条在这里做过一次，后面不再重复。
+            func assignOverlaySpace() -> CGWindowID? {
+                let oid = foldPhase("卷帘条窗口号") { cgWindowID(for: overlay) }
+                guard let oid else { return nil }
+                overlayIDs.insert(oid)
+                // 安装阶段里最后一块没打点的：跨 Space 移动与它的几何回退。
+                let spaceMoveStartedAt = CFAbsoluteTimeGetCurrent()
+                defer {
+                    foldPhaseTotals["跨 Space 移动", default: 0] +=
+                        CFAbsoluteTimeGetCurrent() - spaceMoveStartedAt
+                }
+                if let sourceSpaceID {
+                    if PrivateSLSWindowMover.shared.moveWindow(id: oid, toSpace: sourceSpaceID) {
+                        wlog("space: overlay assigned id=\(oid) source=\(id) sid=\(sourceSpaceID)")
+                    } else if PrivateSLSWindowMover.shared.reassociateWindowByGeometry(id: oid) {
+                        wlog("space: overlay reassociated by geometry id=\(oid) source=\(id)")
+                    } else {
+                        wlog("space: overlay assignment unavailable id=\(oid) source=\(id)")
+                    }
+                } else if PrivateSLSWindowMover.shared.reassociateWindowByGeometry(id: oid) {
+                    wlog("space: overlay reassociated by geometry id=\(oid) source=\(id) sid=-")
+                }
+                return oid
+            }
             // 不会隐藏整个 App 时（窗口会被挪走，而不是等系统的动画），先把卷帘条亮在原来的标题栏上
             // 再挪窗口：卷帘条就是这条标题栏的截图、摆在同一处，盖上去看不出变化，挪走那一刻也没有空档。
             let revealedBeforeHide = !(mayHideApp && appHideSafe) && mode == .nativeScreenshot
+            var earlyOverlayID: CGWindowID?
             if revealedBeforeHide {
-                foldPhase("显示卷帘条") {
-                    prepareOverlayWindowForSpaceAssignment(overlay)
-                    revealPreparedOverlay(overlay, fade: false)
-                }
+                foldPhase("卷帘条 Space 归属") { prepareOverlayWindowForSpaceAssignment(overlay) }
+                earlyOverlayID = assignOverlaySpace()
+                foldPhase("显示卷帘条") { revealPreparedOverlay(overlay, fade: false) }
             }
             let hideStartedAt = CFAbsoluteTimeGetCurrent()
             let hide = hideWindow(win, pid: pid, originalPosition: pos, size: size,
@@ -389,27 +414,7 @@ extension AppDelegate {
             if !revealedBeforeHide {
                 foldPhase("卷帘条 Space 归属") { prepareOverlayWindowForSpaceAssignment(overlay) }
             }
-            let oid = foldPhase("卷帘条窗口号") { cgWindowID(for: overlay) }
-            if let oid {
-                overlayIDs.insert(oid)
-                // 安装阶段里最后一块没打点的：跨 Space 移动与它的几何回退。
-                let spaceMoveStartedAt = CFAbsoluteTimeGetCurrent()
-                defer {
-                    foldPhaseTotals["跨 Space 移动", default: 0] +=
-                        CFAbsoluteTimeGetCurrent() - spaceMoveStartedAt
-                }
-                if let sourceSpaceID {
-                    if PrivateSLSWindowMover.shared.moveWindow(id: oid, toSpace: sourceSpaceID) {
-                        wlog("space: overlay assigned id=\(oid) source=\(id) sid=\(sourceSpaceID)")
-                    } else if PrivateSLSWindowMover.shared.reassociateWindowByGeometry(id: oid) {
-                        wlog("space: overlay reassociated by geometry id=\(oid) source=\(id)")
-                    } else {
-                        wlog("space: overlay assignment unavailable id=\(oid) source=\(id)")
-                    }
-                } else if PrivateSLSWindowMover.shared.reassociateWindowByGeometry(id: oid) {
-                    wlog("space: overlay reassociated by geometry id=\(oid) source=\(id) sid=-")
-                }
-            }
+            let oid = revealedBeforeHide ? earlyOverlayID : assignOverlaySpace()
             // 观察者只用来发现「窗口被外部唤回」：⌘Tab 取消隐藏、点 Dock 恢复、
             // 窗口被关闭。这些在刚折叠完的那一瞬间都不可能发生，而注册它是
             // AXObserverCreate + 3 次 AXObserverAddNotification 共四次同步 IPC，

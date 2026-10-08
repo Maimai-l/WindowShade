@@ -990,12 +990,17 @@ extension AppDelegate {
         hideHoverPreview()
         hideMenuHoverPreview()
         MainActor.assumeIsolated {
-            if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if let app {
                 glance.takeOverUnhiddenSessions(for: app.processIdentifier) { id in
                     _ = self.unshade(id)
                 }
             }
-            glance.cancelAll(reason: "frontmost-app")
+            // 点卷帘条会让 WindowShade 自己到前台：那是在卷帘条上操作（比如双击展开），不收看一眼，
+            // 否则第一下点击就把卡片收走，第二下展开前那几帧原处是空的。
+            if app?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                glance.cancelAll(reason: "frontmost-app")
+            }
         }
         windowBrowserController?.closeTemporaryDockPanel(reason: "frontmost-app")
         windowBrowserController?.noteAppBecameActive()
