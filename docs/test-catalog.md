@@ -118,6 +118,7 @@
 | C21 | 关掉“卷帘条置顶” | 点别的窗口 | 卷帘条被正常盖住 |
 | C22 | 收起了多扇窗口 | 按“整理卷帘条”快捷键，再按一次 | 排到屏幕一侧，再按回到原位置 |
 | C23 | 打开“旁白” | 移到卷帘条上 | 读出应用程序名和窗口标题 |
+| C24 | 同一应用程序两扇窗口都收起，展开了其中一扇 | 点另一扇卷帘条上的关闭按钮 | 窗口关掉，关闭请求只发一次（Q01 发现） |
 
 ## 5. 看一眼
 
@@ -254,7 +255,7 @@
 | `Scenarios.swift` | X01 至 X05、P01、P02、A22、B16 |
 | `ScenariosFold.swift` | A01 至 A15、A17、A18、A23 至 A25、A28、A29、A31、A33（计算器、终端、系统设置、Safari、备忘录、Chrome）、A34 至 A37 |
 | `ScenariosUnfold.swift` | B03 至 B07、B09、B11、B14、B17、B18 |
-| `ScenariosStrip.swift` | C01 至 C08、C10 至 C16、C18 至 C23 |
+| `ScenariosStrip.swift` | C01 至 C08、C10 至 C16、C18 至 C24 |
 | `ScenariosGlance.swift` | D01 至 D07、D09 至 D12 |
 | `ScenariosSystem.swift` | E05 至 E07、L01 至 L03、L07、P03 至 P07、X08 至 X10、H01、H02、H10、A21、A32 |
 | 同上，收回屏幕录制权限后单独运行 | A26、D08 |

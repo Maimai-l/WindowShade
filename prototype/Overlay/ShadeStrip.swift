@@ -146,6 +146,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     }
 
     override func performClose(_ sender: Any?) {
+        wlog("strip: close button window=\(windowNumber) handler=\(onAction != nil)")
         onAction?(.close)
     }
 
@@ -324,6 +325,13 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown || event.type == .leftMouseUp {
+            // 卷帘条上的按下、松开都记一行（不常发生）：点了没反应时，看得出点击到没到卷帘条、落在哪里
+            // （随机操作 Q01 种子 647145595 第 126 步：点关闭按钮，日志里什么也没有；场景 C24）。
+            let p = event.locationInWindow
+            wlog("strip: mouse \(event.type == .leftMouseDown ? "down" : "up") window=\(windowNumber) at=(\(Int(p.x)),\(Int(p.y))) "
+                 + "onButton=\(pointHitsAnyStandardButton(p)) key=\(isKeyWindow) appActive=\(NSApp.isActive)")
+        }
         let greenAction = greenTrafficAction
         if event.type == .mouseMoved || event.type == .mouseEntered {
             updatePointerOverLights(event.locationInWindow)

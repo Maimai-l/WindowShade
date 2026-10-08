@@ -253,4 +253,32 @@ let stripScenarios: [Scenario] = [
                                               axString($0, kAXValueAttribute as String)] }
         h.expect(texts.contains { $0.contains("Probe") }, "C23: the strip does not name its window (\(texts.filter { !$0.isEmpty }))")
     },
+    // 随机操作 Q01（种子 647145595，第 123 至 126 步）缩短而来：同一应用程序的两扇窗口都收起，双击展开后收起的那扇，
+    // 再点先收起那扇的卷帘条上的关闭按钮。录像里指针停在关闭按钮上、按钮亮了，WindowShade 的日志里没有任何反应。
+    Scenario(id: "C24", title: "展开同一应用程序的另一扇窗口后，点卷帘条上的关闭按钮", options: ["--windows=2"]) { probe, h in
+        let windows = probe.allWindows().sorted {
+            axString($0, kAXTitleAttribute as String) < axString($1, kAXTitleAttribute as String)
+        }
+        guard windows.count == 2 else {
+            h.result.violations.append("setup: ProbeApp has \(windows.count) windows, expected 2")
+            return
+        }
+        let app = AXUIElementCreateApplication(probe.pid)
+        let size = CGSize(width: 340, height: 220)
+        AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(windows[0], kAXRaiseAction as CFString)
+        guard let first = await fold(windows[0], at: CGPoint(x: 40, y: 80), size: size, h) else { return }
+        AXUIElementPerformAction(windows[1], kAXRaiseAction as CFString)
+        guard let second = await fold(windows[1], at: CGPoint(x: 440, y: 80), size: size, h) else { return }
+        await glide(to: second.titleBar, duration: 0.25)
+        await doubleClick(at: second.titleBar)
+        await glide(to: h.neutral, duration: 0.2)
+        h.expect(await eventually(4) { stripFrames().count == 1 }, "setup: the second window did not unfold")
+        await pause(0.5)
+        await clickStripButton(first, 0, h)
+        h.expect(await eventually(4) { probe.count("closed") == 1 },
+                 "C24: the window did not close after its strip's close button was clicked")
+        h.expectOnce("close was requested", probe.count("close-request"))
+        await expectNoStrip(h, within: 2)
+    },
 ]
