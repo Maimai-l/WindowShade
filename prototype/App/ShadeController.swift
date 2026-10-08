@@ -315,10 +315,15 @@ extension AppDelegate {
             foldPhase("辅助功能配置") {
                 configureShadedAccessibility(for: overlay, id: id, appName: appName, title: title)
             }
-            // 折叠事务序：先把焦点交给当前 Space 的继承人，再隐藏真实窗口。
-            // 隐藏非前台窗口不会触发 macOS 的焦点级联（跳 Space / 激活兄弟窗口的病灶）。
-            // 无处交接（当前 Space 只有这一个窗口）时 app-hide 不安全，改走 minimize。
-            let appHideSafe = foldPhase("焦点交接") { handOffFocusBeforeHiding(win: win, pid: pid, id: id) }
+            // 折叠事务序：可能隐藏整个 App 时，先把焦点交给当前 Space 的继承人，再隐藏真实窗口。
+            // 隐藏前台 App 会触发 macOS 的焦点级联（跳 Space / 激活兄弟窗口的病灶）；
+            // 无处交接（当前 Space 只有这一个窗口）时 app-hide 不安全，改走别的办法。
+            // 不会隐藏整个 App 时（挪到屏幕外、停到角上、最小化）没有级联，先藏再交接：
+            // 先交接的话，继承人的窗口会先盖到这扇窗上面，等它藏好才露出卷帘条。
+            let mayHideApp = policy.mayHideApp && appCurrentUserWindowCount(pid) <= 1
+            let appHideSafe = mayHideApp
+                ? foldPhase("焦点交接") { handOffFocus(win: win, pid: pid, id: id) }
+                : false
             // crash consistency：先把 durable recovery intent 落盘，再执行任何
             // 可能让窗口长期不可见的动作。若进程在 hideWindow 中途被杀，重启后
             // rescue 仍能按 intent 找回窗口；隐藏成功验证后由 recordShadeJournal
@@ -350,6 +355,10 @@ extension AppDelegate {
             let hide = hideWindow(win, pid: pid, originalPosition: pos, size: size,
                                   policy: policy, appHideSafe: appHideSafe)
             foldPhaseTotals["隐藏窗口", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
+            if !mayHideApp {
+                // 窗口已经藏好：键盘别再落到它身上。
+                _ = foldPhase("焦点交接") { handOffFocus(win: win, pid: pid, id: id) }
+            }
             // minimize / app-hide 的状态读回是异步的（最小化动画进行中 kAXMinimized
             // 尚未翻转、NSRunningApplication.isHidden 缓存滞后），立即验证会产生假阴性。
             // 立即通过 → 立即 reveal；否则延迟验证（+0.15/+0.45s），通过后才 reveal，

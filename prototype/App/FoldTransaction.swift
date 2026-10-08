@@ -32,13 +32,14 @@ extension AppDelegate {
     // 非前台 app/窗口没有任何焦点级联。所以隐藏之前由我们显式把焦点交给当前
     // Space 上的继承人：同 app 同 Space 其他窗口（菜单栏不变）→ 当前 Space
     // 最顶层其他 regular app 窗口（与系统自身最小化行为一致）→ Finder。
+    // 不会隐藏整个 app 的藏法没有这个级联，改在藏好之后再交接（见 shade 里的说明）。
     // 返回值 = app-hide 是否安全（会不会触发系统的前台 app 重新选举）。
     // 隐藏整个 app 时，若它是前台 app，macOS 按全局最近使用顺序选举继任者，
     // 继任者的窗口在别的 Space 就会跳过去——这个选举我们无法干预。
     // 只有当焦点已交接到当前 Space 的其他窗口（或目标 app 本就不在前台）时，
     // app-hide 才不会触发选举。
     @discardableResult
-    func handOffFocusBeforeHiding(win: AXUIElement, pid: pid_t, id: CGWindowID) -> Bool {
+    func handOffFocus(win: AXUIElement, pid: pid_t, id: CGWindowID) -> Bool {
         let selfPid = ProcessInfo.processInfo.processIdentifier
         let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
         // 交接后撤掉截图期的焦点停靠（成功路径此前从不释放）。

@@ -64,7 +64,7 @@ extension AppDelegate {
               let displayID = state.sourceDisplayID,
               let sourceSpaceID = state.sourceSpaceID else { return }
 
-        // 保险丝：焦点交接（handOffFocusBeforeHiding）负责预防，这里负责兜底补偿。
+        // 保险丝：焦点交接（handOffFocus）负责预防，这里负责兜底补偿。
         // 检测必须快于 Space 滑动动画（~300ms）：密集轮询 + SLSManagedDisplay-
         // SetCurrentSpace 瞬时切换（无滑动动画），在动画完成前拉回，把"跳走再
         // 滑回来"的双重闪动压缩成一瞬。每次检查只是一个 WindowServer 读，极廉价。

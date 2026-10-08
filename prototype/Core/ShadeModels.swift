@@ -26,6 +26,18 @@ enum ShadePolicy {
     case offscreenForLivePreview
     case hiddenIfSingleWindowElseMinimized(allowAppHide: Bool)
     case closeQuickLookPreview
+
+    /// 这种藏法会不会走到“隐藏整个 App”（只在那扇窗是 App 唯一一扇时才会）。
+    var mayHideApp: Bool {
+        switch self {
+        case .offscreenThenFallback(let allowAppHide), .hiddenIfSingleWindowElseMinimized(let allowAppHide):
+            return allowAppHide
+        case .offscreenForLivePreview:
+            return true
+        case .closeQuickLookPreview:
+            return false
+        }
+    }
 }
 
 enum AdobeChromeKind: String {
