@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TEST_NAME="${1:-SettingsNavigationTests}"
+TEST_NAME="${1:-all}"
 case "$TEST_NAME" in
-  all|SettingsNavigationTests|GlanceLifecycleTests) ;;
+  all|SettingsNavigationTests|GlanceLifecycleTests|StripTrafficLightTests) ;;
   *) echo "Unknown AppKit test: $TEST_NAME" >&2; exit 2 ;;
 esac
 mkdir -p .build/appkit-tests
@@ -18,7 +18,7 @@ while IFS= read -r source; do
 done < <(rg --files prototype -g '*.swift' -g '!main.swift' -g '!*.app/**' | sort)
 TEST_SOURCE=()
 if [ "$TEST_NAME" = all ]; then
-  TESTS=(SettingsNavigationTests GlanceLifecycleTests)
+  TESTS=(SettingsNavigationTests GlanceLifecycleTests StripTrafficLightTests)
 else
   TESTS=("$TEST_NAME")
 fi
@@ -43,6 +43,7 @@ import Cocoa
     switch CommandLine.arguments.dropFirst().first {
     case "SettingsNavigationTests": await SettingsNavigationTests.main()
     case "GlanceLifecycleTests": GlanceLifecycleTests.main()
+    case "StripTrafficLightTests": StripTrafficLightTests.main()
     default: preconditionFailure("Choose an AppKit test suite")
     }
   }

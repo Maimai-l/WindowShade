@@ -87,9 +87,57 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     private var potentialWindowDrag = false
     private var didWindowDrag = false
     private var isClosingProgrammatically = false
+    /// 卷帘条没聚焦时的红绿灯：照系统的样子画成三个灰点（标准按钮在这种状态下的样子和系统不一致）。
+    private let inactiveLights = InactiveTrafficLightsView()
+    private var pointerOverLights = false
+    private var activationObservers: [NSObjectProtocol] = []
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func becomeKey() {
+        super.becomeKey()
+        refreshTrafficLightAppearance()
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        refreshTrafficLightAppearance()
+    }
+
+    /// 卷帘条是当前窗口（WindowShade 在前台、它是键盘焦点所在的窗口）或指针在按钮上时用系统按钮
+    /// （系统对没聚焦的窗口也是悬停时才显示颜色和符号）；其余时候藏起系统按钮，显示三个灰点。
+    /// 系统按钮只是变透明，点击照样落在它们上面。
+    func refreshTrafficLightAppearance() {
+        if activationObservers.isEmpty {
+            let center = NotificationCenter.default
+            for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+                activationObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.refreshTrafficLightAppearance() }
+                })
+            }
+        }
+        let showSystem = (isKeyWindow && NSApp.isActive) || pointerOverLights
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            standardWindowButton(type)?.alphaValue = showSystem ? 1 : 0
+        }
+        inactiveLights.isHidden = showSystem
+    }
+
+    /// 灰点画在系统按钮的位置上（截图条的按钮对齐原窗口的灯，代理标题栏的按钮按固定排版）。
+    private func layoutInactiveLights() {
+        guard let content = contentView else { return }
+        if inactiveLights.superview !== content { content.addSubview(inactiveLights) }
+        inactiveLights.frame = content.bounds
+        inactiveLights.autoresizingMask = [.width, .height]
+        inactiveLights.dots = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type in
+            guard let button = standardWindowButton(type), !button.isHidden, let superview = button.superview else { return nil }
+            let frame = content.convert(button.frame, from: superview)
+            let side = min(frame.width, frame.height)
+            return CGRect(x: frame.midX - side / 2, y: frame.midY - side / 2, width: side, height: side)
+        }
+        refreshTrafficLightAppearance()
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         StripKeyForwarding.handle(event, in: self) || super.performKeyEquivalent(with: event)
@@ -109,6 +157,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
 
     func closeProgrammatically() {
         isClosingProgrammatically = true
+        activationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        activationObservers.removeAll()
         onDoubleClick = nil
         onClick = nil
         onAction = nil
@@ -222,6 +272,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                                   height: buttonSize.height)
             button.frame = superview.convert(centered, from: content)
         }
+        layoutInactiveLights()
     }
 
     func configureTrafficLightButtons(_ configuration: ProxyTrafficLightConfiguration) {
@@ -250,6 +301,18 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         if let zoom = standardWindowButton(.zoomButton) {
             zoom.isEnabled = trafficLightConfiguration.zoomEnabled && allowsWindowManagement
         }
+    }
+
+    /// 三个按钮连成一片算：指针在两个按钮之间的空隙里时，系统也照样显示颜色和符号。
+    private func updatePointerOverLights(_ pointInWindow: NSPoint) {
+        let frames = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> NSRect? in
+            guard let button = standardWindowButton(type), !button.isHidden, let superview = button.superview else { return nil }
+            return superview.convert(button.frame, to: nil)
+        }
+        let over = frames.dropFirst().reduce(frames.first ?? .zero) { $0.union($1) }.contains(pointInWindow)
+        guard over != pointerOverLights else { return }
+        pointerOverLights = over
+        refreshTrafficLightAppearance()
     }
 
     private func pointHitsAnyStandardButton(_ pointInWindow: NSPoint) -> Bool {
@@ -291,6 +354,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     override func sendEvent(_ event: NSEvent) {
         let greenAction = greenTrafficAction
         if event.type == .mouseMoved || event.type == .mouseEntered {
+            updatePointerOverLights(event.locationInWindow)
             let hitsZoomButton = pointHitsStandardButton(.zoomButton, event.locationInWindow)
             if !hitsZoomButton { zoomHoverArmed = true }
             if allowsWindowManagement && hitsZoomButton && greenAction != .fullScreen {
@@ -301,6 +365,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             }
         }
         if event.type == .mouseExited {
+            // 离开的可能是按钮，也可能是卷帘条上别的跟踪区域：按离开时指针在哪里算。
+            updatePointerOverLights(event.locationInWindow)
             zoomHoverArmed = true
             cancelWindowManagementHover()
             // AppKit must also deliver the exit to content tracking areas so
@@ -355,6 +421,29 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             return
         }
         super.sendEvent(event)
+    }
+}
+
+/// 没聚焦的窗口的红绿灯：三个灰点，照系统的样子（浅色时浅灰、深色时深灰，带一圈细边）。
+/// 不接收点击，点击落在下面透明的系统按钮上。
+final class InactiveTrafficLightsView: NSView {
+    var dots: [CGRect] = [] { didSet { needsDisplay = true } }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let fill = dark ? NSColor(white: 0.36, alpha: 1) : NSColor(white: 0.82, alpha: 1)
+        let edge = dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)
+        for rect in dots {
+            // 截图条下面是原窗口带颜色的灯，灰点要把它整个盖住。
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.75, dy: 0.75))
+            fill.setFill()
+            circle.fill()
+            edge.setStroke()
+            circle.lineWidth = 0.5
+            circle.stroke()
+        }
     }
 }
 
