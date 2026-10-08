@@ -6,7 +6,11 @@ import ApplicationServices
 /// 把一个 ProbeApp 的几扇窗口摆成互不重叠的格子，逐个双击收起；返回各自收起前的位置。
 func foldAll(_ probe: Probe, _ harness: Harness, size: CGSize = CGSize(width: 360, height: 220)) async -> [CGRect] {
     var frames: [CGRect] = []
-    for (index, window) in probe.allWindows().enumerated() {
+    // 按标题排好：辅助功能给的窗口顺序是前后层次，不是编号；expectAllRestored 按“Probe 序号+1”核对。
+    let windows = probe.allWindows().sorted {
+        axString($0, kAXTitleAttribute as String).localizedStandardCompare(axString($1, kAXTitleAttribute as String)) == .orderedAscending
+    }
+    for (index, window) in windows.enumerated() {
         let origin = CGPoint(x: 60 + CGFloat(index % 4) * (size.width + 30), y: 80 + CGFloat(index / 4) * (size.height + 60))
         place(window, origin: origin, size: size)
         await pause(0.3)

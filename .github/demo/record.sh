@@ -90,6 +90,11 @@ defaults write com.apple.CrashReporter DialogType none
 defaults write com.windowshade.probe ApplePersistenceIgnoreState -bool true
 rm -rf "$HOME/Library/Saved Application State/com.windowshade.probe.savedState"
 killall Tips 2>/dev/null || true
+# 第一次打开 Chrome 时系统弹“从互联网下载的应用程序”确认框（CoreServicesUIAgent），盖在测试窗口上，
+# 结束它也会被系统重新弹出来。先去掉下载隔离属性，不让它出现。
+for app in "/Applications/Google Chrome.app"; do
+  [ -d "$app" ] && xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
+done
 
 echo "==> launch"
 defaults write com.windowshade.prototype ShadeOnboardingShown -bool true

@@ -655,6 +655,10 @@ extension AppDelegate {
         // 卡顿归因：这几条系统回调以前不在任何标记里，出了长卡顿只能看到「未标记」。
         MainThreadActivity.push("system: 前台应用变化")
         defer { MainThreadActivity.pop() }
+        // 当前应用程序换了谁都记下来：卷帘条上的按键落到了别的应用程序（场景 C13）时，日志能对上是谁先抢了前台。
+        if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+            wlog("front: app activated \(app.localizedName ?? "?") pid=\(app.processIdentifier)")
+        }
         hideMenuHoverPreview()
         MainActor.assumeIsolated {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication

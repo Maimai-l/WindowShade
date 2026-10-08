@@ -439,7 +439,20 @@ func run(_ tool: String, _ arguments: [String], timeout: Double = 30) {
 func clearSystemPopups() {
     let onScreenOwners = Set((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
         .compactMap { $0[kCGWindowOwnerName as String] as? String })
-    for name in ["CoreServicesUIAgent", "Tips"] where onScreenOwners.contains(name) {
+    // 确认框只结束进程会被系统重新弹出来：先按它的“取消”。
+    if onScreenOwners.contains("CoreServicesUIAgent"),
+       let agent = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.coreservices.uiagent").first,
+       let cancel = findElement(AXUIElementCreateApplication(agent.processIdentifier), maxDepth: 8, {
+           axString($0, kAXRoleAttribute as String) == "AXButton"
+               && ["取消", "Cancel"].contains(axString($0, kAXTitleAttribute as String))
+       }) {
+        log("pressing Cancel on CoreServicesUIAgent's dialog")
+        AXUIElementPerformAction(cancel, kAXPressAction as CFString)
+        Thread.sleep(forTimeInterval: 0.5)
+    }
+    let stillOnScreen = Set((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+        .compactMap { $0[kCGWindowOwnerName as String] as? String })
+    for name in ["CoreServicesUIAgent", "Tips"] where onScreenOwners.contains(name) && stillOnScreen.contains(name) {
         log("closing \(name), which has a window on screen")
         run("/usr/bin/killall", [name], timeout: 5)
     }
@@ -535,7 +548,16 @@ func post(_ type: CGEventType, key: CGKeyCode, flags: CGEventFlags = []) {
 func pressKey(_ key: CGKeyCode, _ flags: CGEventFlags = []) async {
     post(.keyDown, key: key, flags: flags)
     post(.keyUp, key: key, flags: flags)
+    releaseModifiers()
     await pause(0.15)
+}
+
+/// 松开全部修饰键：按下、松开事件里带的修饰键会留在系统的修饰键状态里，之后合成的事件跟着带上。
+func releaseModifiers() {
+    guard let event = CGEvent(source: nil) else { return }
+    event.type = .flagsChanged
+    event.flags = []
+    event.post(tap: .cghidEventTap)
 }
 
 func pressShortcut(_ key: CGKeyCode) async { await pressKey(key, controlOptionCommand.flags) }
@@ -546,6 +568,7 @@ func typeText(_ text: String) async {
             guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down) else { continue }
             let units = Array(String(character).utf16)
             event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+            event.flags = []
             event.post(tap: .cghidEventTap)
         }
         await pause(0.03)

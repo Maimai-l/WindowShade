@@ -100,11 +100,13 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
 
     override func becomeKey() {
         super.becomeKey()
+        wlog("strip: became key window=\(windowNumber) appActive=\(NSApp.isActive)")
         refreshTrafficLightAppearance()
     }
 
     override func resignKey() {
         super.resignKey()
+        wlog("strip: resigned key window=\(windowNumber)")
         refreshTrafficLightAppearance()
     }
 

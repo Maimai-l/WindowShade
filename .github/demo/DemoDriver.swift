@@ -28,6 +28,9 @@ func post(_ type: CGEventType, at point: CGPoint, clicks: Int64 = 1) {
     guard let event = CGEvent(mouseEventSource: nil, mouseType: type,
                               mouseCursorPosition: point, mouseButton: .left) else { return }
     event.setIntegerValueField(.mouseEventClickState, value: clicks)
+    // 不带修饰键：source 为 nil 时事件沿用当前的修饰键状态，前面合成过 ⌃⌥⌘ 的快捷键就会变成 Option、Command 单击
+    // （Option 单击别的应用程序会隐藏当前应用程序，Command 单击不激活应用程序；见 docs/testing.md 场景 A34、C13）。
+    event.flags = []
     event.post(tap: .cghidEventTap)
 }
 
@@ -168,6 +171,7 @@ func postTagged(_ type: CGEventType, at point: CGPoint, clicks: Int64, tag: Int6
                               mouseCursorPosition: point, mouseButton: .left) else { return }
     event.setIntegerValueField(.mouseEventClickState, value: clicks)
     event.setIntegerValueField(.eventSourceUserData, value: tag)
+    event.flags = []
     event.post(tap: .cghidEventTap)
 }
 
