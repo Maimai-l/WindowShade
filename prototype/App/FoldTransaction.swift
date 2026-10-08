@@ -593,6 +593,10 @@ extension AppDelegate {
             AXObserverAddNotification(obs, win, kAXWindowDeminiaturizedNotification as CFString, refcon),
             AXObserverAddNotification(obs, win, kAXUIElementDestroyedNotification as CFString, refcon)
         ]
+        if results[0] != .success {
+            // 应用程序显示时就只能靠系统通知（appUnhidden）和定期检查。
+            wlog("reveal: cannot watch the app being shown pid=\(pid) err=\(results[0].rawValue) id=\(id)")
+        }
         guard results.contains(.success), shaded[id]?.foldTransactionID == transaction else {
             foldObserverRoutes.removeValue(forKey: serial)
             return nil
@@ -633,19 +637,35 @@ extension AppDelegate {
                 unshade(id)
             }
         } else if notification == (kAXApplicationShownNotification as String) {
-            if MainActor.assumeIsolated({ glance.holdsReveal(id) }) {
-                wlog("ignore app reveal caused by glance id=\(id) app=\(state.appName)")
-                return
-            }
-            if Date() < state.ignoreAppRevealUntil {
-                wlog("ignore early app reveal notification=\(notification) id=\(id) app=\(state.appName)")
-                return
-            }
-            if state.hide == .hidden {
-                unshadeAfterAppShown(id, expected: expected, attemptsLeft: 10)
-            }
+            appShown(id, state: state, expected: expected, source: notification)
         } else {
             wlog("ignore reveal notification=\(notification) id=\(id) app=\(state.appName)")
+        }
+    }
+
+    /// 被收起时隐藏了的应用程序又显示了。看一眼临时取消隐藏、刚收起时的余波不算；其余按用户唤回处理。
+    func appShown(_ id: CGWindowID, state: ShadeState, expected: FoldCallbackStamp, source: String) {
+        if MainActor.assumeIsolated({ glance.holdsReveal(id) }) {
+            wlog("ignore app reveal caused by glance id=\(id) app=\(state.appName)")
+            return
+        }
+        if Date() < state.ignoreAppRevealUntil {
+            wlog("ignore early app reveal notification=\(source) id=\(id) app=\(state.appName)")
+            return
+        }
+        if state.hide == .hidden {
+            unshadeAfterAppShown(id, expected: expected, attemptsLeft: 10)
+        }
+    }
+
+    /// 系统的“应用程序已显示”通知。辅助功能的同名通知有时收不到（CI 场景 B09：在应用程序自己的“窗口”菜单里
+    /// 选这扇窗口，应用程序显示了，辅助功能通知没来，卷帘条留到 5 秒后的定期检查才撤）。两条都接，先到的展开，
+    /// 后到的看到窗口已不在收起的记录里，什么也不做。
+    @objc func appUnhidden(_ note: Notification) {
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        for (id, state) in shaded where state.pid == app.processIdentifier && state.hide == .hidden {
+            wlog("reveal: app shown \(state.appName) pid=\(state.pid) id=\(id)")
+            appShown(id, state: state, expected: foldCallbackStamp(id: id, state: state), source: "workspace-unhide")
         }
     }
 

@@ -317,6 +317,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                           name: NSWorkspace.didTerminateApplicationNotification,
                                                           object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self,
+                                                          selector: #selector(appUnhidden(_:)),
+                                                          name: NSWorkspace.didUnhideApplicationNotification,
+                                                          object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self,
                                                           selector: #selector(frontmostApplicationChanged(_:)),
                                                           name: NSWorkspace.didActivateApplicationNotification,
                                                           object: nil)
