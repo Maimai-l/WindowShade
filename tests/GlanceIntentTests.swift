@@ -49,6 +49,34 @@ import Foundation
       expect(intent.sample(onA, at: 1.2) == [.open(a)], "then opens after its own dwell")
     }
 
+    // Holding the mouse button on a strip (pressing to drag it) is never an intent to look:
+    // the preparation is dropped, nothing opens however long the button is held, and after
+    // release the strip stays shut until the pointer leaves it once (2026-10-08: dragging a
+    // strip flashed the glance open).
+    do {
+      let intent = GlanceIntent()
+      _ = intent.entered(a, at: 0)
+      var pressed = onA
+      pressed.buttonPressed = true
+      expect(intent.sample(pressed, at: 0.1) == [.discard(a)], "pressing drops the preparation")
+      expect(!intent.isOpen && intent.blocked.contains(a), "the strip is shut while pressed")
+      expect(intent.sample(pressed, at: 0.6).isEmpty && !intent.isOpen, "no glance however long the button is held")
+      expect(intent.entered(a, at: 0.7).isEmpty, "still over the strip after release: stays shut")
+      intent.unblock(a)
+      expect(intent.entered(a, at: 1.0) == [.prewarm(a)], "after leaving once, hover works again")
+    }
+
+    // An open glance is left alone when the strip is pressed: that press may be the first
+    // click of the double click that expands the window, which needs the card in place.
+    do {
+      let intent = GlanceIntent()
+      _ = intent.entered(a, at: 0)
+      _ = intent.sample(onA, at: 0.23)
+      var pressed = onA
+      pressed.buttonPressed = true
+      expect(intent.sample(pressed, at: 0.3).isEmpty && intent.isOpen, "pressing does not close an open glance")
+    }
+
     // Sliding to a neighbouring strip switches the glance to it.
     do {
       let intent = GlanceIntent()

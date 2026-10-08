@@ -909,6 +909,7 @@ final class GlanceController {
             let zone = controlsZone(strip)
             overControls = point.x - frame.minX < zone.left || frame.maxX - point.x < zone.right
         }
-        return GlancePointerSample(strip: strip, overGlance: overGlance, overControls: overControls)
+        return GlancePointerSample(strip: strip, overGlance: overGlance, overControls: overControls,
+                                   buttonPressed: NSEvent.pressedMouseButtons & 1 != 0)
     }
 }

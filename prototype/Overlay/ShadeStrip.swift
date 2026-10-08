@@ -318,7 +318,6 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         }
         if event.type == .leftMouseDown,
            !pointHitsAnyStandardButton(event.locationInWindow) {
-            onClick?()
             potentialWindowDrag = true
             didWindowDrag = false
         }
@@ -346,6 +345,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                 onDragEnded?(frame)
                 return
             }
+            // 单击在松开时算，而且只算没拖动的：按下就算的话，拖卷帘条时看一眼会先闪出来。
+            if event.clickCount == 1 { onClick?() }
         }
         if event.type == .leftMouseUp,
            event.clickCount == 2,
@@ -502,7 +503,6 @@ final class TitleStripView: NSImageView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window = window else { return }
-        onClick?()
         let m = NSEvent.mouseLocation
         dragOffset = CGPoint(x: m.x - window.frame.origin.x, y: m.y - window.frame.origin.y)
         didDrag = false
@@ -519,6 +519,8 @@ final class TitleStripView: NSImageView {
             if let window { onMoveEnded?(window.frame) }
             return
         }
+        // 单击在松开时算，而且只算没拖动的：按下就算的话，拖卷帘条时看一眼会先闪出来。
+        if event.clickCount == 1 { onClick?() }
         if event.clickCount == 2 { onDoubleClick?() }
     }
 }
