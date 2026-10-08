@@ -43,6 +43,8 @@ final class GlanceContentView: NSView {
     let cardFrame: NSRect
     /// 整扇窗口的画面在卡片里的位置；超出卡片的部分（标题栏、屏幕外）被裁掉。
     let pictureFrame: NSRect
+    /// 见 GlanceTarget.stripJoin：大于 0 时卡片上沿是直角，再往上补出卷帘条圆角外的两小块。
+    let stripJoin: CGFloat
 
     private let backdropLayer = CALayer()
     private let shadowLayer = CALayer()
@@ -61,9 +63,10 @@ final class GlanceContentView: NSView {
     private(set) var isLive = false
 
     init(frame: NSRect, cardFrame: NSRect, pictureFrame: NSRect, cornerRadius: CGFloat,
-         staleText: String, accessibilityTitle: String) {
+         stripJoin: CGFloat = 0, staleText: String, accessibilityTitle: String) {
         self.cardFrame = cardFrame
         self.pictureFrame = pictureFrame
+        self.stripJoin = stripJoin
         badge = GlanceBadge(text: staleText)
         super.init(frame: frame)
         wantsLayer = true
@@ -78,9 +81,21 @@ final class GlanceContentView: NSView {
         shadowLayer.shadowRadius = 14
         shadowLayer.shadowOffset = CGSize(width: 0, height: -6)
         root.addSublayer(shadowLayer)
-        cardLayer.masksToBounds = true
-        cardLayer.cornerRadius = cornerRadius
-        cardLayer.cornerCurve = .continuous
+        if stripJoin > 0 {
+            // 卡片层往上多出 stripJoin 高，形状由 mask 给：下面两角圆、上沿直角，再加上卷帘条
+            // 两个下圆角外的缺口。投影只留在卡片上沿以下，不落到卷帘条上。
+            let shape = CAShapeLayer()
+            shape.path = Self.joinedCardPath(size: cardFrame.size, radius: cornerRadius, join: stripJoin)
+            cardLayer.mask = shape
+            let shadowClip = CALayer()
+            shadowClip.backgroundColor = NSColor.black.cgColor
+            shadowClip.frame = CGRect(x: 0, y: 0, width: frame.width, height: cardFrame.maxY)
+            shadowLayer.mask = shadowClip
+        } else {
+            cardLayer.masksToBounds = true
+            cardLayer.cornerRadius = cornerRadius
+            cardLayer.cornerCurve = .continuous
+        }
         root.addSublayer(cardLayer)
         snapshotLayer.contentsGravity = .resize
         snapshotLayer.minificationFilter = .trilinear
@@ -110,6 +125,33 @@ final class GlanceContentView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// 接在卷帘条下的卡片形状（卡片层坐标，原点在左下）：卡片本体下面两角圆、上沿直角；
+    /// 上沿往上 join 高的地方只留左右两个角落里、半径 join 的圆角之外的那一小块。
+    static func joinedCardPath(size: CGSize, radius: CGFloat, join: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        let r = min(radius, size.width / 2, size.height / 2)
+        path.move(to: CGPoint(x: 0, y: size.height))
+        path.addLine(to: CGPoint(x: 0, y: r))
+        path.addArc(tangent1End: CGPoint(x: 0, y: 0), tangent2End: CGPoint(x: r, y: 0), radius: r)
+        path.addLine(to: CGPoint(x: size.width - r, y: 0))
+        path.addArc(tangent1End: CGPoint(x: size.width, y: 0),
+                    tangent2End: CGPoint(x: size.width, y: r), radius: r)
+        path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.closeSubpath()
+        // 左上：从卡片上沿往上 join，贴着卷帘条左下圆角的外侧回到卡片上沿。
+        path.move(to: CGPoint(x: 0, y: size.height))
+        path.addLine(to: CGPoint(x: 0, y: size.height + join))
+        path.addArc(tangent1End: CGPoint(x: 0, y: size.height),
+                    tangent2End: CGPoint(x: join, y: size.height), radius: join)
+        path.closeSubpath()
+        path.move(to: CGPoint(x: size.width, y: size.height))
+        path.addLine(to: CGPoint(x: size.width, y: size.height + join))
+        path.addArc(tangent1End: CGPoint(x: size.width, y: size.height),
+                    tangent2End: CGPoint(x: size.width - join, y: size.height), radius: join)
+        path.closeSubpath()
+        return path
+    }
 
     override var isFlipped: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -143,8 +185,9 @@ final class GlanceContentView: NSView {
         // 那时写 frame 会被变换折算错。没有变换时两种写法一样。
         shadowLayer.bounds = CGRect(origin: .zero, size: bounds.size)
         shadowLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        cardLayer.bounds = CGRect(origin: .zero, size: cardFrame.size)
-        cardLayer.position = CGPoint(x: cardFrame.midX, y: cardFrame.midY)
+        cardLayer.bounds = CGRect(origin: .zero, size: CGSize(width: cardFrame.width,
+                                                              height: cardFrame.height + stripJoin))
+        cardLayer.position = CGPoint(x: cardFrame.midX, y: cardFrame.minY + (cardFrame.height + stripJoin) / 2)
         snapshotLayer.frame = pictureFrame
         videoLayer?.frame = pictureFrame
         if rollMask.animationKeys()?.isEmpty ?? true {

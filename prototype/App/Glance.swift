@@ -46,6 +46,9 @@ struct GlanceTarget {
     let staleText: String
     /// 缩略图：卡片从这里（面板坐标）长回原大小、收回时缩回这里。nil = 照卷帘条那样卷下、卷上。
     var growFrom: NSRect? = nil
+    /// 卡片直接接在卷帘条下面时大于 0：卷帘条下沿两个圆角外露出的那两小块由卡片用窗口画面补上，
+    /// 值是往上补的高度（点）。0 = 卡片自己四角都圆，和卷帘条分开。
+    var stripJoin: CGFloat = 0
 }
 
 /// 带到每张桌面的窗口：由 CarryController 提供。
@@ -384,32 +387,34 @@ final class GlanceController {
         return carrySource?.glanceTarget(forCarried: id)
     }
 
-    /// 卡片和卷帘条之间的缝（点）。
+    /// 带到每张桌面的窗口：缩小了的卡片和卷帘条之间的缝（点）。
     static let cardGap: CGFloat = 6
 
-    /// 收起的窗口：原貌卷帘条不动，卡片挂在它下面、隔一道缝，按原尺寸显示标题栏以下的
-    /// 内容；超出屏幕可见区域的部分裁掉，上沿不动。
+    /// 收起的窗口：原貌卷帘条不动，卡片紧接在它下面，按原尺寸显示标题栏以下的内容，
+    /// 两块拼起来就是原来那扇窗；超出屏幕可见区域的部分裁掉，上沿不动。
     private func shadedTarget(state: ShadeState, strip: NSRect) -> GlanceTarget? {
         let size = state.originalSize
         let barH = min(strip.height, max(0, size.height - 40))
         let contentH = size.height - barH
-        let wanted = NSRect(x: strip.minX, y: strip.minY - Self.cardGap - contentH,
+        let wanted = NSRect(x: strip.minX, y: strip.minY - contentH,
                             width: size.width, height: contentH)
         let card = wanted.intersection(owner.visibleFrame(for: strip))
         guard !card.isNull, card.width >= 80, card.height >= 40,
               abs(card.maxY - wanted.maxY) < 0.5 else { return nil }
         let clippedLeft = card.minX - wanted.minX
         let margin = GlanceContentView.shadowMargin
+        // 卷帘条的圆角不超过条高的一半：按一半往上补，只会多补到标题栏的空白处，不会漏。
+        let join = floor(strip.height / 2)
         var panel = NSRect(x: card.minX - margin, y: card.minY - margin,
-                           width: card.width + 2 * margin, height: strip.minY - (card.minY - margin))
+                           width: card.width + 2 * margin, height: strip.minY + join - (card.minY - margin))
         if let screen = screenForCocoaFrame(strip)?.frame { panel = panel.intersection(screen) }
         let picture = NSRect(x: -clippedLeft, y: card.height + barH - size.height,
                              width: size.width, height: size.height)
         let snapshot = state.previewImage?.cgImage(forProposedRect: nil, context: nil, hints: nil)
         let canRecord = hasScreenRecordingPermission()
         let source: GlanceTarget.Source
-        // 真窗口临时回来时，卷帘条下面那块（标题栏以下）就是它的内容区：缝和卡片的圆角缺口
-        // 都落在这里，要垫背景。
+        // 真窗口临时回来时，卷帘条下面那块（标题栏以下）就是它的内容区：卡片圆角外的缺口
+        // 落在这里，要垫背景。
         let realContent = NSRect(x: strip.minX, y: strip.minY - contentH,
                                  width: size.width, height: contentH)
         var backdropArea: NSRect?
@@ -432,7 +437,8 @@ final class GlanceController {
             snapshot: snapshot,
             pid: state.pid, bundleID: state.bundleID,
             accessibilityTitle: descriptiveDisplayTitle(appName: state.appName, windowTitle: state.title),
-            staleText: "收起时的画面")
+            staleText: "收起时的画面",
+            stripJoin: join)
     }
 
     /// 缩略图：卡片就是整扇窗口（连标题栏），左上角对着缩略图的左上角，从缩略图长回原大小。
@@ -605,7 +611,7 @@ final class GlanceController {
         let content = GlanceContentView(
             frame: NSRect(origin: .zero, size: target.panel.size),
             cardFrame: target.card, pictureFrame: target.picture,
-            cornerRadius: target.cornerRadius,
+            cornerRadius: target.cornerRadius, stripJoin: target.stripJoin,
             staleText: target.staleText, accessibilityTitle: target.accessibilityTitle)
         session.cardScreen = target.card.offsetBy(dx: target.panel.minX, dy: target.panel.minY)
         session.growFrom = target.growFrom
