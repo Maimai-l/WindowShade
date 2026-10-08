@@ -8,8 +8,8 @@
 #   ./build.sh --local-parallel  本地全模块优化，使用四个后端线程；发布仍用 --stage
 #
 # 应用内更新（docs/update.md）：主程序链接 prototype/Vendor/Sparkle.framework（2.10.0，已删 XPCServices），
-# 包里另有 Contents/Helpers/WindowShadeUpdateGuard.app（看护，源码在 Watchdog/）。嵌套代码从里往外逐个签，
-# 全部用同一个身份，不用 --deep。--check 与应用一样编译并链接 Sparkle；
+# 用 Sparkle 的标准流程和界面。嵌套代码从里往外逐个签，全部用同一个身份，不用 --deep。
+# --check 与应用一样编译并链接 Sparkle；
 # 缺少该依赖时检查失败，不能把条件编译跳过接口误写成完整链接通过。
 # 日常 ./build.sh 出来的开发版不写 SUFeedURL，更新器不启动，不会被线上版本换掉。
 #
@@ -68,14 +68,13 @@ FRAMEWORKS=(
 
 # 自动收集源文件：只扫 prototype/ 与它的模块子目录，顺序稳定（按路径排序）。
 # 用 -prune 排除 app bundle、dist、.build，避免把构建产物或其它仓库内容扫进来。
-# Watchdog/ 是单独编译的看护小 App，Vendor/ 是第三方框架，都不进主程序的源文件清单。
+# Vendor/ 是第三方框架，不进源文件清单。
 # macOS 自带 Bash 3.2 可运行（只用 find + sort + grep）。
 collect_sources() {
   find . \
     -path "./WindowShade.app" -prune -o \
     -path ./dist -prune -o \
     -path ./.build -prune -o \
-    -path ./Watchdog -prune -o \
     -path ./Vendor -prune -o \
     -name '*.swift' -print \
     | sed 's|^\./||' \
@@ -116,18 +115,6 @@ for source in $SOURCES; do
   cp "$source" "$WORK/$source"
   COMPILE_SOURCES+=("$WORK/$source")
 done
-# 看护：Watchdog/ 下的源码（入口和它自己的菜单栏图标）加上和 App 共用的更新代码（日志、判断、换回、文案），
-# 单独成一个可执行文件。共用的只有 Core/Update*.swift、App/UpdaterSystem.swift、App/UpdaterCopy.swift，
-# 它们只能依赖 Foundation/AppKit 和彼此；别的 App 文件不进看护，改它们不会让 --check 的第二次类型检查失败。
-mkdir -p "$WORK/Watchdog"
-cp Watchdog/*.swift "$WORK/Watchdog/"
-GUARD_SOURCES=()
-for source in Watchdog/main.swift Watchdog/GuardIcon.swift Core/UpdateVersion.swift Core/UpdateModels.swift \
-  Core/UpdateDecisions.swift App/UpdaterSystem.swift App/UpdaterCopy.swift; do
-  GUARD_SOURCES+=("$WORK/$source")
-done
-GUARD_FRAMEWORKS=(-framework AppKit -framework Security -framework ServiceManagement)
-
 if [ "$check_only" = "1" ]; then
   # 和发布构建用同一套编译参数（-O -whole-module-optimization），只把产物写到临时目录、不签名、
   # 不碰 app bundle。只做 -typecheck 看不到整模块优化下才报的隔离/所有性问题。
@@ -137,9 +124,6 @@ if [ "$check_only" = "1" ]; then
     swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -whole-module-optimization ${GLASS_DEFINE} -o "$WORK/windowshade-check" \
       "${COMPILE_SOURCES[@]}" "${FRAMEWORKS[@]}" \
       "${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"}" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
-  env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
-    swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -o "$WORK/WindowShadeUpdateGuard-check" \
-      "${GUARD_SOURCES[@]}" "${GUARD_FRAMEWORKS[@]}"
   echo "==> 编译验证通过"
   # CI 的演示录屏要用这次编出来的程序：设了 WINDOWSHADE_CHECK_OUTPUT 就把它留下来。
   if [ -n "${WINDOWSHADE_CHECK_OUTPUT:-}" ]; then
@@ -187,10 +171,6 @@ env TMPDIR="$WORK/compiler-tmp" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
   swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" "${OPTIMIZATION_FLAGS[@]}" ${GLASS_DEFINE} -o "$TMP_BIN" \
     "${COMPILE_SOURCES[@]}" "${FRAMEWORKS[@]}" \
     "${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"}" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
-echo "==> 编译看护（WindowShadeUpdateGuard）"
-env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
-  swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -o "$WORK/WindowShadeUpdateGuard" \
-    "${GUARD_SOURCES[@]}" "${GUARD_FRAMEWORKS[@]}"
 
 if [ "$stage_only" != "1" ]; then
   echo "==> 停止这个 bundle 的 WindowShade（编译通过后才替换）"
@@ -239,38 +219,6 @@ for lproj in "$EMBED_FW/Versions/B/Resources/"*.lproj; do
 done
 echo "==> Sparkle.framework：${SPARKLE_KB_BEFORE} KB → $(du -sk "$EMBED_FW" | cut -f1) KB（写进发布说明草稿）"
 
-# 看护：LSUIElement 小 App，放在 Contents/Helpers/（Apple 给辅助程序定的位置）。
-GUARD_APP="$APP/Contents/Helpers/WindowShadeUpdateGuard.app"
-rm -rf "$GUARD_APP"
-mkdir -p "$GUARD_APP/Contents/MacOS"
-cp "$WORK/WindowShadeUpdateGuard" "$GUARD_APP/Contents/MacOS/WindowShadeUpdateGuard"
-GUARD_VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Info.plist)
-GUARD_BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" Info.plist)
-cat > "$GUARD_APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleExecutable</key>
-	<string>WindowShadeUpdateGuard</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.windowshade.prototype.update-guard</string>
-	<key>CFBundleName</key>
-	<string>WindowShade</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>${GUARD_VERSION}</string>
-	<key>CFBundleVersion</key>
-	<string>${GUARD_BUILD}</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
-	<key>LSUIElement</key>
-	<true/>
-</dict>
-</plist>
-PLIST
-
 # Info.plist in the source tree owns release versions; synchronize only these
 # fields so existing bundle identity and local resources remain intact.
 for version_key in CFBundleShortVersionString CFBundleVersion; do
@@ -292,13 +240,15 @@ else
 fi
 
 echo "==> 用 Apple Development 证书签名（TCC 授权可跨重编保留）"
-# 从里往外逐个签，全部同一个身份，不用 --deep：Sparkle 的安装器、Updater.app、看护都要和 App 同一个 Team，
+# 从里往外逐个签，全部同一个身份，不用 --deep：Sparkle 的安装器和 Updater.app 都要和 App 同一个 Team，
 # 否则安装器和 App 之间的连接校验不过，新版替换自己也会被“App 管理”拦下。
 # 主程序照旧：不加新标志（不加 hardened runtime），标识符不变，DR 不变。
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW/Versions/B/Autoupdate"
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW/Versions/B/Updater.app"
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW"
-codesign --force -s "$IDENTITY" -o runtime -i com.windowshade.prototype.update-guard "$GUARD_APP"
+# 以前的版本在这里放过更新看护；原地替换的开发包里可能还留着，删掉。
+rm -rf "$APP/Contents/Helpers/WindowShadeUpdateGuard.app"
+rmdir "$APP/Contents/Helpers" 2>/dev/null || true
 codesign --force -s "$IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"
 
@@ -310,7 +260,7 @@ if [ "$stage_only" = "1" ]; then
   fi
   team_of() { codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p'; }
   MAIN_TEAM="$(team_of "$APP")"
-  for nested in "$EMBED_FW/Versions/B/Autoupdate" "$EMBED_FW/Versions/B/Updater.app" "$EMBED_FW" "$GUARD_APP"; do
+  for nested in "$EMBED_FW/Versions/B/Autoupdate" "$EMBED_FW/Versions/B/Updater.app" "$EMBED_FW"; do
     if [ -z "$MAIN_TEAM" ] || [ "$(team_of "$nested")" != "$MAIN_TEAM" ]; then
       echo "ERROR: ${nested#"$APP"/} 的 Team 和主程序不同（${MAIN_TEAM:-无}）。" >&2
       exit 1
@@ -320,27 +270,9 @@ if [ "$stage_only" = "1" ]; then
     echo "ERROR: SUPublicEDKey 和记下的公钥不同；换密钥要单独发一版，见 docs/update.md。" >&2
     exit 1
   fi
-  # 更新器的入口要由 main.swift / WindowShade.swift 接上（见 App/UpdaterLaunch.swift、App/Updater.swift 头部注释）。
-  # 少接 --self-check：安装前的试跑会拉起一整个 WindowShade；少接 recordLaunch 或 start()：新版写不了 healthy，每次更新都被换回。
-  # 没接齐时只警告、不跑二进制（别的验证也用 --stage）；这样的包不能发布，DEVELOPMENT.md 的发布流程把它列为阻断项。
-  UPDATER_WIRED=1
-  for wiring in "main.swift:UpdateLaunch.handleEarlyArguments" "main.swift:UpdateLaunch.recordLaunch" \
-    "WindowShade.swift:UpdaterController.shared.start()" "WindowShade.swift:UpdaterController.shared.applicationWillTerminate()" \
-    "WindowShade.swift:UpdaterController.shared.applicationShouldTerminate()"; do
-    if ! grep -qF "${wiring#*:}" "${wiring%%:*}"; then
-      echo "WARNING: ${wiring%%:*} 里没有 ${wiring#*:}：更新器没接齐，这个包不能发布。" >&2
-      UPDATER_WIRED=0
-    fi
-  done
-  if [ "$UPDATER_WIRED" = "1" ]; then
-    # 试跑：5 秒内返回 0，输出里有这次的 build 号（安装前的关给 10 秒；这里留余量给高负载，正常不到 1 秒）。
-    STAGE_BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$APP/Contents/Info.plist")
-    if ! SELF_CHECK_OUT=$(perl -e 'alarm 5; exec @ARGV' "$BIN" --self-check 2>&1) \
-      || ! printf '%s' "$SELF_CHECK_OUT" | grep -qF "build=$STAGE_BUILD"; then
-      echo "ERROR: --self-check 没有在 5 秒内返回 0 并输出 build=$STAGE_BUILD：${SELF_CHECK_OUT:-无输出}" >&2
-      exit 1
-    fi
-    echo "==> --self-check 通过：$SELF_CHECK_OUT"
+  if ! grep -qF "UpdaterController.shared.start()" WindowShade.swift; then
+    echo "ERROR: WindowShade.swift 没有启动更新器（UpdaterController.shared.start()）。" >&2
+    exit 1
   fi
 fi
 touch "$APP"

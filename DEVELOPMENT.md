@@ -36,9 +36,7 @@ prototype/
 │   ├── FoldCompletion.swift          # 等折叠终态的回调（标题栏三击）
 │   ├── ShadeController.swift         # 折叠入口（shade/toggle/折叠计划/截图）
 │   ├── FoldExit.swift                # 折叠出口（unshade/清理/交通灯/QuickLook）
-│   └── Updater*.swift                # 应用内更新（docs/update.md）：Updater 状态与把关、UpdaterSparkle 唯一接 Sparkle 的一层
-│                                     # （#if canImport(Sparkle)）、UpdaterLaunch（--self-check 与启动时读更新日志）、
-│                                     # UpdaterSystem（DR、备份、换回、launchd，看护也编译）、UpdaterMove、UpdaterWindow、UpdaterSettings、UpdaterCopy
+│   └── Updater.swift                 # 应用内更新：Sparkle 标准控制器、菜单项（docs/update.md）
 ├── Private/
 │   └── SkyLightBridge.swift          # SkyLight 私有 API 隔离层（全部有 fallback）
 ├── Compatibility/
@@ -47,8 +45,7 @@ prototype/
 │   └── AppPredicates.swift           # 按应用的判断（特殊外框高度、应用识别）
 ├── Core/
 │   ├── WindowState.swift             # 折叠操作状态机（非法转换拒绝）
-│   ├── ShadeModels.swift             # 折叠相关值类型（ShadeState、策略、外框画像）
-│   └── Update*.swift                 # 更新的纯逻辑：版本比较、更新日志与 refused.json、每一步的判断（看护也编译）
+│   └── ShadeModels.swift             # 折叠相关值类型（ShadeState、策略、外框画像）
 ├── Capture/
 │   ├── WindowSnapshotCache.swift     # 折叠截图 500ms 短 TTL 缓存
 │   ├── PreviewRenderer.swift         # 渲染与图像分析（chrome 扫描、圆角镜像、条制备）
@@ -70,15 +67,12 @@ prototype/
 │   ├── Journal.swift                 # 恢复日志数据层（持久化/匹配/生命周期标记）
 │   ├── RestoreVerifier.swift         # 展开后确认窗口真的回来了，没回来就留着恢复记录
 │   └── Rescue.swift                  # 离屏窗口救援编排（后台扫描 + 主线程写回）
-├── Watchdog/                         # 更新看护 WindowShadeUpdateGuard.app 的入口和图标，单独编译，放进 Contents/Helpers/
 └── Vendor/
     └── Sparkle.framework             # Sparkle 2.10.0，已删 XPCServices，符号链接保留（ditto 放入）
 ```
 
 `build.sh` 会自动收集上述目录里的 `.swift` 文件（排序稳定，排除 `WindowShade.app`、
-`dist`、`.build`、`Watchdog`、`Vendor`），新增源文件无需手工维护编译列表。
-看护只编 `Watchdog/*.swift` 加 `Core/Update*.swift`、`App/UpdaterSystem.swift`、`App/UpdaterCopy.swift`；
-这几份共用文件只能依赖 Foundation/AppKit/Security/ServiceManagement 和彼此，不能引用 App 里别的类型。
+`dist`、`.build`、`Vendor`），新增源文件无需手工维护编译列表。
 
 ## 构建
 
@@ -129,21 +123,19 @@ cd prototype
 
 `--check` 复用 `build.sh` 同一份自动收集的源文件清单，只做 swiftc 类型检查，
 不签名、不修改 app bundle。README 与本文档不再需要第二套独立的 swiftc 文件清单。
-找得到 `Vendor/Sparkle.framework` 时带 `-F` 一起检查 Sparkle 接口层，找不到时 `App/UpdaterSparkle.swift`
-靠 `#if canImport(Sparkle)` 跳过；另有一次小的类型检查只编看护。更新的纯逻辑测试：`tests/run-update-tests.sh`
-（不链接 Sparkle，不动已装的 App）。
+`--check` 与发布构建一样链接 `Vendor/Sparkle.framework`；测试程序不链接 Sparkle，`App/Updater.swift`
+靠 `#if canImport(Sparkle)` 编成不启动更新器的版本。
 
 日常 `./build.sh` 出来的开发版不写 `SUFeedURL`，更新器不启动，不会被线上版本换掉；只有 `--stage` 写。
-签名从里往外逐个签（Sparkle 的 Autoupdate、Updater.app、框架、看护，最后主程序），全部同一个身份，不用 `--deep`。
+签名从里往外逐个签（Sparkle 的 Autoupdate、Updater.app、框架，最后主程序），全部同一个身份，不用 `--deep`。
 
 ## 测试
 
 每个 `tests/run-*.sh` 编一个小的测试程序并运行，只用到它列出的源文件；CI（`.github/workflows/ci.yml`）在 macOS 上逐个跑一遍，结果表在 job summary 里。
-需要签名构建的 `run-update-integration.sh` 只在本机跑。
 
 | 范围 | 命令 |
 |---|---|
-| 设置窗口与看一眼的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
+| 设置窗口（含“更新”一组在开发版不可用）与看一眼的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
 | 看一眼的指针意图 | `bash tests/run-glance-tests.sh` |
 | 收起时把窗口停到屏幕角上 | `bash tests/run-corner-parking-tests.sh` |
 | 缩略图布局与半透明 | `bash tests/run-thumbnail-tests.sh` |
@@ -152,7 +144,6 @@ cd prototype
 | 窗口列表缓存、AX 读取名额 | `bash tests/run-window-list-cache-tests.sh`、`bash tests/run-ax-read-gate-tests.sh` |
 | 纸面组件与系统外观 | `bash tests/run-paper-tests.sh` |
 | 快捷键默认值与录制规则 | `bash tests/run-quiet-defaults-tests.sh` |
-| 更新器 | `bash tests/run-update-tests.sh`；签名构建后 `bash tests/run-update-integration.sh` |
 | 日志写入、卡顿采样 | `bash tests/run-secure-log-tests.sh`、`bash tests/run-stall-sampler-tests.sh` |
 
 ## 调试
@@ -196,10 +187,8 @@ cd prototype
 1. **每个公开的包都升 `CFBundleVersion`**（`prototype/Info.plist`，同时升 `CFBundleShortVersionString`）。不再移动已发布的 tag，不再 `--clobber`；
    换包就升一个小版本。以前的“同一版本重新发布”一节作废。
 2. `./build.sh --stage` 隔离构建并签名，产物为 `.build/stage/WindowShade.app`，不会停止或覆盖日常运行的应用。
-   它会写入 `SUFeedURL`，检查链接了 Sparkle、嵌套代码同一个 Team、`SUPublicEDKey` 没变，并试跑 `--self-check`。
-   **输出里出现“更新器没接齐，这个包不能发布”就停下**：少了 `main.swift` 里的 `UpdateLaunch.handleEarlyArguments()` /
-   `UpdateLaunch.recordLaunch()` 或 `WindowShade.swift` 里的 `UpdaterController.shared.start()` 等，安装前的试跑会拉起整个 App、
-   新版写不了 healthy，每次更新都会被换回。然后运行相关回归检查。
+   它会写入 `SUFeedURL`，检查链接了 Sparkle、嵌套代码同一个 Team、`SUPublicEDKey` 没变、`WindowShade.swift` 启动了更新器。
+   然后运行相关回归检查。
 3. 打包（`ditto` 保留框架里的符号链接）：
 
    ```sh
@@ -214,13 +203,11 @@ cd prototype
    1. `gh release download` 取上一版的发布包，`codesign -d -r- <App>` 读出它的 DR。
    2. 新 zip 解到临时目录，里面只有一个 `WindowShade.app`，`codesign --verify --deep --strict` 通过。
    3. 新版的 DR 和上一版逐字相同，`codesign --verify -R="=<上一版 DR>"` 通过。不同就只能走“换证书的一版”（docs/update.md）。
-   4. `WindowShade.app/Contents/MacOS/WindowShade --self-check` 返回 0，输出里有这次的 build 号（`build=N`），1 秒左右返回。
-   5. `CFBundleVersion` 大于上一版。
-   6. `LSMinimumSystemVersion` 和清单的 `minimumSystemVersion` 按版本号比相等（`14.0` 等于 `14.0.0`）。
-   7. `lipo -archs` 和清单的 `hardwareRequirements` 一致。
-   8. 链接了 Sparkle，`SUPublicEDKey`、`SUFeedURL` 没变，`Contents/Helpers/WindowShadeUpdateGuard.app` 在且签名同 Team。
-   9. 上一版读得懂这一版的状态：新版 `--self-check --write-sample-state <目录>`，上一版 `--self-check --read-state <目录>` 返回 0。
-      第一个带更新器的版本没有“上一版”，跳过；从第二个起必做。
+   4. `CFBundleVersion` 大于上一版。
+   5. `LSMinimumSystemVersion` 和清单的 `minimumSystemVersion` 按版本号比相等（`14.0` 等于 `14.0.0`）。
+   6. `lipo -archs` 和清单的 `hardwareRequirements` 一致。
+   7. 链接了 Sparkle，`SUPublicEDKey`、`SUFeedURL` 没变。
+   8. 打开新版，菜单里按住 ⌥ 出现的“检查更新…”能用，检查结果为“已是最新版本”。
 5. 提交并推送实际构建的源文件、版本与发布说明，打新标签，上传 zip 和 `.sha256`，再下载回来核对 SHA-256：
 
    ```sh
@@ -239,9 +226,7 @@ cd prototype
    `length`，在 `site/public/appcast.xml` 加一条（保留最近三条，写法见 docs/update.md“发布流程”里的条目样子），改动说明取
    `docs/releases/v<版本>.md` 开头最多三行；再给整个清单签名，`npm run deploy`，最后 `curl` 一次线上的清单。
    先上传包、后发清单，反过来他会先看到新版本却下载不到。
-7. **先走测试频道**：条目先带 `<sparkle:channel>beta</sparkle:channel>` 发一次。Aaron 自己
-   `defaults write com.windowshade.prototype WindowShadeUpdateChannel beta` 打开测试频道，装上用一天，再去掉频道标记重发清单。
-8. **分批推送**：条目带 `sparkle:phasedRolloutInterval` 86400。**撤回一版**：从清单删掉那一条再部署。
+7. **分批推送**：条目带 `sparkle:phasedRolloutInterval` 86400。**撤回一版**：从清单删掉那一条再部署。
 
 `prototype/dist/` 已在 `.gitignore` 中，发布产物不会污染工作区。默认构建架构为本机架构；发布说明须标明实际架构。Apple Development 签名不等于公证，不宣称已经 notarized。
 
@@ -267,7 +252,5 @@ cd prototype
 2. `rm -rf prototype/Vendor/Sparkle.framework && ditto <解包目录>/Sparkle.framework prototype/Vendor/Sparkle.framework`（`ditto` 保留符号链接），
    再删掉 `prototype/Vendor/Sparkle.framework/Versions/B/XPCServices` 和顶层的 `XPCServices` 链接（没开沙盒用不到）。
    `build.sh` 的注释和本节的版本号一起改。
-3. 读发布说明，留意安装器、缓存目录（`~/Library/Caches/<bundle id>/org.sparkle-project.Sparkle/Installation/`，关靠它找解开的 App）、
-   续装和取消流程、`<bundle id>-sparkle-updater` 这个 launchd 标签有没有变。
-4. 跑 `tests/run-update-tests.sh`，再在发布机上把 docs/update.md“验收”里的集成测试走一遍。关找不到解开的 App 时结果是“不装”，
-   这样发出去就等于没法更新，所以不过不发。
+3. 读发布说明，留意标准界面、安装器和 Info.plist 键有没有变。
+4. 跑 `tests/run-appkit-tests.sh all`，再在发布机上把 docs/update.md“验收”一节走一遍。

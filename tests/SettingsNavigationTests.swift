@@ -52,8 +52,7 @@ struct SettingsNavigationTests {
     let rowsBySection: [(WindowShadeSettingsSection, [String])] = [
       (.shade, ["双击标题栏收起窗口", "看一眼"]),
       (.shortcuts, ["收起或展开当前窗口", "整理卷帘条"]),
-      // 权限与启动页没有“标签 + 右侧控件”的行，这里只为出浅深色截图。
-      (.permissions, []),
+      (.permissions, [UpdateCopy.autoCheck]),
     ]
     settings.window?.setContentSize(NSSize(width: 820, height: 580))
     for (section, names) in rowsBySection {
@@ -91,8 +90,27 @@ struct SettingsNavigationTests {
         to: directory.appendingPathComponent("\(section)-\(appearance.rawValue).png"))
     }
     }
+    // 更新：发布版的 Info.plist 有清单地址和公钥才启动更新器；测试包两样都没有，
+    // 设置里的开关和“检查更新”按钮不可用，菜单里的“检查更新…”也不可用。
+    precondition(UpdaterController.isConfigured(["SUFeedURL": "https://example.com/appcast.xml",
+                                                 "SUPublicEDKey": "key"]))
+    precondition(!UpdaterController.isConfigured(["SUPublicEDKey": "key"]))
+    precondition(!UpdaterController.isConfigured(["SUFeedURL": "", "SUPublicEDKey": "key"]))
+    UpdaterController.shared.start()
+    precondition(!UpdaterController.shared.isAvailable, "A build without a feed URL must not start the updater")
+    settings.select(section: .permissions)
+    await drainLayout()
+    let controls = descendants(root).compactMap { $0 as? NSControl }
+    guard let checkButton = controls.compactMap({ $0 as? NSButton }).first(where: { $0.title == UpdateCopy.checkButton }),
+          let autoCheck = controls.first(where: { $0 is NSSwitch && $0.accessibilityLabel() == UpdateCopy.autoCheck })
+    else { preconditionFailure("Update settings rows are missing") }
+    precondition(!checkButton.isEnabled && !autoCheck.isEnabled,
+                 "Update controls must be disabled when the updater is not running")
+    let updateItem = UpdaterController.shared.makeMenuItem()
+    precondition(!UpdaterController.shared.validateMenuItem(updateItem),
+                 "Check for Updates must be disabled when the updater is not running")
     settings.window?.close()
-    print("PASS: settings navigation and 820pt light/dark row clearance; screenshots saved")
+    print("PASS: settings navigation, 820pt light/dark row clearance and update controls; screenshots saved")
   }
 
   @MainActor

@@ -112,9 +112,6 @@ extension AppDelegate {
     statusMenu.addItem(about)
     let updateItem = UpdaterController.shared.makeMenuItem()
     updateItem.isHidden = !optionHeld
-    if updateItem.image == nil {
-      updateItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
-    }
     statusMenu.addItem(updateItem)
     let quitItem = NSMenuItem(title: "退出 WindowShade", action: #selector(quit), keyEquivalent: "q")
     quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil); statusMenu.addItem(quitItem)

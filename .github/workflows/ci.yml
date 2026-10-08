@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select newest Xcode
         run: .github/scripts/select-xcode.sh
-      - name: Compile app and update guard
+      - name: Compile app
         run: prototype/build.sh --check
 
   tests:

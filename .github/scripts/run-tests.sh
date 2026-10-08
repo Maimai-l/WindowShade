@@ -5,7 +5,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 logs=.build/ci-logs
 mkdir -p "$logs"
-skip=" run-glance-probe.sh run-perf-check.sh run-update-integration.sh "
+skip=" run-glance-probe.sh run-perf-check.sh "
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
 failed=0
 {

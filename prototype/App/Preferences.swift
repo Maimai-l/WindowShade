@@ -176,7 +176,7 @@ extension AppDelegate {
         launch.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.setCustomSpacing(18, after: launch)
         stack.addArrangedSubview(makePrefGroupLabel(UpdateCopy.settingsGroup))
-        let update = makeUnifiedSettingsCard(MainActor.assumeIsolated { UpdaterController.shared.makeSettingsRows() })
+        let update = makeUnifiedSettingsCard(makeUpdateSettingsRows())
         stack.addArrangedSubview(update)
         update.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         return root
@@ -404,6 +404,28 @@ extension AppDelegate {
         refreshPreferencesWindowIfOpen()
     }
 
+    /// “更新”一组：自动检查的开关；当前版本和“检查更新”按钮。开发版没有更新器，两个控件都不可用。
+    private func makeUpdateSettingsRows() -> [NSView] {
+        MainActor.assumeIsolated {
+            let updater = UpdaterController.shared
+            let autoCheck = makeUnifiedToggleRow(name: UpdateCopy.autoCheck, subtitle: UpdateCopy.autoCheckDetail,
+                                                 isOn: updater.automaticallyChecks,
+                                                 action: #selector(prefToggleAutomaticUpdateChecks(_:)))
+            autoCheck.subviews.compactMap { $0 as? NSSwitch }.forEach { $0.isEnabled = updater.isAvailable }
+            let check = NSButton(title: UpdateCopy.checkButton, target: updater,
+                                 action: #selector(UpdaterController.checkForUpdates(_:)))
+            check.bezelStyle = .push
+            check.isEnabled = updater.isAvailable
+            return [autoCheck,
+                    makeUnifiedControlRow(name: UpdateCopy.currentVersionRow(updater.currentVersion),
+                                          subtitle: nil, control: check)]
+        }
+    }
+
+    @objc func prefToggleAutomaticUpdateChecks(_ sender: NSSwitch) {
+        MainActor.assumeIsolated { UpdaterController.shared.automaticallyChecks = sender.state == .on }
+    }
+
     @objc func prefSelectFoldSound(_ sender: NSPopUpButton) {
         foldSoundName = sender.selectedItem?.representedObject as? String ?? shadeDefaultFoldSound
         UserDefaults.standard.set(foldSoundName, forKey: shadeFoldSoundDefaultsKey)
@@ -450,18 +472,9 @@ extension AppDelegate {
         onboardingWindow?.contentView?.subviews.lazy.compactMap { $0 as? WelcomeView }.first
     }
 
-    /// 装好新版本后辅助功能或屏幕录制没了（系统有时要重新打开）：翻到授权页，换成“再打开一次这两项”那组文案。
-    func showPermissionsAgainAfterUpdate() {
-        MainActor.assumeIsolated {
-            showWelcome(fromStart: false)
-            onboardingWelcomeView?.permissionsAgain = true
-        }
-    }
-
     @MainActor private func showWelcome(fromStart: Bool) {
         // 已经开着：不重建、不挪回正中，看到哪一步还在哪一步，只拿到最前面；缺权限的提醒才翻到授权页。
         if let window = onboardingWindow, window.isVisible, let current = onboardingWelcomeView {
-            if !fromStart, current.onMoveStep { current.showPermissions() }
             window.makeKeyAndOrderFront(nil)
             window.makeFirstResponder(current)
             NSApp.activate()
@@ -518,12 +531,7 @@ extension AppDelegate {
         window.center()
         refreshOnboardingState()
         view.onPageChange = { [weak self] in self?.updateOnboardingRefresh() }
-        // 从头打开、而 App 不在“应用程序”里：授权之前先问要不要放进去（UpdaterMove 决定要不要这一步）。
-        // 开发版没有更新清单地址、不启动更新器，“放进去才能更新”对它不成立，不问。
-        if fromStart, Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil,
-           let move = UpdaterMove.shared.welcomeStep() {
-            view.showMove(move)
-        } else { view.refreshButtons() }
+        view.refreshButtons()
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)
         NSApp.activate()
@@ -534,7 +542,7 @@ extension AppDelegate {
     /// 停在别的步、两项都有了、窗口收起来或整个被挡住就停（1.0.15 起权限齐全时本来就不跑）。
     @MainActor func updateOnboardingRefresh() {
         guard let window = onboardingWindow, window.isVisible, window.occlusionState.contains(.visible),
-              let view = onboardingWelcomeView, !view.onMoveStep else {
+              let view = onboardingWelcomeView else {
             onboardingRefreshTimer?.invalidate()
             onboardingRefreshTimer = nil
             return
