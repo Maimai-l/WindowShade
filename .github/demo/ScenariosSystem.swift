@@ -84,6 +84,24 @@ func requestGrant(_ name: String, timeout: Double = 40) async -> Bool {
     return await eventually(timeout) { FileManager.default.fileExists(atPath: done) }
 }
 
+/// 收起时隐藏了整个应用程序，应用程序在隐藏状态下移动自己的窗口：窗口仍然看不见，卷帘条应当留着，
+/// 双击卷帘条展开后窗口在屏幕上。返回 true 表示按这种情况检查完了。
+func stillHiddenAfterMove(_ probe: Probe, _ folded: Folded, _ h: Harness) async -> Bool {
+    await pause(1.5)
+    guard NSRunningApplication(processIdentifier: probe.pid)?.isHidden == true else { return false }
+    h.result.notes["hidden"] = "the app was hidden by the fold, so moving its window kept it out of sight"
+    h.expect(stripFrames().count == 1, "the strip disappeared while the window was still hidden")
+    await doubleClick(at: folded.titleBar)
+    await glide(to: h.neutral, duration: 0.2)
+    let screen = CGDisplayBounds(CGMainDisplayID())
+    let back = await eventually(4) {
+        NSRunningApplication(processIdentifier: probe.pid)?.isHidden == false
+            && (probe.window().flatMap(axFrame).map { screen.intersects($0) } ?? false)
+    }
+    h.expect(back, "the window is not on screen after unfolding (\(probe.window().flatMap(axFrame).map { "\($0)" } ?? "none"))")
+    return true
+}
+
 let systemScenarios: [Scenario] = [
     // MARK: 系统事件（第 7 节）
     Scenario(id: "E05", title: "收起后切换深色、浅色外观", options: []) { probe, h in
@@ -167,15 +185,19 @@ let systemScenarios: [Scenario] = [
 
     // MARK: 被收起的应用程序（第 9 节）
     Scenario(id: "P03", title: "收起后应用程序新开一扇窗口：不多出卷帘条", options: []) { probe, h in
-        guard await foldProbe(probe, h) != nil else { return }
+        guard let folded = await foldProbe(probe, h) else { return }
         probe.send("new-window")
         await pause(2)
-        h.expect(stripFrames().count == 1, "P03: \(stripFrames().count) strips after the app opened a window")
+        let strips = stripFrames().count
+        h.expect(strips <= 1, "P03: \(strips) strips after the app opened a window")
         h.expect(probe.window("Probe 2") != nil, "P03: the new window is missing")
+        // 收起时隐藏了整个应用程序：它为新窗口取消隐藏，被收起的窗口跟着露出来，WindowShade 把它展开放回原处。
+        if strips == 0 { await expectFrame({ probe.window("Probe 1") }, folded.frame, h, within: 3, "Probe 1") }
     },
     Scenario(id: "P04", title: "收起后应用程序自己把窗口移走：卷帘条移除，窗口不丢", options: []) { probe, h in
-        guard await foldProbe(probe, h) != nil else { return }
+        guard let folded = await foldProbe(probe, h) else { return }
         probe.send("move:400,300")
+        if await stillHiddenAfterMove(probe, folded, h) { return }
         await expectNoStrip(h, within: 4)
         let frame = probe.window().flatMap(axFrame)
         let screen = CGDisplayBounds(CGMainDisplayID())
@@ -210,10 +232,11 @@ let systemScenarios: [Scenario] = [
         defer { other.forceQuit() }
         guard let window = probe.window(), let otherWindow = other.window() else { return }
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
-        guard let a = await fold(window, at: CGPoint(x: 80, y: 120), size: CGSize(width: 480, height: 300), h) else { return }
+        // 两扇都放在屏幕（CI 是 1024×768）里面：伸出去太多，卷帘条会被拉回屏幕，两条叠在一起。
+        guard let a = await fold(window, at: CGPoint(x: 60, y: 120), size: CGSize(width: 440, height: 280), h) else { return }
         NSRunningApplication(processIdentifier: other.pid)?.activate()
         await pause(0.6)
-        guard let b = await fold(otherWindow, at: CGPoint(x: 640, y: 480), size: CGSize(width: 480, height: 300), h) else { return }
+        guard let b = await fold(otherWindow, at: CGPoint(x: 540, y: 400), size: CGSize(width: 440, height: 280), h) else { return }
         probe.send("freeze:6")
         await pause(0.3)
         await doubleClick(at: b.titleBar)
@@ -255,6 +278,7 @@ let systemScenarios: [Scenario] = [
     Scenario(id: "X10", title: "收起后应用程序把窗口移回原处：卷帘条移除，窗口在原处", options: []) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
         probe.send("move:\(Int(folded.frame.minX)),\(Int(folded.frame.minY))")
+        if await stillHiddenAfterMove(probe, folded, h) { return }
         await expectNoStrip(h, within: 4)
         await expectRestored(probe, folded.frame, h, within: 3)
     },

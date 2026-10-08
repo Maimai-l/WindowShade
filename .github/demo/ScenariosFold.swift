@@ -455,9 +455,18 @@ let foldScenarios: [Scenario] = [
         await pause(2)
         let strips = stripFrames().count
         h.expect(strips <= 1, "A34: \(strips) strips")
-        if strips == 1 { await doubleClick(at: point) }
-        await glide(to: h.neutral, duration: 0.2)
-        await expectRestored(probe, frame, h, within: 5)
+        if strips == 1 {
+            await doubleClick(at: point)
+            await glide(to: h.neutral, duration: 0.2)
+            await expectRestored(probe, frame, h, within: 5)
+        } else {
+            // WindowShade 放弃了这次双击，双击照常交给应用程序：系统设的双击动作（缩放）作用在窗口上，这是用户本来会得到的结果。
+            // 只要求窗口还在、看得见，没有被 WindowShade 藏起来。
+            let visible = await eventually(5) {
+                probe.window() != nil && NSRunningApplication(processIdentifier: probe.pid)?.isHidden == false
+            }
+            h.expect(visible, "A34: the window is gone or the app is hidden after the freeze")
+        }
     },
     Scenario(id: "A35", title: "收起的过程中应用程序退出", options: []) { probe, h in
         guard let window = probe.window() else { return }

@@ -10,8 +10,12 @@ func foldAll(_ probe: Probe, _ harness: Harness, size: CGSize = CGSize(width: 36
     let windows = probe.allWindows().sorted {
         axString($0, kAXTitleAttribute as String).localizedStandardCompare(axString($1, kAXTitleAttribute as String)) == .orderedAscending
     }
+    // 每行放得下几扇就放几扇：伸出屏幕太多的窗口，卷帘条会被拉回屏幕，展开位置跟着变（2026-10-08 B17，屏幕宽 1024）。
+    let screen = CGDisplayBounds(CGMainDisplayID())
+    let columns = max(1, min(4, Int((screen.width - 60) / (size.width + 30))))
     for (index, window) in windows.enumerated() {
-        let origin = CGPoint(x: 60 + CGFloat(index % 4) * (size.width + 30), y: 80 + CGFloat(index / 4) * (size.height + 60))
+        let origin = CGPoint(x: 60 + CGFloat(index % columns) * (size.width + 30),
+                             y: 80 + CGFloat(index / columns) * (size.height + 60))
         place(window, origin: origin, size: size)
         await pause(0.3)
         if let frame = axFrame(window) { frames.append(frame) }

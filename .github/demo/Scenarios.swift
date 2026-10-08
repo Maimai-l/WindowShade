@@ -100,7 +100,9 @@ func stripFrames() -> [CGRect] {
         guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
               let bounds = info[kCGWindowBounds as String] as? NSDictionary,
               let rect = CGRect(dictionaryRepresentation: bounds),
-              rect.height <= 60, rect.width > 100 else { return nil }
+              rect.height <= 60, rect.width > 100,
+              // 还没显示出来的卷帘条（等“已藏好”确认时是透明的）不算：点它会穿过去（2026-10-08 A05）。
+              ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0.05 else { return nil }
         return rect
     }
 }
