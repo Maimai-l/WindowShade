@@ -33,10 +33,11 @@ struct SettingsNavigationTests {
 
     // 缺陷回归（CI 场景 H01、H02、C15）：打开设置窗口时四页表单当场全部建好，主线程停 700 毫秒以上。
     // 只建当前那一页，其余分页切过去时再建。
-    let pages = (window.contentViewController as? NSTabViewController)?.tabViewItems.compactMap(\.viewController) ?? []
+    let pages = (window.contentViewController as? NSTabViewController)?.tabViewItems
+      .compactMap { $0.viewController as? LazySettingsPage } ?? []
     precondition(pages.count == WindowShadeSettingsSection.allCases.count, "One page per settings section")
-    let loaded = pages.filter(\.isViewLoaded).count
-    precondition(loaded <= 1, "Opening Settings builds only the page shown, not every page: \(loaded) loaded")
+    let built = pages.filter(\.isBuilt).count
+    precondition(built == 1, "Opening Settings builds only the page shown, not every page: \(built) built")
 
     // 分页是系统的工具栏标签：每页一个，带 SF Symbol 和名字，选中哪页标题就是哪页。
     let items = window.toolbar?.items.filter { $0.label.isEmpty == false } ?? []
@@ -52,6 +53,7 @@ struct SettingsNavigationTests {
       sizes.insert("\(window.frame.size)")
     }
     precondition(sizes.count == 1, "Switching pages does not resize the window: \(sizes)")
+    precondition(pages.allSatisfy(\.isBuilt), "Every page is built once it has been shown")
 
     // 设置窗口读回的是 AppDelegate 里实际生效的值。
     let model = settings.model

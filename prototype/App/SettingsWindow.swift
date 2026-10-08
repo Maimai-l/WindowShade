@@ -65,11 +65,14 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
 
     tabs.tabStyle = .toolbar
     for section in WindowShadeSettingsSection.allCases {
-      let page = NSHostingController(rootView: SettingsPage(section: section, model: model))
-      page.sizingOptions = []
-      page.title = section.title
-      // 只给大小，不碰 page.view：碰了就当场建好这一页的 SwiftUI 表单。四页一起建，第一次打开设置时
-      // 主线程停 700 毫秒以上（CI 场景 H01、H02、C15）。其余分页切过去时才建。
+      // 分页控制器会加载每一页的视图：每页先放一个空的占位，SwiftUI 表单要显示时才建。
+      // 四页一起建，第一次打开设置时主线程停 700 毫秒以上（CI 场景 H01、H02、C15）。
+      let model = self.model
+      let page = LazySettingsPage(title: section.title) {
+        let form = NSHostingController(rootView: SettingsPage(section: section, model: model))
+        form.sizingOptions = []
+        return form
+      }
       page.preferredContentSize = Self.contentSize
       let item = NSTabViewItem(viewController: page)
       item.label = section.title
@@ -79,6 +82,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
     tabs.onSelect = { [weak self] index in
       guard let self, WindowShadeSettingsSection.allCases.indices.contains(index) else { return }
       let section = WindowShadeSettingsSection.allCases[index]
+      self.page(at: index)?.buildIfNeeded()
       self.window?.title = section.title
       if self.remembersState { section.remember() }
     }
@@ -98,8 +102,14 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
 
   func select(section: WindowShadeSettingsSection) {
     guard let index = WindowShadeSettingsSection.allCases.firstIndex(of: section) else { return }
+    page(at: index)?.buildIfNeeded()
     tabs.selectedTabViewItemIndex = index
     window?.title = section.title
+  }
+
+  private func page(at index: Int) -> LazySettingsPage? {
+    guard tabs.tabViewItems.indices.contains(index) else { return nil }
+    return tabs.tabViewItems[index].viewController as? LazySettingsPage
   }
 
   /// 设置在别处改了（菜单、快捷键注册失败退回）：读回来。
@@ -114,6 +124,39 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
 
   func windowWillClose(_ notification: Notification) {
     app?.settingsWindow = nil
+  }
+}
+
+/// 设置的一页：先是一个空视图，第一次要显示时才把 SwiftUI 表单建进去。
+final class LazySettingsPage: NSViewController {
+  private let make: () -> NSViewController
+  private(set) var isBuilt = false
+
+  init(title: String, make: @escaping () -> NSViewController) {
+    self.make = make
+    super.init(nibName: nil, bundle: nil)
+    self.title = title
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  override func loadView() {
+    view = NSView(frame: NSRect(origin: .zero, size: SettingsWindow.contentSize))
+  }
+
+  override func viewWillAppear() {
+    super.viewWillAppear()
+    buildIfNeeded()
+  }
+
+  func buildIfNeeded() {
+    guard !isBuilt else { return }
+    isBuilt = true
+    let form = make()
+    addChild(form)
+    form.view.frame = view.bounds
+    form.view.autoresizingMask = [.width, .height]
+    view.addSubview(form.view)
   }
 }
 
