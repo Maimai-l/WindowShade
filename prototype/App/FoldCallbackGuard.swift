@@ -92,3 +92,35 @@ func axObservedBoolAttribute(_ win: AXUIElement, _ attribute: String) -> Bool? {
     guard AXUIElementCopyAttributeValue(win, attribute as CFString, &raw) == .success else { return nil }
     return observedAXBoolean(raw)
 }
+
+/// 同 AppDelegate.observeFoldHide，但可以在任意线程执行：可见与否按传进来的屏幕快照判断，
+/// 不处理 WindowShade 自己的窗口（调用方已在主线程处理）。
+func observeHiddenWindow(_ hide: HideMethod, win: AXUIElement, pid: pid_t, id: CGWindowID,
+                         layout: ScreenLayout) -> FoldVerifier.Observation {
+    if hide == .quickLookClosed {
+        guard let list = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]]
+        else { return .unknown }
+        return list.isEmpty ? .hidden : .unknown
+    }
+    guard hide != .none, hide != .ownWindowOrderedOut,
+          let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
+          windowID(of: win) == id else { return .unknown }
+    var actualPID: pid_t = 0
+    guard AXUIElementGetPid(win, &actualPID) == .success, actualPID == pid else { return .unknown }
+    switch hide {
+    case .offscreen, .privateOffscreen:
+        guard let pos = axPosition(win), let size = axSize(win),
+              pos.x.isFinite, pos.y.isFinite, size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0 else { return .unknown }
+        return layout.isVisible(pos: pos, size: size) ? .visible : .hidden
+    case .hidden: return app.isHidden ? .hidden : .visible
+    case .minimized:
+        guard let value = axObservedBoolAttribute(win, kAXMinimizedAttribute as String) else { return .unknown }
+        return value ? .hidden : .visible
+    case .privateAlpha:
+        guard let alpha = PrivateSLSWindowMover.shared.windowAlpha(id: id),
+              alpha.isFinite, (0...1).contains(alpha) else { return .unknown }
+        return alpha <= 0.05 ? .hidden : .visible
+    case .none, .ownWindowOrderedOut, .quickLookClosed: return .unknown
+    }
+}

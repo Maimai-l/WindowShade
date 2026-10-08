@@ -361,8 +361,8 @@ extension AppDelegate {
             hideWindowInBackground(win, pid: pid, originalPosition: pos, size: size,
                                    policy: policy, appHideSafe: appHideSafe,
                                    delay: revealedBeforeHide ? 2.0 / 60 : 0,
-                                   handOffFocusAfter: !mayHideApp) { [self] hide in
-            foldPhaseTotals["隐藏窗口与焦点交接", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
+                                   handOffFocusAfter: !mayHideApp) { [self] hide, observation in
+            foldPhaseTotals["后台移开、交接与验证", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
             // 交接已在后台做完：撤掉截图期的焦点停靠。
             if !mayHideApp { focusParkingWindow?.orderOut(nil) }
             // minimize / app-hide 的状态读回是异步的（最小化动画进行中 kAXMinimized
@@ -370,9 +370,8 @@ extension AppDelegate {
             // 立即通过 → 立即 reveal；否则延迟验证（+0.15/+0.45s），通过后才 reveal，
             // 两次仍失败才补救/回滚。见 scheduleFoldVerification。
             // 与上面的 hideWindow 同理，手工计时不做包装。
-            let verifyStartedAt = CFAbsoluteTimeGetCurrent()
-            let hideVerifiedNow = hideTookEffect(hide, win: win, pid: pid, id: id, size: size)
-            foldPhaseTotals["隐藏验证", default: 0] += CFAbsoluteTimeGetCurrent() - verifyStartedAt
+            // 验证已在后台和移开一起做完。
+            let hideVerifiedNow = observation == .hidden
             foldPhase("日志落盘") {
                 recordShadeJournal(id: id, win: win, hide: hide, pid: pid, bundleID: bundleID,
                                    appName: appName, title: title,

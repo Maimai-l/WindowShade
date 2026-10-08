@@ -53,12 +53,6 @@ extension AppDelegate {
                             overlayIDs: overlayIDs)
     }
 
-    // Compatibility Bool now reports only a positive observation, never an AX read failure.
-    func hideTookEffect(_ hide: HideMethod, win: AXUIElement, pid: pid_t,
-                       id: CGWindowID, size: CGSize) -> Bool {
-        observeFoldHide(hide, win: win, pid: pid, id: id) == .hidden
-    }
-
     func scheduleFoldVerification(id: CGWindowID) {
         guard let installed = shaded[id] else { return }
         let expected = foldCallbackStamp(id: id, state: installed)
@@ -414,11 +408,11 @@ extension AppDelegate {
     func hideWindowInBackground(_ win: AXUIElement, pid: pid_t, originalPosition pos: CGPoint,
                                 size: CGSize, policy: ShadePolicy, appHideSafe: Bool,
                                 delay: TimeInterval = 0, handOffFocusAfter: Bool = false,
-                                completion: @escaping (HideMethod) -> Void) {
+                                completion: @escaping (HideMethod, FoldVerifier.Observation) -> Void) {
         let id = windowID(of: win)
         if let hide = orderOutOwnWindowIfNeeded(id: id, pid: pid, reason: "shade") {
             if handOffFocusAfter, let id { _ = handOffFocus(win: win, pid: pid, id: id) }
-            completion(hide)
+            completion(hide, id.map { observeFoldHide(hide, win: win, pid: pid, id: $0) } ?? .unknown)
             return
         }
         let request = HideRequest(window: WindowHandle(ax: win), id: id, pid: pid, position: pos, size: size,
@@ -427,10 +421,15 @@ extension AppDelegate {
         let focusRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
         let hider = windowHider
         let finish = HandOff(completion)
+        let element = HandOff(win)
         windowHideQueue.asyncAfter(deadline: .now() + delay) {
             let hide = hider.hide(request)
             if let focusRequest { _ = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest) }
-            DispatchQueue.main.async { finish.value(hide) }
+            // minimize / app-hide 的状态读回是异步的，立即验证可能读到“还没藏好”；调用方据此决定立即显示还是延迟验证。
+            let observation = id.map {
+                observeHiddenWindow(hide, win: element.value, pid: pid, id: $0, layout: request.layout)
+            } ?? .unknown
+            DispatchQueue.main.async { finish.value(hide, observation) }
         }
     }
 
