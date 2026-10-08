@@ -182,20 +182,24 @@ extension AppDelegate {
         return false
     }
 
-    func cleanupProxyIfSourceWindowVisible(id: CGWindowID, state: ShadeState,
-                                                   reason: String,
-                                                   onScreenWindowIDs: Set<CGWindowID>? = nil) -> Bool {
-        guard state.hide != .quickLookClosed,
-              let pos = axPosition(state.element),
-              let size = axSize(state.element),
-              sourceWindowLooksUserVisible(state: state, pos: pos, size: size,
-                                           onScreenWindowIDs: onScreenWindowIDs) else {
-            return false
-        }
-
-        wlog("proxy: source visible; cleanup id=\(id) app=\(state.appName) reason=\(reason)")
-        forceCleanup(id)
-        return true
+    /// 原窗口已被唤回（程序坞、Command-Tab 等）时撤掉卷帘条。原窗口的位置在该应用程序的队列上读（R5），
+    /// 读完回到主线程；这期间卷帘条换了一次收起（重新收起过），就不按旧的结果撤。
+    func cleanupProxyIfSourceWindowVisible(id: CGWindowID, state: ShadeState, reason: String) {
+        guard state.hide != .quickLookClosed, !pendingVisibilityChecks.contains(id) else { return }
+        pendingVisibilityChecks.insert(id)
+        let window = WindowHandle(ax: state.element)
+        let transaction = state.foldTransactionID
+        let restorer = windowRestorer
+        restorer.run(pid: state.pid, { restorer.control.frame(window) }, then: { [weak self] frame in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pendingVisibilityChecks.remove(id)
+                guard let frame, let current = self.shaded[id], current.foldTransactionID == transaction,
+                      self.sourceWindowLooksUserVisible(state: current, pos: frame.origin, size: frame.size) else { return }
+                wlog("proxy: source visible; cleanup id=\(id) app=\(current.appName) reason=\(reason)")
+                self.forceCleanup(id)
+            }
+        })
     }
 
     func prepareOverlayWindowForSpaceAssignment(_ overlay: NSWindow) {
@@ -255,13 +259,8 @@ extension AppDelegate {
     }
 
     func refreshOverlayPresentation(bringForward: Bool = false) {
-        let onScreenIDs = currentOnScreenWindowIDs()
         for (id, state) in Array(shaded) {
-            if cleanupProxyIfSourceWindowVisible(id: id, state: state,
-                                                 reason: "refresh-presentation",
-                                                 onScreenWindowIDs: onScreenIDs) {
-                continue
-            }
+            cleanupProxyIfSourceWindowVisible(id: id, state: state, reason: "refresh-presentation")
             if let overlay = state.overlay {
                 guard enforceOverlaySpaceInvariant(id: id, state: state, reason: "refresh-presentation") else {
                     continue

@@ -75,3 +75,41 @@ struct FocusControlSystem: FocusControl {
     func focus(_ window: WindowHandle, pid: pid_t) { focusAXWindow(element(window), pid: pid) }
     func log(_ message: String) { wlog(message) }
 }
+
+/// RestoreControl 的真实实现：辅助功能、SkyLight 和 NSRunningApplication 的调用。可以在任意线程执行。
+struct RestoreControlSystem: RestoreControl {
+    private func element(_ window: WindowHandle) -> AXUIElement { unsafeDowncast(window.element, to: AXUIElement.self) }
+
+    func resolve(_ window: WindowHandle, id: CGWindowID, pid: pid_t) -> WindowHandle {
+        // 存活即可信：不拿编号精确比对（windowID(of:) 对某些应用程序和窗口服务器的编号不一致）。
+        if axPosition(element(window)) != nil { return window }
+        guard let match = appWindows(pid: pid).first(where: { windowID(of: $0) == id }) else { return window }
+        return WindowHandle(ax: match)
+    }
+
+    func unhideApp(pid: pid_t) {
+        if NSRunningApplication(processIdentifier: pid)?.unhide() != true { _ = setAXAppHidden(pid: pid, false) }
+    }
+
+    func setMinimized(_ window: WindowHandle, _ minimized: Bool) { setAXMinimized(element(window), minimized) }
+    func isMinimized(_ window: WindowHandle) -> Bool { axBoolAttribute(element(window), kAXMinimizedAttribute as String) }
+    func setSize(_ window: WindowHandle, _ size: CGSize) -> Bool { setAXSize(element(window), size) == .success }
+    func setPosition(_ window: WindowHandle, _ point: CGPoint) -> Bool {
+        setAXPositionReturningError(element(window), point) == .success
+    }
+    func frame(_ window: WindowHandle) -> CGRect? {
+        guard let pos = axPosition(element(window)), let size = axSize(element(window)) else { return nil }
+        return CGRect(origin: pos, size: size)
+    }
+    func skyLightMove(id: CGWindowID, to point: CGPoint) -> Bool { PrivateSLSWindowMover.shared.moveWindow(id: id, to: point) }
+    func skyLightSetAlpha(id: CGWindowID, _ alpha: Float) -> Bool { PrivateSLSWindowMover.shared.setAlpha(id: id, alpha: alpha) }
+    func isFrontmost(pid: pid_t) -> Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid }
+    func activate(pid: pid_t) {
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
+        app.unhide()
+        app.activate(options: [])
+    }
+    func raise(_ window: WindowHandle) { raiseAXWindow(element(window)) }
+    func focus(_ window: WindowHandle, pid: pid_t) { focusAXWindow(element(window), pid: pid) }
+    func log(_ message: String) { wlog(message) }
+}

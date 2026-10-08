@@ -144,7 +144,7 @@ cd prototype
 | 设置窗口（含“更新”一组在开发版不可用）、看一眼的生命周期与卷帘条的红绿灯（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
 | 看一眼的指针意图 | `bash tests/run-glance-tests.sh` |
 | 应用程序配置表、收起计划 | `bash tests/run-domain-tests.sh` |
-| 移开原窗口的顺序、转移焦点（模拟窗口） | `bash tests/run-window-hider-tests.sh`、`bash tests/run-focus-handoff-tests.sh` |
+| 移开原窗口的顺序、转移焦点、放回原窗口（模拟窗口） | `bash tests/run-window-hider-tests.sh`、`bash tests/run-focus-handoff-tests.sh`、`bash tests/run-window-restorer-tests.sh` |
 | 收起时把窗口停到屏幕角上 | `bash tests/run-corner-parking-tests.sh` |
 | 缩略图布局与半透明 | `bash tests/run-thumbnail-tests.sh` |
 | 收起与展开的声音 | `bash tests/run-shade-sound-tests.sh` |

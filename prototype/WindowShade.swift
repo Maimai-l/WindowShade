@@ -178,6 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                   rememberIneffective: { PrivateSLSMemo.markIneffective($0) })
     /// 移开原窗口在这条队列上做；同一时刻只移开一个窗口，和原来在主线程上的顺序一致。
     let windowHideQueue = DispatchQueue(label: "WindowShade.window-hide", qos: .userInteractive)
+    /// 展开、转发卷帘条上的按钮、回读原窗口（Platform/WindowRestorer.swift）：辅助功能调用在各应用程序自己的队列上，
+    /// 主线程不等其他应用程序（R5）。
+    let windowRestorer = WindowRestorer(control: RestoreControlSystem())
+    /// 正在后台回读位置、看原窗口是否已被唤回的卷帘条：同一扇窗口同时只读一次，应用程序卡住时不越积越多。
+    var pendingVisibilityChecks: Set<CGWindowID> = []
     var restoreVerificationTokens: [CGWindowID: UUID] = [:]
     var restoreFocusTokens: [CGWindowID: UUID] = [:]
     var recoveryJournalOverride: DurableShadeJournal?

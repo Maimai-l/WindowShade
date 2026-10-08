@@ -169,15 +169,10 @@ extension AppDelegate {
         }
     }
 
-    func prepareForwardedTrafficAction(_ win: AXUIElement, pid: pid_t, reason: String) {
-        activateApp(pid: pid)
-        raiseAXWindow(win)
-        focusAXWindow(win, pid: pid)
-        wlog("front: \(reason) immediate-only")
-    }
-
+    /// 卷帘条上的红绿灯转给原窗口（docs/design.md S3）：先把原窗口放回原处、带到最前，再按它自己的按钮。
+    /// 全部在该应用程序的队列上做，主线程不等（R5）；按钮还没就绪时在同一条队列上过一会儿再看。
     func performForwardedTrafficAction(state: ShadeState, pos: CGPoint,
-                                               id: CGWindowID, action: TrafficAction) {
+                                       id: CGWindowID, action: TrafficAction) {
         let forwarded: ForwardedTrafficAction
         switch action {
         case .close: forwarded = .close
@@ -185,26 +180,107 @@ extension AppDelegate {
         case .zoom: forwarded = .zoom
         case .fullScreen: forwarded = .fullScreen
         }
+        let own = state.hide == .ownWindowOrderedOut
+        // WindowShade 自己的窗口先在主线程上用 AppKit 放回。
+        if own { restoreWindow(state, to: pos) }
+        let request = restoreRequest(state, to: pos)
+        let restorer = windowRestorer
+        restorer.run(pid: state.pid) {
+            if !own { _ = restorer.restore(request) }
+            forwardTrafficAttempt(forwarded, request: request, restorer: restorer, attempt: 0)
+        }
+    }
 
-        func attempt(_ index: Int) {
-            let win = applyRestoredGeometry(state, to: pos,
-                                            label: "traffic-\(index)",
-                                            reason: "traffic \(action) id=\(id)")
-            prepareForwardedTrafficAction(win, pid: state.pid,
-                                          reason: "traffic-\(action) id=\(id) attempt=\(index)")
-            let forwarder = TrafficForwarder(control: AXTrafficButtons(window: win))
-            switch forwarder.step(forwarded, attempt: index) {
-            case .done(let how):
-                wlog("traffic: \(action) forwarded id=\(id) how=\(how) attempt=\(index)")
-            case .wait(let delay):
-                wlog("traffic: \(action) waiting id=\(id) attempt=\(index) delay=\(String(format: "%.2f", delay))")
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { attempt(index + 1) }
-            case .gaveUp:
-                wlog("traffic: \(action) gave up id=\(id) attempt=\(index)")
+    /// 放回原窗口所需的输入：位置夹到屏幕可见范围内；用 SkyLight 设成透明的，取出原来的透明度。
+    func restoreRequest(_ state: ShadeState, to pos: CGPoint) -> RestoreRequest {
+        let alpha = state.hide == .privateAlpha ? windowHider.takeOriginalAlpha(id: state.sourceWindowID) : nil
+        return RestoreRequest(window: WindowHandle(ax: state.element), id: state.sourceWindowID, pid: state.pid,
+                              hide: state.hide, position: safeRestorePosition(for: state, desired: pos),
+                              size: state.originalSize, alpha: alpha)
+    }
+
+    /// 展开其他应用程序的窗口（docs/design.md 第 5.5 节）：放回、带到最前在该应用程序的队列上做；
+    /// 做完回到主线程撤卷帘条（dismissOverlayAfter）、安排之后的校正，并开始确认窗口已回到原处。
+    func restoreInBackground(_ state: ShadeState, id: CGWindowID, to pos: CGPoint, dismissOverlayAfter: Bool,
+                             pin: Bool, reason: String, onVerified: ((Bool) -> Void)?) {
+        let request = restoreRequest(state, to: pos)
+        let restorer = windowRestorer
+        let focusToken = UUID()
+        restoreFocusTokens[id] = focusToken
+        let pinToken: UUID? = pin ? UUID() : nil
+        if let pinToken { restorePinTokens[id] = pinToken } else { cancelRestorePin(for: id) }
+        let held = HandOff(state)
+        let verified = HandOff(onVerified)
+        restorer.run(pid: state.pid, { () -> WindowHandle in
+            let window = restorer.restore(request)
+            restorer.bringToFront(window, pid: request.pid)
+            wlog("front: \(reason) immediate")
+            return window
+        }, then: { [weak self] window in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if dismissOverlayAfter, let overlay = held.value.overlay { self.dismissOverlay(overlay) }
+                self.scheduleRestoreFollowUps(id: id, request: request, window: window, focusToken: focusToken,
+                                              pinToken: pinToken, hide: held.value.hide, reason: reason)
+                self.verifyRestoredWindow(held.value, to: pos, completion: verified.value)
+            }
+        })
+    }
+
+    /// 放回之后的补救：80、250 毫秒时再带到最前一次；之后几次再校正位置和大小（有的应用程序取消隐藏、
+    /// 解除最小化后会自己把窗口改回别的大小，可晚于 550 毫秒）。每一次先在主线程上看是否已被取消，
+    /// 再把辅助功能调用交给该应用程序的队列。
+    func scheduleRestoreFollowUps(id: CGWindowID, request: RestoreRequest, window: WindowHandle, focusToken: UUID,
+                                  pinToken: UUID?, hide: HideMethod, reason: String) {
+        let restorer = windowRestorer
+        let resolved = RestoredWindowBox(window)
+        for (label, delay) in [("after-80ms", 0.08), ("after-250ms", 0.25)] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.restoreFocusTokens[id] == focusToken, self.shaded[id] == nil,
+                      !self.shadeOperationIDs.contains(id) else { return }
+                restorer.run(pid: request.pid) {
+                    restorer.bringToFront(resolved.window, pid: request.pid)
+                    wlog("front: \(reason) \(label)")
+                }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            if self?.restoreFocusTokens[id] == focusToken { self?.restoreFocusTokens.removeValue(forKey: id) }
+        }
+        guard let pinToken else { return }
 
-        attempt(0)
+        // 前几次只校正几何，最后一次才升起、聚焦：每次都聚焦，批量展开时焦点会连着跳。
+        // 取消隐藏、解除最小化的窗口多校正一次；那时窗口又是最小化的，是人或应用程序刚把它收回去了，不再拉出来。
+        let needsLatePin = hide == .hidden || hide == .minimized
+        var steps: [(label: String, delay: TimeInterval, focus: Bool, verify: Bool, late: Bool)] = [
+            ("after-80ms", 0.08, true, true, false),
+            ("after-250ms", 0.25, false, false, false),
+        ]
+        if needsLatePin {
+            steps.append(("after-550ms", 0.55, false, false, false))
+            steps.append(("after-1100ms", 1.10, true, true, true))
+        } else {
+            steps.append(("after-550ms", 0.55, true, true, false))
+        }
+        for step in steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + step.delay) { [weak self] in
+                guard let self, self.restorePinTokens[id] == pinToken else { return }
+                restorer.run(pid: request.pid) {
+                    if step.late, restorer.control.isMinimized(resolved.window) {
+                        wlog("restore: id=\(id) minimized again after restore; late pin skipped")
+                        return
+                    }
+                    resolved.window = restorer.place(request, label: step.label, verify: step.verify, element: resolved.window)
+                    if step.focus {
+                        restorer.control.raise(resolved.window)
+                        restorer.control.focus(resolved.window, pid: request.pid)
+                    }
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (needsLatePin ? 1.25 : 0.70)) { [weak self] in
+            if self?.restorePinTokens[id] == pinToken { self?.restorePinTokens.removeValue(forKey: id) }
+        }
     }
 
 
@@ -688,5 +764,31 @@ private struct AXTrafficButtons: TrafficButtonControl {
         case .close, .zoom:
             return false
         }
+    }
+}
+
+/// 放回之后找回的原窗口：只在该应用程序的串行队列上读写。
+final class RestoredWindowBox: @unchecked Sendable {
+    var window: WindowHandle
+    init(_ window: WindowHandle) { self.window = window }
+}
+
+/// 转发一次红绿灯动作；按钮还没就绪时在同一条队列上过一会儿再来。在该应用程序的队列上执行。
+private func forwardTrafficAttempt(_ action: ForwardedTrafficAction, request: RestoreRequest,
+                                   restorer: WindowRestorer, attempt index: Int) {
+    let window = restorer.place(request, label: "traffic-\(index)", verify: true)
+    restorer.bringToFront(window, pid: request.pid)
+    wlog("front: traffic-\(action.rawValue) id=\(request.id) attempt=\(index) immediate-only")
+    let element = unsafeDowncast(window.element, to: AXUIElement.self)
+    switch TrafficForwarder(control: AXTrafficButtons(window: element)).step(action, attempt: index) {
+    case .done(let how):
+        wlog("traffic: \(action.rawValue) forwarded id=\(request.id) how=\(how) attempt=\(index)")
+    case .wait(let delay):
+        wlog("traffic: \(action.rawValue) waiting id=\(request.id) attempt=\(index) delay=\(String(format: "%.2f", delay))")
+        restorer.run(pid: request.pid, after: delay) {
+            forwardTrafficAttempt(action, request: request, restorer: restorer, attempt: index + 1)
+        }
+    case .gaveUp:
+        wlog("traffic: \(action.rawValue) gave up id=\(request.id) attempt=\(index)")
     }
 }

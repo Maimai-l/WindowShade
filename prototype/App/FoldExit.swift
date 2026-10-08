@@ -54,21 +54,29 @@ extension AppDelegate {
             transitionOperationState(id: id, to: .normal, reason: "unshade-quicklook")
             return nil
         }
-        let restoredElement = restoreWindow(state, to: pos)
-        bringRestoredWindowToFront(restoredElement, pid: state.pid, reason: "unshade id=\(id)")
-        if dismissAfterRestore, let overlay = state.overlay { dismissOverlay(overlay) }
-        if pinAfterRestore {
-            pinRestoredWindow(state, to: pos, reason: "unshade id=\(id)")
+        if state.hide == .ownWindowOrderedOut {
+            // WindowShade 自己的窗口：放回是主线程上的 AppKit 操作，不涉及其他应用程序。
+            let restoredElement = restoreWindow(state, to: pos)
+            bringRestoredWindowToFront(restoredElement, pid: state.pid, reason: "unshade id=\(id)")
+            if dismissAfterRestore, let overlay = state.overlay { dismissOverlay(overlay) }
+            if pinAfterRestore {
+                pinRestoredWindow(state, to: pos, reason: "unshade id=\(id)")
+            } else {
+                cancelRestorePin(for: id)
+            }
+            verifyRestoredWindow(state, to: pos, completion: onVerified)
         } else {
-            cancelRestorePin(for: id)
+            // 其他应用程序的窗口：辅助功能调用交给它自己的队列，主线程不等（R5）。
+            // 从屏幕外移回的窗口，卷帘条留到窗口回来之后再撤。
+            restoreInBackground(state, id: id, to: pos, dismissOverlayAfter: dismissAfterRestore,
+                                pin: pinAfterRestore, reason: "unshade id=\(id)", onVerified: onVerified)
         }
-        verifyRestoredWindow(state, to: pos, completion: onVerified)
         transitionOperationState(id: id, to: .normal, reason: "unshade")
         rebuildMenu()
         if playSound && !suppressUnshadeSounds {
             playUnfoldSound()
         }
-        return restoredElement
+        return state.element
     }
     @discardableResult
     func unshade(_ id: CGWindowID) -> Bool {
@@ -282,23 +290,8 @@ extension AppDelegate {
         }
         let f = restoreReferenceFrame(id: id, overlay: overlay)
         let pos = axPosition(fromCocoaFrame: f)
-        switch action {
-        case .close:
-            removeProxyForForwardedAction(id, state: state)
-            restoreWindow(state, to: pos) // 先让真窗口可见可达
-            performForwardedTrafficAction(state: state, pos: pos, id: id, action: .close)
-        case .minimize:
-            removeProxyForForwardedAction(id, state: state)
-            restoreWindow(state, to: pos) // 回到原处
-            performForwardedTrafficAction(state: state, pos: pos, id: id, action: .minimize)
-        case .zoom:
-            removeProxyForForwardedAction(id, state: state)
-            restoreWindow(state, to: pos)
-            performForwardedTrafficAction(state: state, pos: pos, id: id, action: .zoom)
-        case .fullScreen:
-            removeProxyForForwardedAction(id, state: state)
-            restoreWindow(state, to: pos)
-            performForwardedTrafficAction(state: state, pos: pos, id: id, action: .fullScreen)
-        }
+        removeProxyForForwardedAction(id, state: state)
+        // 先让真窗口回到原处、可见可达，再按它自己的按钮；都在该应用程序的队列上（R5）。
+        performForwardedTrafficAction(state: state, pos: pos, id: id, action: action)
     }
 }
