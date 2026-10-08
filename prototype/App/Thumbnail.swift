@@ -554,7 +554,7 @@ extension AppDelegate {
         let frame = ThumbnailLayout.overlayFrame(thumbnail: thumbnail)
         let overlay = ShadeThumbnailWindow(frame: frame)
         let view = ShadeThumbnailView(frame: NSRect(origin: .zero, size: frame.size),
-                                      picture: picture, icon: runningApp(pid: pid)?.icon)
+                                      picture: picture, icon: AppIconCache.shared.image(pid: pid))
         view.prepareEntrance(image: snapshot, from: windowFrame, to: thumbnail, cover: true)
         // 看一眼关着时，指针停久一点能看到是哪扇窗（和截图卷帘条一样）。
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)

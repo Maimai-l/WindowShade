@@ -308,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         logIfSlow("launch onboarding", threshold: 0.1) { showPermissionOnboardingIfNeeded(force: false) }
         logIfSlow("launch eventTap", threshold: 0.1) { setupEventTapWhenTrusted() }
+        prepareAppIcons()
         installStripKeyForwarding()
         setupMouseDownMonitor()
         NSWorkspace.shared.notificationCenter.addObserver(self,
@@ -710,6 +711,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: 双击标题栏（CGEventTap）
 
     // tap 创建需要辅助功能权限；权限可能晚于启动才授予，所以轮询到授权后再装。
+    /// 启动时在后台画好正在运行的普通应用程序的图标（见 Support/AppIconCache.swift）。
+    func prepareAppIcons() {
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+            AppIconCache.shared.prepare(pid: app.processIdentifier)
+        }
+    }
+
     func setupEventTapWhenTrusted() {
         if setupEventTap() {
             rescueOffscreenWindows(silent: true)

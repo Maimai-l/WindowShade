@@ -674,6 +674,7 @@ extension AppDelegate {
 
     @objc func appTerminated(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        AppIconCache.shared.forget(pid: app.processIdentifier)
         for id in shaded.filter({ $0.value.pid == app.processIdentifier }).map(\.key) {
             forceCleanup(id)
         }
@@ -686,6 +687,8 @@ extension AppDelegate {
         // 当前应用程序换了谁都记下来：卷帘条上的按键落到了别的应用程序（场景 C13）时，日志能对上是谁先抢了前台。
         if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
             wlog("front: app activated \(app.localizedName ?? "?") pid=\(app.processIdentifier)")
+            // 这个应用程序的窗口接下来可能被收起：先在后台把它的图标画好（见 Support/AppIconCache.swift）。
+            AppIconCache.shared.prepare(pid: app.processIdentifier)
         }
         hideMenuHoverPreview()
         MainActor.assumeIsolated {

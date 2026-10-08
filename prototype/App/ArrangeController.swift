@@ -103,7 +103,7 @@ extension AppDelegate {
     func arrangedDisplayWidth(for state: ShadeState, overlay: NSWindow,
                                       visibleFrame: NSRect) -> CGFloat {
         guard state.appearanceMode == .proxyTitleBar else { return overlay.frame.width }
-        let hasIcon = runningApp(pid: state.pid)?.icon != nil
+        let hasIcon = AppIconCache.shared.image(pid: state.pid) != nil
         let fitting = NativeProxyTitleContentView.titleFittingWindowWidth(
             appName: state.appName,
             windowTitle: state.title,

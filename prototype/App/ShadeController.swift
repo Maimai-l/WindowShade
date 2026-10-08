@@ -179,6 +179,7 @@ extension AppDelegate {
             AXUIElementGetPid(win, &value)
             return value
         }()
+        AppIconCache.shared.prepare(pid: pid)
         let localChromeHeight = ChromeProfileCache.localChromeHeight(id: id, pid: pid)
         let options = options ?? defaultShadeOptions
 

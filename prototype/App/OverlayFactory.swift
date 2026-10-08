@@ -128,7 +128,7 @@ extension AppDelegate {
         let minimumReadableWidth = NativeProxyTitleContentView.minimumReadableWindowWidth(
             appName: appName,
             windowTitle: title,
-            hasIcon: runningApp(pid: pid)?.icon != nil,
+            hasIcon: AppIconCache.shared.image(pid: pid) != nil,
             trafficLightSlots: trafficLights.visibleSlotCount
         )
         let displayWidth = canResize ? width : max(width, minimumReadableWidth)
@@ -197,7 +197,7 @@ extension AppDelegate {
             let titleView = NativeProxyTitleContentView(frame: content.bounds,
                                                         appName: appName,
                                                         windowTitle: title,
-                                                        appIcon: runningApp(pid: pid)?.icon,
+                                                        appIcon: AppIconCache.shared.image(pid: pid),
                                                         trafficLightSlots: trafficLights.visibleSlotCount)
             titleView.autoresizingMask = [.width, .height]
             content.addSubview(titleView)
