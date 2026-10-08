@@ -180,6 +180,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var privateAlphaOriginalValues: [CGWindowID: Float] = [:]
     // 本机的跨进程 SkyLight alpha 写入是否已被确认无效（SIP 限制）。
     var privateAlphaKnownIneffective = false
+    // 跨进程的 SkyLight 挪窗口同理：第一次挪不动以后不再试，每试一次都要向目标 App 读好几次窗口位置。
+    var privateOffscreenKnownIneffective = false
     var duoRestoreVerificationTokens: [CGWindowID: UUID] = [:]
     var restoreFocusTokens: [CGWindowID: UUID] = [:]
     var recoveryJournalOverride: DurableShadeJournal?

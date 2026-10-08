@@ -456,11 +456,13 @@ extension AppDelegate {
             CGPoint(x: pos.x, y: -12000),
             CGPoint(x: -12000, y: -12000)
         ]
+        var moved = false
         for spot in spots {
             guard mover.moveWindow(id: id, to: spot) else {
                 wlog("    private SLS move failed id=\(id) target=(\(Int(spot.x)),\(Int(spot.y))) reason=\(reason)")
                 continue
             }
+            moved = true
 
             if windowIsParkedOffscreen(id: id, win: win, size: size) {
                 wlog("    private SLS offscreen → parked id=\(id) pid=\(pid) target=(\(Int(spot.x)),\(Int(spot.y))) reason=\(reason)")
@@ -472,6 +474,11 @@ extension AppDelegate {
             _ = mover.moveWindow(id: id, to: pos)
         }
         wlog("    private SLS offscreen did not park id=\(id) pid=\(pid) reason=\(reason)")
+        if moved {
+            // 调用说挪了，窗口却没动：跨进程改动被系统静默忽略（SIP），本次运行不再尝试。
+            privateOffscreenKnownIneffective = true
+            wlog("    private SLS offscreen 在本机无效（很可能是 SIP 限制），本会话不再尝试")
+        }
         return nil
     }
 
@@ -1036,6 +1043,7 @@ extension AppDelegate {
         for (id, state) in shaded {
             guard let overlay = state.overlay else { continue }
             let oldFrame = overlay.frame
+            guard !overlayIsReachable(oldFrame) else { continue }
             let newFrame = clampedFrame(oldFrame, margin: 8, preferredDisplayID: state.sourceDisplayID)
             if !framesAlmostEqual(oldFrame, newFrame) {
                 overlay.setFrame(newFrame, display: true)
