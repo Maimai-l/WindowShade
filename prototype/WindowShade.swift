@@ -769,37 +769,20 @@ extension AppDelegate {
             var startedAt = CFAbsoluteTimeGetCurrent()
             let ok = FastCapture.warmUp()
             wlog("capture: prewarm \(ok ? "ok" : "no image") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
-            // 第一次收起时按窗口截图实测要 0.6–1.7 秒：再按窗口截一次别的应用程序窗口的 1 像素。
+            // 只在 CI 录像时打开（record.sh 设置）：CI 虚拟机上同一窗口的第一次整窗截图要 0.6–1.7 秒，
+            // 真实的 Mac 上只要几十毫秒（2026-10-08 实测 45 毫秒，docs/testing.md 第 5 节）。启动时先对最前面的
+            // 窗口整窗截一次，让录像里的收起耗时和真实的 Mac 一致。
+            guard UserDefaults.standard.bool(forKey: "WindowShadePrewarmFullCapture") else { return }
             let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
                 as? [[String: Any]] ?? []
             guard let window = windows.first(where: { info in
                       (info[kCGWindowLayer as String] as? Int) == 0
                           && (info[kCGWindowOwnerPID as String] as? pid_t) != selfPID
                   }),
-                  let number = window[kCGWindowNumber as String] as? NSNumber,
-                  let bounds = cgWindowBounds(window) else {
-                wlog("capture: window prewarm skipped (no window)")
-                return
-            }
+                  let number = window[kCGWindowNumber as String] as? NSNumber else { return }
             startedAt = CFAbsoluteTimeGetCurrent()
-            let windowID = CGWindowID(number.uint32Value)
-            let windowOK = FastCapture.warmUpWindowCapture(windowID, origin: bounds.origin)
-            let owner = window[kCGWindowOwnerName as String] as? String ?? "?"
-            wlog("capture: window prewarm \(windowOK ? "ok" : "no image") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms window=\(windowID) owner=\(owner)")
-            // 诊断（只在 CI 录像时打开）：同一窗口再整窗截一次，看第一次整窗截图慢是在启动时也慢，
-            // 还是只在双击收起那一刻慢（docs/testing.md 第 5 节）。
-            if UserDefaults.standard.bool(forKey: "WindowShadeDiagnoseCapture") {
-                // 先截标题栏那一条（32 点高），再截整窗：标题栏那一条快、整窗慢，说明慢的部分与面积有关。
-                startedAt = CFAbsoluteTimeGetCurrent()
-                let band = FastCapture.windowRegion(windowID, rect: CGRect(x: bounds.minX, y: bounds.minY,
-                                                                           width: bounds.width, height: min(32, bounds.height)))
-                wlog("capture: diagnose band window=\(windowID) \(band == nil ? "empty" : "ok") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
-                for attempt in 1...2 {
-                    startedAt = CFAbsoluteTimeGetCurrent()
-                    let full = FastCapture.window(windowID)
-                    wlog("capture: diagnose full window=\(windowID) attempt=\(attempt) \(full == nil ? "empty" : "ok") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
-                }
-            }
+            let full = FastCapture.window(CGWindowID(number.uint32Value))
+            wlog("capture: CI full-capture prewarm window=\(number) owner=\(window[kCGWindowOwnerName as String] as? String ?? "?") \(full == nil ? "empty" : "ok") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
         }
     }
 

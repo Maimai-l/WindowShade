@@ -36,28 +36,11 @@ enum FastCapture {
         return image
     }
 
-    /// 窗口的一块（屏幕坐标，左上原点），满分辨率，不含阴影。用来测截图耗时与面积的关系。
-    static func windowRegion(_ id: CGWindowID, rect: CGRect) -> CGImage? {
-        guard !disabled, let createImage,
-              let image = createImage(rect, .optionIncludingWindow, id,
-                                      [.boundsIgnoreFraming, .bestResolution])?.takeRetainedValue(),
-              image.width > 1, image.height > 1 else { return nil }
-        return image
-    }
-
     /// 截屏幕左上角 1 像素：只为让截图接口先热身，不针对任何窗口。
     static func warmUp() -> Bool {
         guard !disabled, let createImage else { return false }
         return createImage(CGRect(x: 0, y: 0, width: 1, height: 1), .optionOnScreenOnly,
                            kCGNullWindowID, [])?.takeRetainedValue() != nil
-    }
-
-    /// 按窗口截 1 像素（窗口左上角）：按窗口截图和按屏幕截图走的路径不同，单独热身。
-    /// 图不保存，只取得耗时。
-    static func warmUpWindowCapture(_ id: CGWindowID, origin: CGPoint) -> Bool {
-        guard !disabled, let createImage else { return false }
-        return createImage(CGRect(origin: origin, size: CGSize(width: 1, height: 1)), .optionIncludingWindow,
-                           id, [.boundsIgnoreFraming])?.takeRetainedValue() != nil
     }
 
     private typealias CreateImageFromArray = @convention(c) (CGRect, CFArray, CGWindowImageOption)
