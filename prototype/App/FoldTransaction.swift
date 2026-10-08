@@ -964,7 +964,6 @@ extension AppDelegate {
         // 卡顿归因：这几条系统回调以前不在任何标记里，出了长卡顿只能看到「未标记」。
         MainThreadActivity.push("system: 前台应用变化")
         defer { MainThreadActivity.pop() }
-        hideHoverPreview()
         hideMenuHoverPreview()
         MainActor.assumeIsolated {
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
@@ -1016,9 +1015,6 @@ extension AppDelegate {
                 wlog("screen: clamped overlay id=\(id) frame=(\(Int(newFrame.minX)),\(Int(newFrame.minY)) \(Int(newFrame.width))x\(Int(newFrame.height)))")
             }
         }
-        if let active = activePreview, active.trigger == .titlebarPeek {
-            updateHoverPreviewFrame(active.ownerID)
-        }
         if displaysChanged, shaded.isEmpty {
             rescueOffscreenWindows(silent: true)
         }
@@ -1029,7 +1025,6 @@ extension AppDelegate {
         MainThreadActivity.push("system: 切换桌面")
         defer { MainThreadActivity.pop() }
         restorePendingSourceSpacesIfNeeded(reason: "active-space-changed")
-        hideHoverPreview()
         hideMenuHoverPreview()
         MainActor.assumeIsolated {
             glance.cancelAll(reason: "space-changed")

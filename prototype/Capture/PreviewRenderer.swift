@@ -381,41 +381,6 @@ func estimatedCornerRadiusPixels(from image: CGImage) -> CGFloat? {
     return min(max(radius, 6), CGFloat(min(w, h)) / 2)
 }
 
-func roundedClippedImage(_ image: CGImage, cornerRadius: CGFloat,
-                         whitePreviewGradient: Bool = false) -> CGImage? {
-    let w = image.width, h = image.height
-    guard w > 0, h > 0 else { return nil }
-    let bpr = w * 4
-    var buf = [UInt8](repeating: 0, count: bpr * h)
-    guard let ctx = CGContext(data: &buf, width: w, height: h, bitsPerComponent: 8,
-                              bytesPerRow: bpr, space: CGColorSpaceCreateDeviceRGB(),
-                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-    ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
-    let rect = CGRect(x: 0, y: 0, width: w, height: h)
-    // 窗口原貌的圆角同样是连续曲率，不用正圆近似。
-    let path = SystemCornerPath.cgPath(in: rect, radius: cornerRadius)
-    ctx.addPath(path)
-    ctx.clip()
-    ctx.draw(image, in: rect)
-    if whitePreviewGradient {
-        let colors = [
-            NSColor.white.withAlphaComponent(0.56).cgColor,
-            NSColor.white.withAlphaComponent(0.20).cgColor,
-            NSColor.white.withAlphaComponent(0.00).cgColor,
-        ] as CFArray
-        let locations: [CGFloat] = [0.0, 0.32, 1.0]
-        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                     colors: colors,
-                                     locations: locations) {
-            ctx.drawLinearGradient(gradient,
-                                   start: CGPoint(x: 0, y: h),
-                                   end: CGPoint(x: 0, y: 0),
-                                   options: [])
-        }
-    }
-    return ctx.makeImage()
-}
-
 func downsampleCGImage(_ image: CGImage, maxPixelSize: CGSize) -> CGImage? {
     let maxWidth = max(1, maxPixelSize.width)
     let maxHeight = max(1, maxPixelSize.height)

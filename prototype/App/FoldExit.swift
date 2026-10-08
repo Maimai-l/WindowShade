@@ -19,7 +19,6 @@ extension AppDelegate {
             ? state.overlay.map { restoreReferenceFrame(id: id, overlay: $0) } : nil
         let interruptedWaiters = foldWaiters[id].map { Array($0.keys) } ?? []
         defer { MainActor.assumeIsolated { cancelFoldWaiters(id: id, tokens: interruptedWaiters) } }
-        hideHoverPreview(id: id)
         hideMenuHoverPreview(id: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         reconcileInvalidCounts.removeValue(forKey: id)
@@ -94,7 +93,6 @@ extension AppDelegate {
         let interruptedWaiters = foldWaiters[id].map { Array($0.keys) } ?? []
         defer { MainActor.assumeIsolated { cancelFoldWaiters(id: id, tokens: interruptedWaiters) } }
         transitionOperationState(id: id, to: .normal, reason: "forceCleanup")
-        hideHoverPreview(id: id)
         hideMenuHoverPreview(id: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         if !preserveRecovery { clearShadeJournal(id: id) }
@@ -115,7 +113,6 @@ extension AppDelegate {
         defer { MainActor.assumeIsolated { cancelFoldWaiters(id: id, tokens: interruptedWaiters) } }
         markShadeLifecycle(id: id, stage, reason: reason)
         transitionOperationState(id: id, to: .normal, reason: "removeProxy")
-        hideHoverPreview(id: id)
         hideMenuHoverPreview(id: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         clearShadeJournal(id: id)

@@ -34,12 +34,9 @@ final class PreviewWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-// 统一预览视窗：菜单悬停与标题栏单击 peek 共用同一个显示/隐藏机制，系统中任一
-// 时刻最多只有一个预览视窗存在——不再是两套独立状态各自为政、只靠单向调用
-// 互相关闭撞出来的巧合。
+// 预览视窗的来源。系统中任一时刻最多只有一个预览视窗。
 enum PreviewTrigger {
     case menuHover
-    case titlebarPeek
 }
 
 struct ActivePreview {
@@ -62,7 +59,7 @@ final class ShadedAccessibilityActionTarget: NSObject {
 
 final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var onDoubleClick: (() -> Void)?
-    var onPreviewPeek: (() -> Void)?
+    var onClick: (() -> Void)?
     var onAction: ((TrafficAction) -> Void)?
     var onWindowManagementPopover: (() -> Void)?
     var onResize: ((NSWindow) -> Void)?
@@ -113,7 +110,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     func closeProgrammatically() {
         isClosingProgrammatically = true
         onDoubleClick = nil
-        onPreviewPeek = nil
+        onClick = nil
         onAction = nil
         onWindowManagementPopover = nil
         onResize = nil
@@ -321,7 +318,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         }
         if event.type == .leftMouseDown,
            !pointHitsAnyStandardButton(event.locationInWindow) {
-            onPreviewPeek?()
+            onClick?()
             potentialWindowDrag = true
             didWindowDrag = false
         }
@@ -467,7 +464,7 @@ final class NativeProxyTitleContentView: NSView {
 
 final class TitleStripView: NSImageView {
     var onDoubleClick: (() -> Void)?
-    var onPreviewPeek: (() -> Void)?
+    var onClick: (() -> Void)?
     var onMoveEnded: ((NSRect) -> Void)?
     private var dragOffset = CGPoint.zero
     private var didDrag = false
@@ -505,7 +502,7 @@ final class TitleStripView: NSImageView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window = window else { return }
-        onPreviewPeek?()
+        onClick?()
         let m = NSEvent.mouseLocation
         dragOffset = CGPoint(x: m.x - window.frame.origin.x, y: m.y - window.frame.origin.y)
         didDrag = false

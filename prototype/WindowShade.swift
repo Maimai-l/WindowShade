@@ -183,16 +183,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var recoveryJournalOverride: DurableShadeJournal?
     var lastJournalRescueAttempt: Date?
     var focusParkingWindow: NSWindow?
-    // 当前唯一在屏幕上的预览视窗（菜单悬停或标题栏 peek 触发），见 presentPreview/
-    // hidePreview。同一时刻只可能有一个，这是结构性不变量，不是巧合。
+    // 当前唯一在屏幕上的预览视窗（菜单悬停触发），见 presentPreview/hidePreview。
     var activePreview: ActivePreview?
     /// 浅深色切换的 KVO 令牌（系统外观刷新用）。
     var appearanceObservation: NSKeyValueObservation?
-    // 标题栏单击 peek 的「意图」追踪：跨异步懒截图等待期，防止用户已经移开后
-    // 慢截图才回来还硬生生弹出一个不相干窗口的预览。
-    var peekHoverID: CGWindowID?
     var pendingSpaceReturns: [CGWindowID: PendingSpaceReturn] = [:]
-    // 菜单悬停的「意图」追踪：同上，键于 highlight 变化而非 overlay 位置。
+    // 菜单悬停的「意图」追踪：跨异步懒截图等待期，防止用户已经移开后
+    // 慢截图才回来还弹出一个不相干窗口的预览。
     var menuPreviewHoverID: CGWindowID?
     var menuPreviewAnchor: NSRect?
     var shadeOperationIDs: Set<CGWindowID> = []

@@ -61,9 +61,6 @@ extension AppDelegate {
 
         applyMoves(moves)
 
-        if let active = activePreview, active.trigger == .titlebarPeek {
-            updateHoverPreviewFrame(active.ownerID)
-        }
         scheduleMenuRebuild()
         return true
     }
@@ -244,9 +241,6 @@ extension AppDelegate {
             }
         }
 
-        if let active = activePreview, active.trigger == .titlebarPeek {
-            updateHoverPreviewFrame(active.ownerID)
-        }
         scheduleMenuRebuild()
         return true
     }

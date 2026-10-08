@@ -69,7 +69,7 @@ extension AppDelegate {
             iv.configureAccessibility(appName: shaded[id]?.appName ?? "",
                                       windowTitle: shaded[id]?.title ?? "")
             iv.onDoubleClick = { [weak self] in self?.unshade(id) }
-            iv.onPreviewPeek = { [weak self] in self?.peekHoverPreview(id) }
+            iv.onClick = { [weak self] in self?.stripClicked(id) }
             iv.onMoveEnded = { [weak self] frame in
                 self?.noteUserMovedOverlay(id: id, frame: frame)
             }
@@ -98,7 +98,7 @@ extension AppDelegate {
         iv.configureAccessibility(appName: shaded[id]?.appName ?? "",
                                   windowTitle: shaded[id]?.title ?? "")
         iv.onDoubleClick = { [weak self] in self?.unshade(id) }
-        iv.onPreviewPeek = { [weak self] in self?.peekHoverPreview(id) }
+        iv.onClick = { [weak self] in self?.stripClicked(id) }
         iv.onMoveEnded = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
         }
@@ -207,7 +207,7 @@ extension AppDelegate {
 
         overlay.onAction = { [weak self] action in self?.handleTrafficLight(action, id) }
         overlay.onWindowManagementPopover = { [weak self] in self?.showRealWindowManagementPopover(id) }
-        overlay.onPreviewPeek = { [weak self] in self?.peekHoverPreview(id) }
+        overlay.onClick = { [weak self] in self?.stripClicked(id) }
         overlay.onFrameMoved = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
         }

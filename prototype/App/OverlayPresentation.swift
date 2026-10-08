@@ -269,9 +269,6 @@ extension AppDelegate {
                 applyOverlayPresentation(overlay, bringForward: bringForward)
             }
         }
-        if let active = activePreview, active.trigger == .titlebarPeek {
-            applyOverlayPresentation(active.window, bringForward: bringForward)
-        }
     }
 
     nonisolated func visibleFrame(for frame: NSRect) -> NSRect {
