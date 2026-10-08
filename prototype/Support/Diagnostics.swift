@@ -185,7 +185,9 @@ final class MainThreadSampler: @unchecked Sendable {
         stackLow = top - UInt(pthread_get_stacksize_np(pthread_self()))
         let watchdog = Thread { [weak self] in self?.watch() }
         watchdog.name = "WindowShade.stall-sampler"
-        watchdog.qualityOfService = .utility
+        // 不用 .utility：机器忙的时候（CI 上同时在录屏）这一档的线程排不上，半秒的卡顿过去了还没醒，一张调用栈也抓不到
+        // （2026-10-08 场景 A26 的 551 毫秒卡顿没有采样）。每秒仍只醒 5 次。
+        watchdog.qualityOfService = .userInitiated
         watchdog.start()
     }
 

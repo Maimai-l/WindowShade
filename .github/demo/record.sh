@@ -169,6 +169,9 @@ run_group() {
   local name="$1" service="$2" ids="$3"
   echo "==> scenarios without $service: $ids"
   sudo python3 .github/demo/grant-tcc.py --revoke "$service" com.windowshade.prototype
+  # 系统自带的收回方式也用一遍（用户和系统两份记录）：只删数据库时，辅助功能的授权在 CI 上仍然有效过。
+  tccutil reset "$service" com.windowshade.prototype || true
+  sudo tccutil reset "$service" com.windowshade.prototype || true
   sudo killall tccd 2>/dev/null || true
   sleep 2
   open -W --stderr "$OUT/driver-$name.log" "$DRIVER" --args "$OUT/$name.json" scenarios "$PROBE" "$APP" "$ids"

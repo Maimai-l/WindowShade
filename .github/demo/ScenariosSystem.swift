@@ -340,12 +340,14 @@ let systemScenarios: [Scenario] = [
 
     // MARK: 权限（record.sh 收回权限后单独运行）
     Scenario(id: "A26", title: "没有屏幕录制权限时收起：改用统一标题栏", options: [], group: "no-screen-recording") { probe, h in
+        guard permissionRevoked("screenRecording", h) else { return }
         guard let folded = await foldProbe(probe, h) else { return }
         h.expect(h.logLines().contains { $0.contains(">>> shade") && $0.contains("mode=proxyTitleBar") },
                  "A26: the strip did not fall back to the unified title bar")
         await unfold(folded, probe, h)
     },
     Scenario(id: "D08", title: "没有屏幕录制权限时停在卷帘条上：不出错", options: [], group: "no-screen-recording") { probe, h in
+        guard permissionRevoked("screenRecording", h) else { return }
         guard let folded = await foldProbe(probe, h) else { return }
         _ = await hoverForGlance(folded, 1.5)
         await glide(to: h.neutral, duration: 0.3)
@@ -354,6 +356,7 @@ let systemScenarios: [Scenario] = [
     },
     Scenario(id: "A27", title: "没有辅助功能权限时按快捷键：不收起，欢迎窗口出现，辅助功能一行是“去授权”（H08）",
              options: [], group: "no-accessibility") { probe, h in
+        guard permissionRevoked("accessibility", h) else { return }
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
         await pause(0.6)
         await pressShortcut(toggleKey)
@@ -370,6 +373,7 @@ let systemScenarios: [Scenario] = [
     },
     Scenario(id: "H09", title: "欢迎窗口开着时授予辅助功能：变成已授权，“开始使用”可以点", options: [],
              group: "no-accessibility") { probe, h in
+        guard permissionRevoked("accessibility", h) else { return }
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
         await pressShortcut(toggleKey)
         guard await eventually(4, { windowShadeWindow("欢迎") != nil }) else {
@@ -388,4 +392,20 @@ func axBool(_ element: AXUIElement, _ attribute: String) -> Bool {
     var value: CFTypeRef?
     AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
     return (value as? Bool) ?? false
+}
+
+/// WindowShade 启动时记下的权限状态（日志里 “permissions:” 那一行）里，这项权限确实没有。
+/// 收回没有生效时记成测试准备失败，不当成 App 的缺陷。
+func permissionRevoked(_ name: String, _ harness: Harness) -> Bool {
+    let path = NSHomeDirectory() + "/Library/Logs/WindowShade/windowshade.log"
+    let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    guard let line = text.split(separator: "\n").last(where: { $0.contains("permissions: accessibility=") }) else {
+        harness.result.violations.append("setup: WindowShade did not log its permissions at launch")
+        return false
+    }
+    guard line.contains("\(name)=false") else {
+        harness.result.violations.append("setup: \(name) is still granted after the revoke (\(line))")
+        return false
+    }
+    return true
 }
