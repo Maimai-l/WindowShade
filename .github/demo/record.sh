@@ -71,12 +71,27 @@ sleep 3
 open "$APP"
 sleep 6
 
-echo "==> record"
-open -W --stderr "$OUT/driver.log" "$DRIVER" --args "$OUT/demo.mp4"
-cat "$OUT/driver.log" || true
+# 录一遍：$1 是视频文件名，$2 是这一遍的日志名。
+record() {
+  echo "==> record $1"
+  open -W --stderr "$OUT/driver-$2.log" "$DRIVER" --args "$OUT/$1"
+  cat "$OUT/driver-$2.log" || true
+  cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade-$2.log" 2>/dev/null || true
+  grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|duo-window|space:|screen:" \
+    "$OUT/windowshade-$2.log" | tail -60 || true
+}
 
-cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
-grep -E "tap|>>> shade|overlay|glance|verification|space:|screen:" "$OUT/windowshade.log" | tail -60 || true
+record demo.mp4 default
+
+# 第二遍打开“收起窗口时的动画”（默认关）。设置在启动时读，所以重开 App。
+osascript -e 'quit app "WindowShade"' 2>/dev/null || killall WindowShade 2>/dev/null || true
+sleep 2
+defaults write com.windowshade.prototype duo.v2.windows -bool true
+rm -f ~/Library/Logs/WindowShade/windowshade.log
+open "$APP"
+sleep 6
+record demo-animated.mp4 animated
+
 screencapture -x "$OUT/end.png" 2>/dev/null || true
 ls -la "$OUT"
-test -s "$OUT/demo.mp4"
+test -s "$OUT/demo.mp4" && test -s "$OUT/demo-animated.mp4"
