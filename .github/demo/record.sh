@@ -263,9 +263,12 @@ for path in sys.argv[2:]:
         failed += 1
         continue
     for s in suite["scenarios"]:
-        verdict = "通过" if s["passed"] else "未通过"
-        rows.append(f"| {s['id']} | {s['title']} | {verdict} | {'<br>'.join(s['violations'])} |")
-        print(("PASS " if s["passed"] else "FAIL ") + s["id"] + " " + s["title"])
+        skipped = s.get("notes", {}).get("skipped")
+        verdict = "跳过" if skipped and s["passed"] else ("通过" if s["passed"] else "未通过")
+        detail = skipped if skipped and s["passed"] else "<br>".join(s["violations"])
+        rows.append(f"| {s['id']} | {s['title']} | {verdict} | {detail} |")
+        label = "SKIP " if skipped and s["passed"] else ("PASS " if s["passed"] else "FAIL ")
+        print(label + s["id"] + " " + s["title"] + (f" ({skipped})" if skipped and s["passed"] else ""))
         for v in s["violations"]:
             print("     " + v)
     failed += suite["failed"]
