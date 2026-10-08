@@ -96,6 +96,11 @@ def check_transition(name, times, band, body, at, expect_body_change):
     return failures
 
 
+def check_state_machine(log_text):
+    """The fold state machine never sees an illegal transition (docs/testing.md section 5)."""
+    return [f"state: {line.strip()}" for line in log_text.splitlines() if "illegal transition" in line]
+
+
 def check_geometry(log_text, window):
     """Section 6.3: the window comes back where and how big it was."""
     failures = []
@@ -158,7 +163,9 @@ def check(video, events_path, log_path):
         pixels = indicator_pixels(lights[i])
         if pixels > INDICATOR_PIXELS:
             failures.append(f"indicator: recording indicator at {t:.3f}s ({pixels} pixels)")
-    failures += check_geometry(open(log_path, errors="replace").read(), window)
+    log_text = open(log_path, errors="replace").read()
+    failures += check_geometry(log_text, window)
+    failures += check_state_machine(log_text)
 
     for line in failures:
         print(f"FAIL {video}: {line}")
