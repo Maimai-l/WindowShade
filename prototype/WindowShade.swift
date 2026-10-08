@@ -789,6 +789,11 @@ extension AppDelegate {
             // 诊断（只在 CI 录像时打开）：同一窗口再整窗截一次，看第一次整窗截图慢是在启动时也慢，
             // 还是只在双击收起那一刻慢（docs/testing.md 第 5 节）。
             if UserDefaults.standard.bool(forKey: "WindowShadeDiagnoseCapture") {
+                // 先截标题栏那一条（32 点高），再截整窗：标题栏那一条快、整窗慢，说明慢的部分与面积有关。
+                startedAt = CFAbsoluteTimeGetCurrent()
+                let band = FastCapture.windowRegion(windowID, rect: CGRect(x: bounds.minX, y: bounds.minY,
+                                                                           width: bounds.width, height: min(32, bounds.height)))
+                wlog("capture: diagnose band window=\(windowID) \(band == nil ? "empty" : "ok") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
                 for attempt in 1...2 {
                     startedAt = CFAbsoluteTimeGetCurrent()
                     let full = FastCapture.window(windowID)
