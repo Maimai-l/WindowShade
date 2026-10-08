@@ -657,7 +657,7 @@ extension AppDelegate {
             let wait = max(0, state.ignoreAppRevealUntil.timeIntervalSinceNow) + 0.05
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
                 guard let self, self.foldCallbackIsCurrent(expected), let current = self.shaded[id], current.hide == .hidden,
-                      !MainActor.assumeIsolated({ glance.holdsReveal(id) }) else { return }
+                      !MainActor.assumeIsolated({ self.glance.holdsReveal(id) }) else { return }
                 self.unshadeAfterAppShown(id, expected: expected, attemptsLeft: 10)
             }
             return

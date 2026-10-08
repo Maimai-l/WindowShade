@@ -7,7 +7,10 @@ import Foundation
 
 @main
 struct TapDecisionTests {
-    static let slack: TimeInterval = 0.15
+    /// 钩子线程到点被唤醒的延迟。CI 虚拟机上实测到 0.19 秒（2026-10-08，2815d80：等满 0.4 秒的钩子 0.59 秒才返回，
+    /// TapDecision 没有改动）。要检查的是“到点就放行、不等主线程”，不是虚拟机的调度精度；
+    /// 0.4 + 0.25 秒仍远低于系统停用钩子的时限。
+    static let slack: TimeInterval = 0.25
 
     /// 钩子一侧：等结论，返回（吞不吞，用了多久）。
     static func hook(_ decision: TapDecision) -> (Bool, TimeInterval) {
