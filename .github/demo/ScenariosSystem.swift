@@ -388,7 +388,8 @@ let systemScenarios: [Scenario] = [
         await pause(2)
         _ = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
         await pause(0.6)
-        await typeText(item.lowercased())
+        // 按实际的键位打字：只换字符、键位都记成 A 的事件，访达按名字选中时会选错（选中了 Clock）。
+        for key: CGKeyCode in [8, 4, 14, 1, 1] { await pressKey(key) }   // c h e s s
         await pause(0.6)
         await pressKey(49)   // 空格
         guard await eventually(6, { qlWindow() != nil }), let frame = qlWindow() else {

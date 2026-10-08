@@ -560,7 +560,9 @@ let foldScenarios: [Scenario] = [
         await glide(to: h.neutral, duration: 0.2)
         let back = await eventually(4) { axFrame(folded[1].window).map { abs($0.minX - folded[1].frame.minX) <= 2 && abs($0.minY - folded[1].frame.minY) <= 2 } ?? false }
         h.expect(back, "I1: the unfolded window is not back at \(folded[1].frame)")
-        // 另外两扇在 3 秒里一直收着。
+        // 展开的那一扇的卷帘条要等窗口到了最前面才撤（最多约 0.6 秒），先等它撤掉；之后另外两扇在 3 秒里一直收着。
+        h.expect(await eventually(2) { stripFrames().count == 2 },
+                 "A37: \(stripFrames().count) strips 2 s after unfolding one window, expected 2")
         let start = Date()
         while Date().timeIntervalSince(start) < 3 {
             if stripFrames().count != 2 {
