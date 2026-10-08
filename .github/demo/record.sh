@@ -25,7 +25,7 @@ ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/WindowShade-app.zip"
 DRIVER="$OUT/DemoDriver.app"
 rm -rf "$DRIVER"
 mkdir -p "$DRIVER/Contents/MacOS"
-swiftc -swift-version 5 -parse-as-library -O .github/demo/DemoDriver.swift \
+swiftc -swift-version 5 -parse-as-library -O .github/demo/DemoDriver.swift .github/demo/Scenarios.swift \
   -o "$DRIVER/Contents/MacOS/DemoDriver" -framework AppKit -framework ScreenCaptureKit || exit 1
 cat > "$DRIVER/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -39,6 +39,23 @@ cat > "$DRIVER/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 codesign --force -s - "$DRIVER"
+
+# 故障注入用的测试应用程序（docs/test-catalog.md 第 10 节）：行为由启动参数控制，结果确定。
+PROBE="$OUT/ProbeApp.app"
+rm -rf "$PROBE"
+mkdir -p "$PROBE/Contents/MacOS"
+swiftc -swift-version 5 -O .github/demo/ProbeApp.swift -o "$PROBE/Contents/MacOS/ProbeApp" -framework AppKit || exit 1
+cat > "$PROBE/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.windowshade.probe</string>
+<key>CFBundleExecutable</key><string>ProbeApp</string>
+<key>CFBundleName</key><string>ProbeApp</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+</dict></plist>
+PLIST
+codesign --force -s - "$PROBE"
 
 echo "==> grant permissions"
 sudo python3 .github/demo/grant-tcc.py \
@@ -114,6 +131,11 @@ echo "==> scenario E13: close a folded window with unsaved changes"
 open -W --stderr "$OUT/driver-close-unsaved.log" "$DRIVER" --args "$OUT/close-unsaved.mp4" close-unsaved
 cat "$OUT/driver-close-unsaved.log" || true
 
+# 逐条场景和不变式检查（Scenarios.swift）：ProbeApp 卡住、弹提示框、关闭超时、没有按钮、退出、崩溃，连点。
+echo "==> scenarios with invariant checks"
+open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE"
+cat "$OUT/driver-scenarios.log" || true
+
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
 collect_crashes
 pgrep -x WindowShade >/dev/null || { echo "WindowShade exited during the recording"; exit 1; }
@@ -145,4 +167,24 @@ if not result.get("passed"):
 print("PASS E13: save sheet once, window closed, worst probe %.3f s" % result.get("probeWorstLatency", 0))
 PY
 grep -n "event-tap: main thread did not answer\|traffic: " "$OUT/windowshade.log" | tail -20 || true
+echo "==> check scenarios"
+python3 - "$OUT/scenarios.json" "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'PY' || status=1
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        suite = json.load(f)
+except (OSError, ValueError) as error:
+    print(f"FAIL scenarios: no result ({error})")
+    sys.exit(1)
+rows = ["| 场景 | 内容 | 结果 | 违反的不变式 |", "|---|---|---|---|"]
+for s in suite["scenarios"]:
+    verdict = "通过" if s["passed"] else "未通过"
+    rows.append(f"| {s['id']} | {s['title']} | {verdict} | {'<br>'.join(s['violations'])} |")
+    print(("PASS " if s["passed"] else "FAIL ") + s["id"] + " " + s["title"])
+    for v in s["violations"]:
+        print("     " + v)
+with open(sys.argv[2], "a") as summary:
+    summary.write("\n".join(rows) + "\n")
+sys.exit(0 if suite["failed"] == 0 else 1)
+PY
 exit $status

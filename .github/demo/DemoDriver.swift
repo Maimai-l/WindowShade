@@ -379,6 +379,12 @@ struct DemoDriver {
             await closeUnsavedScenario(video: video)
             return
         }
+        // scenarios：逐条场景和不变式检查（Scenarios.swift）。第三个参数是 ProbeApp.app 的路径，第四个可选，逗号分隔的场景编号。
+        if args.count > 2, args[1] == "scenarios" {
+            let only = args.count > 3 ? Set(args[3].split(separator: ",").map(String.init)) : nil
+            await runScenarioSuite(output: video, probeApp: args[2], only: only)
+            return
+        }
         let bundleID = args.count > 1 ? args[1] : "com.apple.TextEdit"
         let size = CGSize(width: args.count > 2 ? Double(args[2]) ?? 700 : 700,
                           height: args.count > 3 ? Double(args[3]) ?? 460 : 460)
