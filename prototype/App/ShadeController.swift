@@ -356,12 +356,8 @@ extension AppDelegate {
                                   policy: policy, appHideSafe: appHideSafe)
             foldPhaseTotals["隐藏窗口", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
             if !mayHideApp {
-                // 窗口已经藏好：键盘别再落到它身上。放到这一轮之后做，先让卷帘条亮出来，
-                // 否则窗口挪走和卷帘条出现之间会空出交接焦点那一二十毫秒。
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    _ = foldPhase("焦点交接") { self.handOffFocus(win: win, pid: pid, id: id) }
-                }
+                // 窗口已经藏好：键盘别再落到它身上。
+                _ = foldPhase("焦点交接") { handOffFocus(win: win, pid: pid, id: id) }
             }
             // minimize / app-hide 的状态读回是异步的（最小化动画进行中 kAXMinimized
             // 尚未翻转、NSRunningApplication.isHidden 缓存滞后），立即验证会产生假阴性。
