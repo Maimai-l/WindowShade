@@ -176,7 +176,9 @@ extension AppDelegate {
     if settingsWindow == nil {
       settingsWindow = SettingsWindow(owner: self)
     }
-    settingsWindow?.showWindow(nil)
+    // 不用 showWindow：第一次调用时它要加载 QuickLookUI、注册全局通知（为文档窗口准备的），
+    // 主线程停约 250 毫秒（CI 场景 C15 的采样）。设置窗口不是文档窗口，直接放到最前面。
+    settingsWindow?.window?.makeKeyAndOrderFront(nil)
     if let section { settingsWindow?.select(section: section) }
     NSApp.activate()
   }

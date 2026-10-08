@@ -26,16 +26,14 @@ func pointMayLieInTitlebarBand(_ point: CGPoint) -> Bool {
 let titlebarHitTestTimeout: Float = 0.3
 
 /// 点下面的元素。只问这个点上最前面那扇普通窗口所属的应用程序，最多等 titlebarHitTestTimeout；
-/// 程序坞（层级 20，一扇铺满屏幕的透明窗口）、菜单栏等系统层级不算：它们不接点击，问它们只会立即出错（CI 场景 A03）。
+/// 程序坞、菜单栏等系统层级不算：它们不接点击，问它们只会立即出错（CI 场景 A03）。
+/// 前后顺序现查，不用缓存：应用程序问的是它自己的窗口，不管被谁挡着，问错了应用程序，标题栏上的双击就被当成
+/// 别处的双击放行，系统把窗口放大（CI 场景 B16：刚展开的窗口到了前面，缓存里前面还是文本编辑）。
 /// 点在 WindowShade 自己的窗口上、找不到窗口，或者应用程序很快就返回错误（它在响应，只是不支持这样问）时，
 /// 照旧问系统级元素。
 /// timedOut：等满了时限还没有回答，应用程序卡住了。
 func titlebarHitTest(at point: CGPoint) -> (error: AXError, element: AXUIElement?, timedOut: Bool) {
-    let owner = WindowListCache.shared.onScreenWindows().first { info in
-        let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
-        guard layer >= 0, layer < 20, let bounds = cgWindowBounds(info), bounds.contains(point) else { return false }
-        return ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0
-    }.flatMap { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value }
+    let owner = ordinaryWindowOwner(at: point, in: WindowListCache.shared.onScreenWindowsNow())
     var element: AXUIElement?
     if let owner, owner != getpid() {
         let app = AXUIElementCreateApplication(owner)

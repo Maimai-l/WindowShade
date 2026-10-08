@@ -437,7 +437,10 @@ extension AppDelegate {
         guard let (id, pid) = titlebarContains(point: point, in: win) else {
             // 该分支仍在 event tap 回调中；失败诊断不能再额外读一次 AXTitle，
             // 否则忙 app 的一次“未命中”会平白多消耗一个同步 IPC timeout。
-            wlog("titlebar-double-click: miss source=\(source) at=(\(Int(point.x)),\(Int(point.y)))")
+            // 窗口属于哪个应用程序是本地查询，不是 IPC；问错了应用程序时（场景 B16）从这里看得出来。
+            var owner: pid_t = 0
+            AXUIElementGetPid(win, &owner)
+            wlog("titlebar-double-click: miss source=\(source) app=\(appDisplayName(pid: owner)) at=(\(Int(point.x)),\(Int(point.y)))")
             return false
         }
 

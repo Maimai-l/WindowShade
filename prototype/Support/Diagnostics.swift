@@ -144,7 +144,8 @@ final class MainThreadStallSentinel {
             // （即使因回调时序没先看到 beforeWaiting），不是卡顿，不报告。
             if !self.wasWaiting, activity != .afterWaiting, now - self.lastActivityAt > 0.5 {
                 let blame = MainThreadActivity.attribution(since: self.lastActivityAt, until: now)
-                wlog("main-thread stall ≈\(Int((now - self.lastActivityAt) * 1000))ms 期间=\(blame)")
+                wlog(MainThreadStallSentinel.line(milliseconds: Int((now - self.lastActivityAt) * 1000), blame: blame,
+                                                  onlyTracking: MainThreadSampler.shared.busyPeriodWasOnlyTracking()))
             }
             self.lastActivityAt = now
             self.wasWaiting = activity == .beforeWaiting
@@ -153,6 +154,15 @@ final class MainThreadStallSentinel {
         observer = obs
         CFRunLoopAddObserver(CFRunLoopGetMain(), obs, CFRunLoopMode.commonModes)
         MainThreadSampler.shared.start()
+    }
+
+    /// 菜单、拖动这类跟踪循环跑在私有的 RunLoop 模式里，哨兵看不到它入睡，结束时会量出一段长间隔。
+    /// 采样器在这段时间里只看到主线程在等输入时，它不是卡顿，不写成 stall
+    /// （CI 场景 B17：从菜单栏选“全部展开”后，菜单收起前的 0.5 秒被记成了卡顿）。
+    static func line(milliseconds: Int, blame: String, onlyTracking: Bool) -> String {
+        onlyTracking
+            ? "main-thread tracking ended ≈\(milliseconds)ms (menu or drag tracking; waiting for input, not a stall)"
+            : "main-thread stall ≈\(milliseconds)ms 期间=\(blame)"
     }
 }
 
@@ -174,6 +184,9 @@ final class MainThreadSampler: @unchecked Sendable {
     private var stackLow: UInt = 0
     private var stackHigh: UInt = 0
     private var started = false
+    /// 这段忙碌期里抓到的栈：在等输入的几张，在干活的几张。下一次 beat 清零。
+    private var trackingSamples = 0
+    private var workSamples = 0
 
     /// 在主线程上调用一次。
     func start() {
@@ -198,6 +211,24 @@ final class MainThreadSampler: @unchecked Sendable {
         busy = !waiting
         samples = 0
         lastSampleAt = 0
+        trackingSamples = 0
+        workSamples = 0
+        os_unfair_lock_unlock(&lock)
+    }
+
+    /// 这段忙碌期抓到过栈，而且每一张都是在等输入（跟踪循环），没有一张在干活。
+    func busyPeriodWasOnlyTracking() -> Bool {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return trackingSamples > 0 && workSamples == 0
+    }
+
+    /// 抓栈期间主线程没有回到 RunLoop 时才记账；它已经回来过，这张栈属于上一段忙碌期，不算进新的一段。
+    private func count(tracking: Bool, periodStartedAt: CFAbsoluteTime) {
+        os_unfair_lock_lock(&lock)
+        if beatAt == periodStartedAt {
+            if tracking { trackingSamples += 1 } else { workSamples += 1 }
+        }
         os_unfair_lock_unlock(&lock)
     }
 
@@ -213,13 +244,16 @@ final class MainThreadSampler: @unchecked Sendable {
             let takeSample = busy && stuck > 0.25 && samples < 4 && now - lastSampleAt >= 0.2
             if takeSample { samples += 1; lastSampleAt = now }
             let index = samples
+            let periodStartedAt = beatAt
             os_unfair_lock_unlock(&lock)
             guard takeSample else { continue }
             let frames = captureMainStack()
             guard !frames.isEmpty else { continue }
             let described = frames.prefix(32).map(Self.describe)
             // 主线程其实在等输入：菜单、拖动这类跟踪循环跑在私有的 RunLoop 模式里，看不到它入睡，但它是闲着的，不算卡顿。
-            if described.contains(where: { $0.contains("ReceiveNextEventCommon") || $0.contains("BlockUntilNextEventMatchingListInMode") }) {
+            let tracking = described.contains { $0.contains("ReceiveNextEventCommon") || $0.contains("BlockUntilNextEventMatchingListInMode") }
+            count(tracking: tracking, periodStartedAt: periodStartedAt)
+            if tracking {
                 // 哨兵只看 runloop 活动，分辨不出「跟踪循环」和「真冻结」，两边会给出矛盾的两行日志。
                 // 这里把它如实记成 tracking（2026-10-01 排查 5 秒级卡顿时被这两行绕进去过）。
                 if index == 1 {

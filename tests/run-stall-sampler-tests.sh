@@ -1,5 +1,5 @@
 #!/bin/bash
-# 卡顿采样器：一次长卡顿分段抓多张栈（主线程真的阻塞 1.1 秒）。
+# 卡顿采样器：一次长卡顿分段抓多张栈（主线程真的阻塞 1.1 秒）；等输入的跟踪循环不记成卡顿。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/stall-sampler-tests

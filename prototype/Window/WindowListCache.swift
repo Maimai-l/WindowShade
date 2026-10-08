@@ -66,6 +66,16 @@ final class WindowListCache: @unchecked Sendable {
         snapshot(.onScreen).windows
     }
 
+    /// 现查一次在屏列表，顺带刷新缓存。只给要看准前后顺序的少数地方用（双击标题栏时问哪个应用程序）：
+    /// 缓存最多晚 ttl，一个应用程序刚到前面时，缓存里排在前面的还是原来那个。
+    func onScreenWindowsNow() -> [[String: Any]] {
+        let fresh = build(provider(.onScreen))
+        lock.lock()
+        setEntry(.onScreen, Entry(snapshot: fresh, at: CFAbsoluteTimeGetCurrent()))
+        lock.unlock()
+        return fresh.windows
+    }
+
     func onScreenWindows(ofPID pid: pid_t) -> [[String: Any]] {
         snapshot(.onScreen).byPID[pid] ?? []
     }
@@ -173,6 +183,21 @@ final class WindowListCache: @unchecked Sendable {
         }
         return Snapshot(windows: windows, byID: byID, byPID: byPID)
     }
+}
+
+/// 点在哪个应用程序的普通窗口上：按窗口列表的前后顺序，取第一扇层级 0–19、不透明度大于 0、包含这个点的窗口的主人。
+/// 程序坞（层级 20，一扇铺满屏幕的透明窗口）、菜单栏等系统层级不算：它们不接点击。
+/// 要看准前后顺序时传 onScreenWindowsNow()（场景 B16）。
+func ordinaryWindowOwner(at point: CGPoint, in windows: [[String: Any]]) -> pid_t? {
+    for info in windows {
+        let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+        guard layer >= 0, layer < 20,
+              ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
+              let raw = info[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: raw as CFDictionary), bounds.contains(point) else { continue }
+        return (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
+    }
+    return nil
 }
 
 func cgWindowInfo(_ id: CGWindowID) -> [String: Any]? {

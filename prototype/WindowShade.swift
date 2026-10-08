@@ -309,6 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logIfSlow("launch onboarding", threshold: 0.1) { showPermissionOnboardingIfNeeded(force: false) }
         logIfSlow("launch eventTap", threshold: 0.1) { setupEventTapWhenTrusted() }
         prepareAppIcons()
+        FirstUseWarmup.start()
         installStripKeyForwarding()
         setupMouseDownMonitor()
         NSWorkspace.shared.notificationCenter.addObserver(self,
