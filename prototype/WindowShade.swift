@@ -168,16 +168,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var isReconcilingShadedWindows = false
     var axReadGate = AXReadGate<pid_t, [FoldCallbackStamp]>()
     var reconcileInvalidCounts: [CGWindowID: Int] = [:]
-    var privateAlphaOriginalValues: [CGWindowID: Float] = [:]
-    // 本机的跨进程 SkyLight alpha 写入是否已被确认无效（SIP 限制）。
-    // 跨进程的 SkyLight 挪窗口同理：每试一次都要挪好几处、每处向窗口服务器读一次位置，
-    // 第一次收起要多花约 0.26 秒。SIP 开着就一直无效，所以记进偏好，系统升级后才重新试。
-    var privateAlphaKnownIneffective = PrivateSLSMemo.isIneffective("alpha") {
-        didSet { if privateAlphaKnownIneffective { PrivateSLSMemo.markIneffective("alpha") } }
-    }
-    var privateOffscreenKnownIneffective = PrivateSLSMemo.isIneffective("offscreen") {
-        didSet { if privateOffscreenKnownIneffective { PrivateSLSMemo.markIneffective("offscreen") } }
-    }
+    // 移开原窗口（Platform/WindowHider.swift）。跨进程的 SkyLight 写入是否已确认无效（SIP 限制）：
+    // 每试一次都要挪好几处、每处向窗口服务器读一次位置，第一次收起要多花约 0.26 秒。
+    // SIP 开着就一直无效，所以记进偏好，系统升级后才重新试。
+    let windowHider = WindowHider(control: WindowControlSystem(),
+                                  skyLightMoveIneffective: PrivateSLSMemo.isIneffective("offscreen"),
+                                  skyLightAlphaIneffective: PrivateSLSMemo.isIneffective("alpha"),
+                                  rememberIneffective: { PrivateSLSMemo.markIneffective($0) })
+    /// 移开原窗口在这条队列上做；同一时刻只移开一个窗口，和原来在主线程上的顺序一致。
+    let windowHideQueue = DispatchQueue(label: "WindowShade.window-hide", qos: .userInteractive)
     var restoreVerificationTokens: [CGWindowID: UUID] = [:]
     var restoreFocusTokens: [CGWindowID: UUID] = [:]
     var recoveryJournalOverride: DurableShadeJournal?

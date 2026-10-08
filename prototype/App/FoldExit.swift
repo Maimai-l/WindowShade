@@ -97,7 +97,7 @@ extension AppDelegate {
         MainActor.assumeIsolated { glance.detach(id: id) }
         if !preserveRecovery { clearShadeJournal(id: id) }
         reconcileInvalidCounts.removeValue(forKey: id)
-        privateAlphaOriginalValues.removeValue(forKey: id)
+        _ = windowHider.takeOriginalAlpha(id: id)
         hoverPreviewSuppressedUntil.removeValue(forKey: id)
         arrangedOverlayFrames.removeValue(forKey: id)
         accessibilityActionTargets.removeValue(forKey: id)

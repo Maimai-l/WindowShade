@@ -108,7 +108,7 @@ extension AppDelegate {
             "originalHeight": Double(originalSize.height),
             "parkedX": Double(parked.x),
             "parkedY": Double(parked.y),
-            "originalAlpha": Double(privateAlphaOriginalValues[id] ?? 1),
+            "originalAlpha": Double(windowHider.originalAlpha(id: id) ?? 1),
             "createdAt": existingCreatedAt ?? now,
             "updatedAt": now
         ]

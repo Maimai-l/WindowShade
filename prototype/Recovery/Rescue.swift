@@ -30,7 +30,7 @@ extension AppDelegate {
         var resolvedIDs: Set<CGWindowID> = []
     }
 
-    // WindowShade 自己的停车点（见 axOffscreenHide / privateSLSOffscreenHide /
+    // WindowShade 自己的停车点（见 Platform/WindowHider.swift 的 offscreenSpots，
     // livePreviewParkingSpots）：主点 (-32000,-32000)，备选 (-12000, y)/
     // (x, -12000)/(-12000,-12000)。判据只匹配这些停车带：
     // - 两轴都在停车带（主点 / (-12000,-12000)），或

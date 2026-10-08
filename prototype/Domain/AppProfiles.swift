@@ -4,6 +4,9 @@
 
 import Foundation
 
+/// 原窗口实际被移开的方式（写进恢复记录，展开时按它移回）。
+enum HideMethod: String, Sendable { case none, offscreen, privateOffscreen, privateAlpha, hidden, minimized, ownWindowOrderedOut, quickLookClosed }
+
 /// 把原窗口移出视线的方式。只描述“怎么藏”，不进入面向用户的文字。
 enum ShadePolicy: Equatable, Sendable {
     /// 先移到屏幕外，不行再按顺序退回；allowAppHide 为 false 时不隐藏整个应用程序。

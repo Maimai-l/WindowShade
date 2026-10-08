@@ -42,6 +42,10 @@ prototype/
 ├── Domain/                           # 领域层：只依赖 Foundation，单元测试直接编译（tests/run-domain-tests.sh）
 │   ├── AppProfiles.swift             # 应用程序配置表：按应用程序区分的处理全部在这里
 │   └── FoldPlanner.swift             # 收起计划：收不收、卷帘条的样子、原窗口怎么移开
+├── Platform/                         # 平台层：系统调用集中在这里，可在后台线程执行
+│   ├── ScreenLayout.swift            # 屏幕几何快照（辅助功能坐标）
+│   ├── WindowHider.swift             # 移开原窗口的顺序；WindowControl 协议
+│   └── WindowControlSystem.swift     # WindowControl 的真实实现（辅助功能、SkyLight）
 ├── Core/
 │   ├── WindowState.swift             # 折叠操作状态机（非法转换拒绝）
 │   └── ShadeModels.swift             # 折叠相关值类型（ShadeState、策略、外框画像）
@@ -58,6 +62,7 @@ prototype/
 │   ├── AXHelpers.swift               # 交通灯、QuickLook 重开、系统标题栏设置、唤回回调
 │   ├── AppWindows.swift              # 应用窗口枚举（事务备忘/并发）与显示标题
 │   ├── AppProfileLookup.swift        # 按进程取应用程序配置
+│   ├── FoldWindowRead.swift          # 收起前在后台读窗口
 │   ├── ChromeProfile.swift           # 窗口外框画像与缓存
 │   ├── Coordinates.swift             # AX / Cocoa 坐标换算与屏幕归属
 │   └── WindowListCache.swift         # WindowServer 窗口列表缓存与单窗口查询
@@ -138,6 +143,7 @@ cd prototype
 | 设置窗口（含“更新”一组在开发版不可用）与看一眼的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
 | 看一眼的指针意图 | `bash tests/run-glance-tests.sh` |
 | 应用程序配置表、收起计划 | `bash tests/run-domain-tests.sh` |
+| 移开原窗口的顺序（模拟窗口） | `bash tests/run-window-hider-tests.sh` |
 | 收起时把窗口停到屏幕角上 | `bash tests/run-corner-parking-tests.sh` |
 | 缩略图布局与半透明 | `bash tests/run-thumbnail-tests.sh` |
 | 收起与展开的声音 | `bash tests/run-shade-sound-tests.sh` |

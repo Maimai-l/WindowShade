@@ -76,3 +76,14 @@ func backingScaleForAXWindow(pos: CGPoint, size: CGSize) -> CGFloat {
     screenForAXWindow(pos: pos, size: size)?.backingScaleFactor
         ?? NSScreen.main?.backingScaleFactor ?? 2
 }
+
+extension ScreenLayout {
+    /// 只在主线程调用。
+    static func current() -> ScreenLayout {
+        let baseline = coordinateBaselineY()
+        return ScreenLayout(screens: NSScreen.screens.map { screen in
+            CGRect(x: screen.frame.minX, y: baseline - screen.frame.maxY,
+                   width: screen.frame.width, height: screen.frame.height)
+        })
+    }
+}

@@ -177,7 +177,7 @@ extension AppDelegate {
         case .minimized:
             setAXMinimized(resolvedWindowElement(for: state), false)
         case .privateAlpha:
-            let alpha = privateAlphaOriginalValues.removeValue(forKey: id) ?? 1
+            let alpha = windowHider.takeOriginalAlpha(id: id) ?? 1
             _ = PrivateSLSWindowMover.shared.setAlpha(id: id, alpha: alpha)
         case .none, .offscreen, .privateOffscreen, .ownWindowOrderedOut, .quickLookClosed:
             break
@@ -437,125 +437,6 @@ extension AppDelegate {
         return !windowIsVisible(pos: pos, size: size)
     }
 
-    func privateSLSOffscreenHide(_ win: AXUIElement, id: CGWindowID,
-                                         originalPosition pos: CGPoint,
-                                         size: CGSize,
-                                         pid: pid_t,
-                                         reason: String) -> HideMethod? {
-        guard !privateOffscreenKnownIneffective else { return nil }
-        let mover = PrivateSLSWindowMover.shared
-        guard mover.isAvailable else {
-            wlog("    private SLS offscreen unavailable（pid=\(pid), reason=\(reason)）")
-            return nil
-        }
-
-        let spots = [
-            offscreen,
-            CGPoint(x: -12000, y: pos.y),
-            CGPoint(x: pos.x, y: -12000),
-            CGPoint(x: -12000, y: -12000)
-        ]
-        var moved = false
-        for spot in spots {
-            guard mover.moveWindow(id: id, to: spot) else {
-                wlog("    private SLS move failed id=\(id) target=(\(Int(spot.x)),\(Int(spot.y))) reason=\(reason)")
-                continue
-            }
-            moved = true
-
-            if windowIsParkedOffscreen(id: id, win: win, size: size) {
-                wlog("    private SLS offscreen → parked id=\(id) pid=\(pid) target=(\(Int(spot.x)),\(Int(spot.y))) reason=\(reason)")
-                return .privateOffscreen
-            }
-        }
-
-        if !windowIsParkedOffscreen(id: id, win: win, size: size) {
-            _ = mover.moveWindow(id: id, to: pos)
-        }
-        wlog("    private SLS offscreen did not park id=\(id) pid=\(pid) reason=\(reason)")
-        if moved {
-            // 调用说挪了，窗口却没动：跨进程改动被系统静默忽略（SIP），本次运行不再尝试。
-            privateOffscreenKnownIneffective = true
-            wlog("    private SLS offscreen 在本机无效（很可能是 SIP 限制），本会话不再尝试")
-        }
-        return nil
-    }
-
-    func privateSLSAlphaHide(id: CGWindowID, pid: pid_t, reason: String) -> HideMethod? {
-        // SIP 开启的系统上，跨进程的 SkyLight 窗口改动会被静默忽略：调用返回成功，
-        // 回读却发现 alpha 没变（实测本机 15 次尝试全部如此）。第一次确认无效之后
-        // 就不再重试，免得批量折叠时每个窗口都白付一次写入 + 一次回读。
-        guard !privateAlphaKnownIneffective else { return nil }
-        let mover = PrivateSLSWindowMover.shared
-        guard mover.canSetAlpha else {
-            wlog("    private SLS alpha unavailable（pid=\(pid), reason=\(reason)）")
-            return nil
-        }
-
-        let originalAlpha = mover.windowAlpha(id: id) ?? Float((cgWindowInfo(id)?[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
-        guard mover.setAlpha(id: id, alpha: 0) else {
-            wlog("    private SLS alpha failed id=\(id) pid=\(pid) reason=\(reason)")
-            return nil
-        }
-
-        let currentAlpha = mover.windowAlpha(id: id)
-            ?? Float((cgWindowInfo(id)?[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
-        guard currentAlpha <= 0.05 else {
-            _ = mover.setAlpha(id: id, alpha: originalAlpha)
-            wlog("    private SLS alpha did not apply id=\(id) pid=\(pid) current=\(String(format: "%.2f", currentAlpha)) reason=\(reason)")
-            privateAlphaKnownIneffective = true
-            wlog("    private SLS alpha 在本机无效（很可能是 SIP 限制），本会话不再尝试")
-            return nil
-        }
-
-        privateAlphaOriginalValues[id] = max(0.05, min(originalAlpha, 1.0))
-        wlog("    private SLS alpha → hidden id=\(id) pid=\(pid) original=\(String(format: "%.2f", originalAlpha)) reason=\(reason)")
-        return .privateAlpha
-    }
-
-    func axOffscreenHide(_ win: AXUIElement,
-                                 originalPosition pos: CGPoint,
-                                 size: CGSize,
-                                 pid: pid_t,
-                                 reason: String) -> HideMethod? {
-        let spots = [
-            offscreen,
-            CGPoint(x: -12000, y: pos.y),
-            CGPoint(x: pos.x, y: -12000),
-            CGPoint(x: -12000, y: -12000)
-        ]
-        for spot in spots {
-            setAXPosition(win, spot)
-            guard let p2 = axPosition(win) else { continue }
-            if !windowIsVisible(pos: p2, size: size) {
-                wlog("    AX offscreen → parked（pid=\(pid), pos=(\(Int(p2.x)),\(Int(p2.y))), reason=\(reason)）")
-                return .offscreen
-            }
-            wlog("    AX offscreen clamped（pid=\(pid), target=(\(Int(spot.x)),\(Int(spot.y))), actual=(\(Int(p2.x)),\(Int(p2.y))), reason=\(reason)）")
-        }
-        setAXPosition(win, pos)
-        return nil
-    }
-
-    /// 挪到所在屏幕的下角外面，只留一像素：没有最小化缩进 Dock 的动画，展开时挪回原位即可。
-    func cornerParkingHide(_ win: AXUIElement, originalPosition pos: CGPoint,
-                           size: CGSize, pid: pid_t) -> HideMethod? {
-        guard let screen = screenForAXWindow(pos: pos, size: size) else { return nil }
-        func axRect(_ frame: NSRect) -> CGRect { CGRect(origin: axPosition(fromCocoaFrame: frame), size: frame.size) }
-        let others = NSScreen.screens.filter { $0 !== screen }.map { axRect($0.frame) }
-        for spot in cornerParkingSpots(screen: axRect(screen.frame), otherScreens: others, windowSize: size) {
-            setAXPosition(win, spot)
-            guard let parked = axPosition(win) else { continue }
-            if !windowIsVisible(pos: parked, size: size) {
-                wlog("    corner → parked（pid=\(pid), pos=(\(Int(parked.x)),\(Int(parked.y)))）")
-                return .offscreen
-            }
-            wlog("    corner parking clamped（pid=\(pid), target=(\(Int(spot.x)),\(Int(spot.y))), actual=(\(Int(parked.x)),\(Int(parked.y)))）")
-        }
-        setAXPosition(win, pos)
-        return nil
-    }
-
     func ownWindow(id: CGWindowID?) -> NSWindow? {
         guard let id else { return nil }
         return NSApp.windows.first { window in
@@ -574,98 +455,26 @@ extension AppDelegate {
         return .ownWindowOrderedOut
     }
 
-    func hideWindow(_ win: AXUIElement, pid: pid_t, originalPosition pos: CGPoint,
-                            size: CGSize, policy: ShadePolicy,
-                            appHideSafe: Bool = true) -> HideMethod {
+    /// 移开原窗口。WindowShade 自己的窗口在主线程 orderOut；其他应用程序的窗口交给
+    /// WindowHider（Platform/WindowHider.swift）在后台队列上做，做完在主线程调用 completion。
+    /// delay：开始移开之前等多久（卷帘条刚亮出来时等两帧，让它先上屏）。
+    func hideWindowInBackground(_ win: AXUIElement, pid: pid_t, originalPosition pos: CGPoint,
+                                size: CGSize, policy: ShadePolicy, appHideSafe: Bool,
+                                delay: TimeInterval = 0,
+                                completion: @escaping (HideMethod) -> Void) {
         let id = windowID(of: win)
         if let hide = orderOutOwnWindowIfNeeded(id: id, pid: pid, reason: "shade") {
-            return hide
+            completion(hide)
+            return
         }
-        switch policy {
-        case .closeQuickLookPreview:
-            if pressAXButton(win, kAXCloseButtonAttribute as String) {
-                wlog("    quicklook → closed via AX close（pid=\(pid)）")
-                return .quickLookClosed
-            }
-            wlog("    quicklook close rejected; fallback offscreen（pid=\(pid)）")
-            return fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                size: size, allowAppHide: false)
-        case .hiddenIfSingleWindowElseMinimized(let allowAppHide):
-            return fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                size: size, allowAppHide: allowAppHide && appHideSafe)
-        case .offscreenForLivePreview:
-            let livePreviewParkingSpots = [
-                offscreen,
-                CGPoint(x: -12000, y: pos.y),
-                CGPoint(x: pos.x, y: -12000),
-                CGPoint(x: -12000, y: -12000)
-            ]
-            for spot in livePreviewParkingSpots {
-                setAXPosition(win, spot)
-                if let p2 = axPosition(win), !windowIsVisible(pos: p2, size: size) {
-                    wlog("    live preview parking → offscreen（pid=\(pid), pos=(\(Int(p2.x)),\(Int(p2.y))))")
-                    return .offscreen
-                }
-            }
-            setAXPosition(win, pos)
-            wlog("    live preview parking failed; fallback to app-hide when single-window（pid=\(pid)）")
-            return fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                size: size, allowAppHide: appHideSafe)
-        case .offscreenThenFallback(let allowAppHide):
-            let bundleID = appBundleID(pid: pid)
-            if allowAppHide && appHideSafe && appCurrentUserWindowCount(pid) <= 1 {
-                wlog("    single-window app → prefer hide fallback（pid=\(pid), bundle=\(bundleID)）")
-                return fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                    size: size, allowAppHide: true)
-            }
-            if let hide = axOffscreenHide(win, originalPosition: pos, size: size,
-                                          pid: pid, reason: "shade") {
-                return hide
-            } else {
-                // 被钳制回可见区。不记成“这个应用挪不出去”：能否挪出屏幕取决于窗口大小、
-                // 位置与显示器布局，下次仍先试挪屏外——它比最小化更接近“收起”。
-                let hide = fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                        size: size, allowAppHide: allowAppHide && appHideSafe)
-                wlog("    挪屏外被钳制 → \(hide)（pid=\(pid), bundle=\(bundleID), allowAppHide=\(allowAppHide && appHideSafe)）")
-                return hide
-            }
+        let request = HideRequest(window: WindowHandle(ax: win), id: id, pid: pid, position: pos, size: size,
+                                  policy: policy, appHideSafe: appHideSafe, layout: .current())
+        let hider = windowHider
+        let finish = HandOff(completion)
+        windowHideQueue.asyncAfter(deadline: .now() + delay) {
+            let hide = hider.hide(request)
+            DispatchQueue.main.async { finish.value(hide) }
         }
-    }
-
-    // 挪不出屏的 app：可安全整体隐藏时用 ⌘H 式隐藏；否则依次试私有接口、停到屏幕角上，最后才最小化当前窗口。
-    // 注意：app hide 只是现代 macOS 限制下的实现 fallback。产品语义仍然是
-    // “折叠这个窗口”，所以只有当前 app 没有其它可见用户窗口时才允许整体隐藏。
-    func fallbackHide(_ win: AXUIElement, pid: pid_t, id: CGWindowID?,
-                              originalPosition pos: CGPoint, size: CGSize,
-                              allowAppHide: Bool) -> HideMethod {
-        let currentWindowCount = appCurrentUserWindowCount(pid)
-        let totalWindowCount = appWindowCount(pid)
-        if allowAppHide && currentWindowCount <= 1 {
-            if setAXAppHidden(pid: pid, true) {
-                wlog("    fallback → hidden via AX（pid=\(pid), currentWindows=\(currentWindowCount), windows=\(totalWindowCount)）")
-                return .hidden
-            }
-            if NSRunningApplication(processIdentifier: pid)?.hide() == true {
-                wlog("    fallback → hidden via NSRunningApplication（pid=\(pid), currentWindows=\(currentWindowCount), windows=\(totalWindowCount)）")
-                return .hidden
-            }
-            wlog("    fallback hidden rejected（pid=\(pid), currentWindows=\(currentWindowCount), windows=\(totalWindowCount)）")
-        }
-        if let id,
-           let hide = privateSLSOffscreenHide(win, id: id, originalPosition: pos,
-                                              size: size, pid: pid, reason: "fallback") {
-            return hide
-        }
-        if let id,
-           let hide = privateSLSAlphaHide(id: id, pid: pid, reason: "fallback") {
-            return hide
-        }
-        if let hide = cornerParkingHide(win, originalPosition: pos, size: size, pid: pid) {
-            return hide
-        }
-        setAXMinimized(win, true)
-        wlog("    fallback → minimized（pid=\(pid), allowAppHide=\(allowAppHide), currentWindows=\(currentWindowCount), windows=\(totalWindowCount)）")
-        return .minimized
     }
 
     func safeRestorePosition(for state: ShadeState, desired pos: CGPoint) -> CGPoint {
@@ -767,7 +576,7 @@ extension AppDelegate {
                 wlog("restore: private SLS move back unavailable id=\(state.sourceWindowID)")
             }
         case .privateAlpha:
-            let alpha = privateAlphaOriginalValues.removeValue(forKey: state.sourceWindowID) ?? 1
+            let alpha = windowHider.takeOriginalAlpha(id: state.sourceWindowID) ?? 1
             if PrivateSLSWindowMover.shared.setAlpha(id: state.sourceWindowID, alpha: alpha) {
                 wlog("restore: private SLS alpha back id=\(state.sourceWindowID) alpha=\(String(format: "%.2f", alpha))")
             } else {

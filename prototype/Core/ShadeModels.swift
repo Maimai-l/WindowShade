@@ -2,7 +2,6 @@
 
 import Cocoa
 
-enum HideMethod: String { case none, offscreen, privateOffscreen, privateAlpha, hidden, minimized, ownWindowOrderedOut, quickLookClosed }   // 真窗口的隐藏方式
 enum ShadeLifecycleStage: String {
     case preparing   // 折叠事务已写入 durable recovery intent，但真实窗口尚未完成隐藏
     case folded

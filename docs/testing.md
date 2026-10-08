@@ -41,6 +41,7 @@
 | F2 | `UnfoldEngine` 按第 5.5 节的顺序调用；原窗口未能回到屏幕时保留卷帘条和恢复记录 | 2 | 待编写 |
 | F2 | 展开后原窗口的位置和大小与收起前相同（判定方法见第 6.3 节） | 4、5 | 已有：`check_frames.py` |
 | F3 | 屏幕角落停放的位置选择：右下角、与其他显示器相邻时改用左下角，只保留 1 像素在屏幕内 | 1 | 已有：`run-corner-parking-tests.sh` |
+| F1、F3 | `WindowHider` 在模拟窗口上按隐藏策略依次尝试：唯一窗口且转移焦点安全时隐藏应用程序；否则 SkyLight、屏幕角落，最后才最小化；SkyLight 确认无效后不再调用；快速查看窗口先关闭 | 2 | 已有：`run-window-hider-tests.sh` |
 | F3 | 录像测试的日志中，移开原窗口的方式不是最小化 | 5 | 待编写 |
 | F4 | 收起后，测试驱动程序输入一段文字；原窗口的文档内容不变（通过辅助功能接口读取） | 4 | 待编写 |
 | F5 | 三击标题栏的事件识别：第三次点击到达时执行系统设置中的操作，不执行收起 | 1 | 待编写 |
@@ -184,7 +185,7 @@ CI 虚拟机的耗时波动较大：2026-10-08 的 5 次运行中，访达的收
 | CI 的第 4、5 层测试 | `.github/workflows/demo.yml`，录像、日志、崩溃报告作为 artifact 上传 |
 | 测试代码 | `tests/*.swift`、`tests/run-*.sh` |
 | 测试数据 | `tests/fixtures/` |
-| 模拟平台层 | `tests/support/Fakes/`（待建立） |
+| 模拟平台层 | `tests/support/Fakes/`：`FakeWindowControl`（移开原窗口用的底层操作） |
 | 端到端驱动程序 | `.github/demo/DemoDriver.swift`、`.github/demo/record.sh` |
 | 录像检查程序 | `.github/demo/check_frames.py`，由 `record.sh` 在每段录像后执行，任一检查失败时 CI 失败 |
 

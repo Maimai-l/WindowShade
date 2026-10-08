@@ -349,15 +349,14 @@ extension AppDelegate {
                 foldPhase("卷帘条 Space 归属") { prepareOverlayWindowForSpaceAssignment(overlay) }
                 if !mayHideApp { holdOverlayAboveFocusHandoff(overlay) }
                 earlyOverlayID = assignOverlaySpace()
-                foldPhase("显示卷帘条") {
-                    revealPreparedOverlay(overlay, fade: false)
-                    // 提交之后窗口服务器下一帧才画出来：等两帧再挪窗口，挪走那一刻卷帘条已经在屏上。
-                    Thread.sleep(forTimeInterval: 2.0 / 60)
-                }
+                foldPhase("显示卷帘条") { revealPreparedOverlay(overlay, fade: false) }
             }
+            // 移开原窗口是对另一个进程的辅助功能写操作：在后台做，主线程不等对方响应。
+            // 卷帘条先亮出来时，提交之后窗口服务器下一帧才画出来：等两帧再挪窗口，挪走那一刻卷帘条已经在屏上。
             let hideStartedAt = CFAbsoluteTimeGetCurrent()
-            let hide = hideWindow(win, pid: pid, originalPosition: pos, size: size,
-                                  policy: policy, appHideSafe: appHideSafe)
+            hideWindowInBackground(win, pid: pid, originalPosition: pos, size: size,
+                                   policy: policy, appHideSafe: appHideSafe,
+                                   delay: revealedBeforeHide ? 2.0 / 60 : 0) { [self] hide in
             foldPhaseTotals["隐藏窗口", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
             if !mayHideApp {
                 // 窗口已经藏好：键盘别再落到它身上。
@@ -451,6 +450,7 @@ extension AppDelegate {
             }
             if options.emitFoldFeedback {
                 playFoldSound()
+            }
             }
         }
 
