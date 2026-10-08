@@ -110,9 +110,11 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         let size = (options["size"] ?? "640,420").split(separator: ",").compactMap { Double($0) }
         var style: NSWindow.StyleMask = [.titled, .resizable]
         if options["no-buttons"] == nil { style.formUnion([.closable, .miniaturizable]) }
-        let window = ProbeWindow(contentRect: NSRect(x: 160 + (index - 1) * 50, y: 520 - (index - 1) * 50,
-                                                     width: size.first ?? 640, height: size.last ?? 420),
-                                 styleMask: style, backing: .buffered, defer: false)
+        let offset = CGFloat((index - 1) * 50)
+        let width = CGFloat(size.first ?? 640)
+        let height = CGFloat(size.last ?? 420)
+        let frame = NSRect(x: 160 + offset, y: 520 - offset, width: width, height: height)
+        let window = ProbeWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
         window.title = "Probe \(index)"
         window.isReleasedWhenClosed = false
         window.delegate = self
