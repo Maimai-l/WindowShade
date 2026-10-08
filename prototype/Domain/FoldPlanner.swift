@@ -31,6 +31,8 @@ struct FoldFacts: Sendable {
     var minimized = false
     /// 窗口上挂着对话框（sheet），例如“是否保存”。
     var hasSheet = false
+    /// 应用程序弹出了独立的模态提示框（例如 NSAlert）：用户要先回答它。
+    var appHasModalDialog = false
     var isQuickLook = false
     var adobeKind = AdobeChromeKind.none
     var adobeCanShade = true
@@ -58,6 +60,7 @@ enum FoldPlanner {
         guard !facts.fullScreen else { return .reject("fullscreen window") }
         guard !facts.minimized else { return .reject("minimized window") }
         guard !facts.hasSheet else { return .reject("window has a sheet") }
+        guard !facts.appHasModalDialog else { return .reject("app shows a modal dialog") }
         guard facts.adobeKind != .floatingPanel, facts.adobeCanShade else {
             return .reject("adobe panel kind=\(facts.adobeKind.rawValue) reason=\(facts.adobeReason)")
         }

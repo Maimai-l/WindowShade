@@ -88,12 +88,14 @@ extension AppDelegate {
     func makeShadePlan(pos: CGPoint, size: CGSize,
                                pid: pid_t, profile: WindowChromeProfile,
                                options: ShadeInvocationOptions,
-                               fullScreen: Bool, minimized: Bool, hasSheet: Bool) -> ShadePlan? {
+                               fullScreen: Bool, minimized: Bool, hasSheet: Bool,
+                               appHasModalDialog: Bool) -> ShadePlan? {
         let visible = windowIsVisible(pos: pos, size: size)
         let facts = FoldFacts(visibleOnActiveSpace: visible,
                               fullScreen: fullScreen,
                               minimized: minimized,
                               hasSheet: hasSheet,
+                              appHasModalDialog: appHasModalDialog,
                               isQuickLook: profile.isQuickLook,
                               adobeKind: profile.adobeProfile.kind,
                               adobeCanShade: profile.adobeProfile.canShade,
@@ -223,7 +225,8 @@ extension AppDelegate {
         // guard 的条件里不能写尾随闭包，先算好再解包。
         let shadePlan = foldPhase("折叠计划") {
             makeShadePlan(pos: pos, size: size, pid: pid, profile: profile, options: options,
-                          fullScreen: readout.fullScreen, minimized: readout.minimized, hasSheet: readout.hasSheet)
+                          fullScreen: readout.fullScreen, minimized: readout.minimized, hasSheet: readout.hasSheet,
+                          appHasModalDialog: readout.appHasModalDialog)
         }
         guard let plan = shadePlan else {
             quietNotice("这个窗口不能收起", log: "shade: plan rejected app=\(appName) id=\(id)")

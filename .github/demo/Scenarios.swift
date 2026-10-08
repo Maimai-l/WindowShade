@@ -417,14 +417,68 @@ let baselineDefaults: [[String]] = [
     ["ShadeOnboardingShown", "-bool", "true"],
 ]
 
-func run(_ tool: String, _ arguments: [String]) {
+/// 运行一个命令行工具，最多等 timeout 秒：`open -a` 遇到启动时停住的应用程序会一直不返回
+/// （2026-10-08 A33-Chrome 让整个分片停了 19 分钟），到时就结束它，场景按自己的检查判定。
+func run(_ tool: String, _ arguments: [String], timeout: Double = 30) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: tool)
     process.arguments = arguments
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice
-    try? process.run()
-    process.waitUntilExit()
+    guard (try? process.run()) != nil else { return }
+    let deadline = Date().addingTimeInterval(timeout)
+    while process.isRunning, Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+    if process.isRunning {
+        log("\(tool) \(arguments.joined(separator: " ")) did not finish within \(Int(timeout)) s; terminated")
+        process.terminate()
+    }
+}
+
+/// 场景看门狗：一个场景超过 limit 秒还没结束（驱动程序自己停在某个同步调用里），
+/// 截一张图，把已有结果连同这一条“没有结束”写进结果文件，然后退出，不让整个任务等到超时。
+final class ScenarioWatchdog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [[String: Any]] = []
+    private var failed = 0
+    private var current: (id: String, title: String, startedAt: Date)?
+    private let output: URL
+    let limit: TimeInterval
+
+    init(output: URL, limit: TimeInterval = 240) {
+        self.output = output
+        self.limit = limit
+        let thread = Thread { [weak self] in
+            while let self {
+                Thread.sleep(forTimeInterval: 5)
+                self.check()
+            }
+        }
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+
+    func begin(_ id: String, _ title: String) { lock.withLock { current = (id, title, Date()) } }
+
+    func end(results: [[String: Any]], failed: Int) {
+        lock.withLock { self.results = results; self.failed = failed; current = nil }
+    }
+
+    private func check() {
+        let hung: (results: [[String: Any]], failed: Int, id: String, title: String)? = lock.withLock {
+            guard let current, Date().timeIntervalSince(current.startedAt) > limit else { return nil }
+            return (results, failed, current.id, current.title)
+        }
+        guard let hung else { return }
+        let shot = "\(Suite.outputDir)/fail-\(hung.id).png"
+        run("/usr/sbin/screencapture", ["-x", shot], timeout: 10)
+        let violation = "setup: the scenario did not finish within \(Int(limit)) s (the driver is blocked)"
+        let entry: [String: Any] = ["id": hung.id, "title": hung.title, "passed": false, "violations": [violation],
+                                    "notes": ["diagnosis": ["screenshot": shot,
+                                                            "frontmost": NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"]]]
+        writeSuite(hung.results + [entry], failed: hung.failed + 1, finished: false, to: output)
+        log("scenario \(hung.id): \(violation); stopping the shard")
+        exit(7)
+    }
 }
 
 func writeDefaults(_ entries: [[String]], domain: String = windowShadeBundleID) {
@@ -787,6 +841,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
     var failed = 0
     let all = scenarios + foldScenarios + unfoldScenarios + stripScenarios + glanceScenarios + systemScenarios
     var needsRelaunch = false
+    let watchdog = ScenarioWatchdog(output: output)
     func selected(_ index: Int, _ scenario: Scenario) -> Bool {
         if let only { return only.contains(scenario.id) }
         guard scenario.group == "main" else { return false }
@@ -798,6 +853,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
         if needsRelaunch || windowShadePID() == nil { _ = await relaunchWindowShade() }
         needsRelaunch = scenario.changesSettings
         log("scenario \(scenario.id): \(scenario.title)")
+        watchdog.begin(scenario.id, scenario.title)
         let harness = Harness(id: scenario.id, title: scenario.title, audit: audit, probeApp: probeApp,
                               tagBase: Int64(0x5e00_0000 + index * 0x1000))
         if let probe = await Probe.launch(probeApp, name: scenario.id, options: scenario.options) {
@@ -819,6 +875,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
         results.append(result.json)
         // 每条场景之后都写一次：整个任务超时被停掉时，已经跑完的结果仍在。
         writeSuite(results, failed: failed, finished: false, to: output)
+        watchdog.end(results: results, failed: failed)
     }
 
     await recorder.stop()

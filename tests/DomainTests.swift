@@ -69,6 +69,9 @@ struct DomainTests {
         t.expect(decide(FoldFacts(minimized: true)) == .reject("minimized window"), "已最小化的窗口不收起")
         // 缺陷回归（CI 场景 A10）：挂着“是否保存”这类对话框的窗口收起后，对话框跟着被移开，用户看不到要回答的问题。
         t.expect(decide(FoldFacts(hasSheet: true)) == .reject("window has a sheet"), "挂着对话框的窗口不收起")
+        // 缺陷回归（CI 场景 A11）：应用程序弹出独立的模态提示框时，原窗口照样收起，焦点交给了提示框。
+        t.expect(decide(FoldFacts(appHasModalDialog: true)) == .reject("app shows a modal dialog"),
+                 "应用程序弹出模态提示框时不收起")
         if case .reject = decide(FoldFacts(adobeKind: .floatingPanel)) {
             t.expect(true, "Adobe 浮动面板不收起")
         } else { t.expect(false, "Adobe 浮动面板不收起") }
