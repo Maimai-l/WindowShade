@@ -48,9 +48,12 @@ extension AppDelegate {
         removeObserver(state)                          // 先停掉监听，避免下面的恢复动作反过来触发自己
         // 折叠条可能被拖动过 → 窗口在折叠条「当前」位置展开（标题栏带着窗口走）
         let pos: CGPoint
+        // 窗口是从屏幕外挪回来的：先让它回到原处，再撤卷帘条，中间不留空档。
+        // 最小化、隐藏的窗口要等系统把它放出来，照旧先撤。
+        let dismissAfterRestore = state.hide == .offscreen || state.hide == .privateOffscreen
         if let overlay = state.overlay {
             pos = axPosition(fromCocoaFrame: thumbnailHome ?? restoreReferenceFrame(id: id, overlay: overlay))
-            dismissOverlay(overlay)
+            if !dismissAfterRestore { dismissOverlay(overlay) }
         } else {
             pos = axPosition(state.element) ?? state.originalPosition
         }
@@ -73,6 +76,7 @@ extension AppDelegate {
         }
         let restoredElement = restoreWindow(state, to: pos)
         bringRestoredWindowToFront(restoredElement, pid: state.pid, reason: "unshade id=\(id)")
+        if dismissAfterRestore, let overlay = state.overlay { dismissOverlay(overlay) }
         if pinAfterRestore {
             pinRestoredWindow(state, to: pos, reason: "unshade id=\(id)")
         } else {

@@ -351,6 +351,15 @@ extension AppDelegate {
                 dismissOverlay(overlay); transitionOperationState(id: id, to: .failed, reason: "changed-before-hide")
                 completeFold(success: false); return
             }
+            // 不会隐藏整个 App 时（窗口会被挪走，而不是等系统的动画），先把卷帘条亮在原来的标题栏上
+            // 再挪窗口：卷帘条就是这条标题栏的截图、摆在同一处，盖上去看不出变化，挪走那一刻也没有空档。
+            let revealedBeforeHide = !(mayHideApp && appHideSafe) && mode == .nativeScreenshot
+            if revealedBeforeHide {
+                foldPhase("显示卷帘条") {
+                    prepareOverlayWindowForSpaceAssignment(overlay)
+                    revealPreparedOverlay(overlay, fade: false)
+                }
+            }
             let hideStartedAt = CFAbsoluteTimeGetCurrent()
             let hide = hideWindow(win, pid: pid, originalPosition: pos, size: size,
                                   policy: policy, appHideSafe: appHideSafe)
@@ -377,7 +386,9 @@ extension AppDelegate {
                                    sourceDisplayID: sourceDisplayID,
                                    sourceSpaceID: sourceSpaceID)
             }
-            foldPhase("卷帘条 Space 归属") { prepareOverlayWindowForSpaceAssignment(overlay) }
+            if !revealedBeforeHide {
+                foldPhase("卷帘条 Space 归属") { prepareOverlayWindowForSpaceAssignment(overlay) }
+            }
             let oid = foldPhase("卷帘条窗口号") { cgWindowID(for: overlay) }
             if let oid {
                 overlayIDs.insert(oid)
