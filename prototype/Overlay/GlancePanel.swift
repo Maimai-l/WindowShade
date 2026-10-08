@@ -126,29 +126,41 @@ final class GlanceContentView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    /// 接在卷帘条下的卡片形状（卡片层坐标，原点在左下）：卡片本体下面两角圆、上沿直角；
-    /// 上沿往上 join 高的地方只留左右两个角落里、半径 join 的圆角之外的那一小块。
+    /// 卡片接卷帘条时往上多盖的一道（点）：盖住卷帘条下沿和圆角上那道细边，真窗口上没有这道线。
+    static let stripEdgeCover: CGFloat = 2
+
+    /// 接在卷帘条下的卡片形状（卡片层坐标，原点在左下，卡片上沿在 size.height）：下面两角圆，
+    /// 上沿直角并往上多盖 stripEdgeCover；再加上左右两个角落里、卷帘条下圆角外面的那一小块，
+    /// 同样往圆角里多盖 stripEdgeCover。
     static func joinedCardPath(size: CGSize, radius: CGFloat, join: CGFloat) -> CGPath {
         let path = CGMutablePath()
         let r = min(radius, size.width / 2, size.height / 2)
-        path.move(to: CGPoint(x: 0, y: size.height))
+        let edge = min(stripEdgeCover, join)
+        let top = size.height + edge
+        path.move(to: CGPoint(x: 0, y: top))
         path.addLine(to: CGPoint(x: 0, y: r))
         path.addArc(tangent1End: CGPoint(x: 0, y: 0), tangent2End: CGPoint(x: r, y: 0), radius: r)
         path.addLine(to: CGPoint(x: size.width - r, y: 0))
         path.addArc(tangent1End: CGPoint(x: size.width, y: 0),
                     tangent2End: CGPoint(x: size.width, y: r), radius: r)
+        path.addLine(to: CGPoint(x: size.width, y: top))
+        path.closeSubpath()
+        let cornerY = size.height + join
+        // 左边：角落方块减去以卷帘条左下圆角圆心为心、半径小 edge 的圆。
+        path.move(to: CGPoint(x: 0, y: cornerY))
+        path.addLine(to: CGPoint(x: edge, y: cornerY))
+        path.addArc(center: CGPoint(x: join, y: cornerY), radius: join - edge,
+                    startAngle: .pi, endAngle: 1.5 * .pi, clockwise: false)
+        path.addLine(to: CGPoint(x: join, y: size.height))
+        path.addLine(to: CGPoint(x: 0, y: size.height))
+        path.closeSubpath()
+        // 右边对称。
+        path.move(to: CGPoint(x: size.width, y: cornerY))
+        path.addLine(to: CGPoint(x: size.width - edge, y: cornerY))
+        path.addArc(center: CGPoint(x: size.width - join, y: cornerY), radius: join - edge,
+                    startAngle: 0, endAngle: -0.5 * .pi, clockwise: true)
+        path.addLine(to: CGPoint(x: size.width - join, y: size.height))
         path.addLine(to: CGPoint(x: size.width, y: size.height))
-        path.closeSubpath()
-        // 左上：从卡片上沿往上 join，贴着卷帘条左下圆角的外侧回到卡片上沿。
-        path.move(to: CGPoint(x: 0, y: size.height))
-        path.addLine(to: CGPoint(x: 0, y: size.height + join))
-        path.addArc(tangent1End: CGPoint(x: 0, y: size.height),
-                    tangent2End: CGPoint(x: join, y: size.height), radius: join)
-        path.closeSubpath()
-        path.move(to: CGPoint(x: size.width, y: size.height))
-        path.addLine(to: CGPoint(x: size.width, y: size.height + join))
-        path.addArc(tangent1End: CGPoint(x: size.width, y: size.height),
-                    tangent2End: CGPoint(x: size.width - join, y: size.height), radius: join)
         path.closeSubpath()
         return path
     }
