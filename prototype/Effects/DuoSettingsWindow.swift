@@ -742,7 +742,8 @@ final class DuoSettingsWindow: NSWindowController, NSWindowDelegate, NSTableView
   static func artwork() -> CGImage {
     let image = NSImage(size: CGSize(width: 1200, height: 750))
     image.lockFocus()
-    NSColor(calibratedWhite: isDarkAppearance() ? 0.14 : 0.96, alpha: 1).setFill()
+    let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    NSColor(calibratedWhite: dark ? 0.14 : 0.96, alpha: 1).setFill()
     NSRect(x: 0, y: 0, width: 1200, height: 750).fill()
     // 与应用图标同源的纸帘：四条冷白横带，底部卷轴。
     let paper = NSBezierPath(roundedRect: NSRect(x: 245, y: 125, width: 710, height: 520),
