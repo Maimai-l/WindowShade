@@ -87,6 +87,9 @@ record demo.mp4 default
 osascript -e 'quit app "WindowShade"' 2>/dev/null || killall WindowShade 2>/dev/null || true
 sleep 2
 defaults write com.windowshade.prototype duo.v2.windows -bool true
+# 这台虚拟机默认开着“减弱动态效果”，App 遵守它就不播动画；这一遍关掉。
+defaults write com.apple.universalaccess reduceMotion -bool false || true
+echo "reduceMotion=$(defaults read com.apple.universalaccess reduceMotion 2>&1)"
 rm -f ~/Library/Logs/WindowShade/windowshade.log
 open "$APP"
 sleep 6
