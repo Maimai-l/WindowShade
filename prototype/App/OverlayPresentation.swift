@@ -209,10 +209,13 @@ extension AppDelegate {
         overlay.orderFrontRegardless()
     }
 
-    func revealPreparedOverlay(_ overlay: NSWindow) {
+    /// fade 为 false 时直接亮出：窗口当场就藏好了，卷帘条又正好盖在原来的标题栏上，
+    /// 再淡入一下，中间那 0.12 秒会露出后面的桌面。
+    func revealPreparedOverlay(_ overlay: NSWindow, fade: Bool = true) {
         // 缩略图第一次亮出来：截图从窗口原处缩进去，落定前缩略图自己不露面。
         playThumbnailEntranceIfNeeded(overlay)
         let alpha = overlayAlpha(for: overlay)
+        guard fade else { overlay.alphaValue = alpha; return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)

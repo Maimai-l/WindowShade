@@ -440,7 +440,7 @@ extension AppDelegate {
                     enforceOverlaySpaceInvariant(id: id, state: state, reason: "install")
                 }
                 if spaceInvariantHeld {
-                    foldPhase("显示卷帘条") { revealPreparedOverlay(overlay) }
+                    foldPhase("显示卷帘条") { revealPreparedOverlay(overlay, fade: mode == .thumbnail) }
                     duoController.windowEffects.didVerifyFold(id: id, state: state)
                 }
                 // Hiding is committed even if the user switched away from its Space.
