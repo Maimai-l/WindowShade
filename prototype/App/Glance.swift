@@ -919,13 +919,13 @@ final class GlanceController {
         return radius
     }
 
-    /// 卷帘条两端的控件区：收起的窗口左边是红绿灯（经典条右边还有缩放与展开）；
+    /// 卷帘条两端的控件区：收起的窗口左边是红绿灯；
     /// 带到每张桌面的卷帘条右边是“不再带着”。
     private func controlsZone(_ id: CGWindowID) -> (left: CGFloat, right: CGFloat) {
         if let state = owner.shaded[id] {
             // 缩略图上没有红绿灯：停在哪都算想看。
             if state.appearanceMode == .thumbnail { return (0, 0) }
-            return (78, state.appearanceMode == .classicSemantic ? 64 : 0)
+            return (78, 0)
         }
         return (0, CarryStripView.closeZoneWidth)
     }

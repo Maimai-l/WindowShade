@@ -100,12 +100,7 @@ extension AppDelegate {
     func arrangedStairStepWidth(for state: ShadeState, visibleFrame: NSRect) -> CGFloat {
         let base = ProxyTitleLayoutMetrics.trafficLightDiameter * 0.95
         let clamped = min(visibleFrame.width * 0.05, base)
-        switch state.appearanceMode {
-        case .proxyTitleBar, .nativeScreenshot, .thumbnail:
-            return max(10, clamped)
-        case .classicSemantic:
-            return max(9, clamped * 0.9)
-        }
+        return max(10, clamped)
     }
 
     func desktopWidgetScanLane(visibleFrame: NSRect) -> NSRect {

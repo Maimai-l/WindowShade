@@ -23,7 +23,6 @@ import Darwin
 import ServiceManagement
 
 let titleBarHeight: CGFloat = 28
-let classicTitleBarHeight: CGFloat = 24
 let proxyTitleBarHeight: CGFloat = 34
 let quickLookOriginalTitleBarHeight: CGFloat = 38
 let standardTitleBarMaxCropHeight: CGFloat = 64
@@ -399,14 +398,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         wlog("appearance: system options changed reduceTransparency="
              + "\(capabilities.reduceTransparency) increaseContrast=\(capabilities.increaseContrast) "
              + "reduceMotion=\(capabilities.reduceMotion)")
-        // 卷帘条：经典条按当前开关重绘，截图条只需刷新可访问性/边线。
+        // 卷帘条：截图条只需刷新可访问性/边线。
         for state in shaded.values {
             guard let content = state.overlay?.contentView else { continue }
             content.needsDisplay = true
             (content as? TitleStripView)?.applySystemAppearance(capabilities: capabilities)
-            (content as? ClassicTitleStripView)?.appearanceCapabilities = capabilities
-            // 经典条的颜色由应用图标色调 × 当前外观推出：外观变化后必须重算。
-            (content as? ClassicTitleStripView)?.refreshPalette()
         }
         // 置顶预览会话与临时悬停缩略图。
         pinnedPreviewController.refreshSystemAppearance(capabilities: capabilities)

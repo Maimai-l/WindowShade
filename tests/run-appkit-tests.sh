@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TEST_NAME="${1:-SettingsNavigationTests}"
 case "$TEST_NAME" in
-  all|SettingsNavigationTests|ClassicStripTests|WindowFoldEffectsTests|GlanceLifecycleTests|CarryControllerTests) ;;
+  all|SettingsNavigationTests|WindowFoldEffectsTests|GlanceLifecycleTests|CarryControllerTests) ;;
   *) echo "Unknown AppKit test: $TEST_NAME" >&2; exit 2 ;;
 esac
 mkdir -p .build/appkit-tests
@@ -18,7 +18,7 @@ while IFS= read -r source; do
 done < <(rg --files prototype -g '*.swift' -g '!main.swift' -g '!*.app/**' | sort)
 TEST_SOURCE=()
 if [ "$TEST_NAME" = all ]; then
-  TESTS=(SettingsNavigationTests ClassicStripTests WindowFoldEffectsTests GlanceLifecycleTests CarryControllerTests)
+  TESTS=(SettingsNavigationTests WindowFoldEffectsTests GlanceLifecycleTests CarryControllerTests)
 else
   TESTS=("$TEST_NAME")
 fi
@@ -44,7 +44,6 @@ import Cocoa
   @MainActor static func main() async {
     switch CommandLine.arguments.dropFirst().first {
     case "SettingsNavigationTests": await SettingsNavigationTests.main()
-    case "ClassicStripTests": ClassicStripTests.main()
     case "WindowFoldEffectsTests": await WindowFoldEffectsTests.main()
     case "GlanceLifecycleTests": GlanceLifecycleTests.main()
     case "CarryControllerTests": CarryControllerTests.main()

@@ -1,4 +1,4 @@
-// 覆盖层工厂：按外观模式构建截图条 / 经典条 / 代理标题栏窗口，
+// 覆盖层工厂：按外观模式构建截图条 / 代理标题栏窗口，
 // 复用简单条窗口池。作为 AppDelegate 扩展实现。
 
 import Cocoa
@@ -113,27 +113,8 @@ extension AppDelegate {
         overlay.contentView = iv
         overlay.invalidateShadow()                 // 阴影跟随（已镜像的）圆角轮廓
         // 截图条的画面自带窗口圆角；系统方角阴影会在透明角落透出一块方形底，
-        // 因此换成与经典条同一套“上圆下直”的纸面阴影。
+        // 因此换成“上圆下直”的纸面阴影。
         overlay.hasShadow = false
-        PaperSurfaceStyle.installShadow(on: overlay, corners: .top)
-        return overlay
-    }
-
-    func makeClassicOverlay(axPos: CGPoint, width: CGFloat, height: CGFloat,
-                                    pid: pid_t, appName: String, title: String, id: CGWindowID) -> NSWindow {
-        let overlay = makeBaseOverlay(axPos: axPos, width: width, height: height)
-        overlay.hasShadow = false
-        let view = ClassicTitleStripView(frame: NSRect(origin: .zero, size: overlay.frame.size),
-                                         appName: appName, windowTitle: title,
-                                         pid: pid)
-        view.onDoubleClick = { [weak self] in self?.unshade(id) }
-        view.onAction = { [weak self] action in self?.handleClassicAction(action, id) }
-        view.onMoveEnded = { [weak self] frame in
-            self?.noteUserMovedOverlay(id: id, frame: frame)
-        }
-        overlay.contentView = view
-        overlay.invalidateShadow()
-        // 卷帘条只有上面两角是圆的，阴影要跟着同一条轮廓。
         PaperSurfaceStyle.installShadow(on: overlay, corners: .top)
         return overlay
     }

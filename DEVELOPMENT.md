@@ -27,7 +27,7 @@ prototype/
 │   ├── Preferences.swift             # 设置窗口与引导页
 │   ├── OverlayPresentation.swift     # 覆盖层展示与 Space 不变量
 │   ├── HoverPreview.swift            # 悬停预览（peek / 菜单悬停）
-│   ├── OverlayFactory.swift          # 覆盖层窗口工厂（截图条/经典条/代理标题栏）
+│   ├── OverlayFactory.swift          # 覆盖层窗口工厂（截图条/代理标题栏）
 │   ├── ArrangeController.swift       # 卷帘条整理与专注 shelf
 │   ├── FocusSession.swift            # 专注会话
 │   ├── FoldTransaction.swift         # 折叠事务辅助（隐藏/恢复/验证/转发/通知）
@@ -53,7 +53,7 @@ prototype/
 │   └── ShareableContentCache.swift   # SCShareableContent 短 TTL 缓存
 ├── Overlay/
 │   ├── ShadeStripPool.swift          # 简单卷帘条窗口池（OverlayWindow 复用）
-│   └── ShadeStrip.swift              # 覆盖层视图（代理标题栏/经典条/预览窗/调色板）
+│   └── ShadeStrip.swift              # 覆盖层视图（截图条/代理标题栏/预览窗）
 ├── Window/
 │   ├── WindowRegistry.swift          # app 元数据（名称/bundleID）短 TTL 缓存
 │   ├── AXWindow.swift                # AX 辅助（几何/ID 解析/chrome 探测/按钮交互）
@@ -145,7 +145,7 @@ cd prototype
 
 | 范围 | 命令 |
 |---|---|
-| 设置、经典卷帘条、收起动画、看一眼与带到每张桌面的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
+| 设置、收起动画、看一眼与带到每张桌面的生命周期（离屏 AppKit） | `bash tests/run-appkit-tests.sh all` |
 | 看一眼的指针意图 | `bash tests/run-glance-tests.sh` |
 | 收起时把窗口停到屏幕角上 | `bash tests/run-corner-parking-tests.sh` |
 | 标题栏手势识别 | `bash tests/run-gesture-tests.sh` |

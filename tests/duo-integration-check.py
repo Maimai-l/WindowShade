@@ -2,7 +2,7 @@
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 shade = (root / 'prototype/App/ShadeController.swift').read_text()
-transaction = shade.split('func installOverlay(', 1)[1].split('if mode == .classicSemantic', 1)[0]
+transaction = shade.split('func installOverlay(', 1)[1].split('if mode == .proxyTitleBar', 1)[0]
 assert transaction.index('recordShadeRecoveryIntent(') < transaction.index('let hide = hideWindow(')
 assert transaction.index('let hideVerifiedNow = hideTookEffect(') < transaction.index('didVerifyFold(')
 assert transaction.index('guard intentWritten else') < transaction.index('to: .folded'), 'Failed durable intent must still be able to transition capturing -> failed'

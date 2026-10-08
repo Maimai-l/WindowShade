@@ -1,4 +1,4 @@
-// 简单卷帘条窗口池：截图条 / 经典条（OverlayWindow）复用，避免频繁创建 NSWindow。
+// 简单卷帘条窗口池：没有红绿灯的截图条（OverlayWindow）复用，避免频繁创建 NSWindow。
 // 代理标题栏（NativeProxyOverlayWindow）带大量每窗口状态（交通灯配置、delegate、
 // 窗口管理能力），不复用。
 //

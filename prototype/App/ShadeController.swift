@@ -469,15 +469,6 @@ extension AppDelegate {
             }
         }
 
-        if mode == .classicSemantic {
-            let barH = min(classicTitleBarHeight, min(size.height, 300))
-            let overlay = makeClassicOverlay(axPos: pos, width: size.width, height: barH,
-                                             pid: pid, appName: appName, title: title, id: id)
-            wlog("    classic finalBarH=\(Int(barH))")
-            installOverlay(overlay, mode: mode, previewImage: nil)
-            return
-        }
-
         if mode == .proxyTitleBar {
             let barH = min(proxyTitleBarHeight, min(size.height, 300))
             let canProxyResize = allowsProxyHorizontalResize(win, pid: pid)
