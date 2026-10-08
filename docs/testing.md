@@ -179,7 +179,7 @@ CI 虚拟机只有一个显示器，R4 的多显示器情形只能由第 1 层�
 | 2026-10-08 | 统一标题栏样式收起时主线程等待 677 毫秒（CI 场景 A28-proxy）；4ee578f 上又等待 516 毫秒 | 统一样式的标题栏第一次画应用程序图标时，`NSRunningApplication.icon` 要同步经 XPC 向图标服务要位图（停顿采样：`ISConcreteIcon generateImageWithDescriptor` ← `NSImage drawInRect`），在主线程上 | 场景 A28-proxy 的 I6 检查 | 已修复：图标在后台画成位图缓存（`Support/AppIconCache.swift`），启动时、应用程序成为当前应用程序时、开始收起时准备；标题栏、缩略图只画现成的位图，没有就不画。待 CI 确认 |
 | 2026-10-08 | WindowShade 启动时主线程等待 585 毫秒（CI 场景 A06，4ee578f） | 停顿采样落在向窗口服务器同步查询显示器状态（`CGSGetDisplaySystemState`）；调用方未查明 | 场景 A06 的 I6 检查 | 未修复 |
 | 2026-10-08 | Safari 收起前主线程等待 840 毫秒，期间当前应用程序变化 1 次（CI 场景 A33-Safari） | 未查明：停顿采样只标到“前台应用变化”，占 2% | 场景 A33-Safari 的 I6 检查 | 未修复 |
-| 2026-10-08 | 第一次打开设置窗口时主线程等待 695 毫秒（CI 场景 H02）；按 ⌘, 打开时等待 774 毫秒（CI 场景 C15，1f7738e） | 第一次创建 SwiftUI 设置界面的开销在主线程上：停顿采样落在 AttributeGraph 分配和 SwiftUI 画圆角路径（`RBPathMakeRoundedRect`） | 场景 H02、C15 的 I6 检查 | 未修复 |
+| 2026-10-08 | 第一次打开设置窗口时主线程等待 695 至 996 毫秒（CI 场景 H01、H02、C15，连续多轮） | 设置窗口构造时对四个分页都访问了 `page.view`，四页 SwiftUI 表单当场全部建好（停顿采样落在 Swift 元数据、AttributeGraph、SwiftUI 布局和 CoreUI 查找图标） | `run-settings-tests.sh`（打开设置时最多建好一页）；场景 H01、H02、C15 的 I6 检查 | 已修复：各页只设 `preferredContentSize`，打开时只建选中的一页，其余切过去时再建；先选好分页再装进窗口。待 CI 确认 |
 | 2026-10-08 | 用 `qlmanage -p` 打开的快速查看窗口双击标题栏不收起（CI 场景 A32） | 命中测试返回 `-25204`（无法完成）；几何回退只找当前应用程序的窗口，快速查看窗口不属于当前应用程序 | 场景 A32 | 未修复：还要确认从访达按空格打开的快速查看窗口是否同样不收起 |
 
 ## 6. 录像检查的判定方法

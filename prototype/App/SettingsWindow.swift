@@ -68,7 +68,9 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
       let page = NSHostingController(rootView: SettingsPage(section: section, model: model))
       page.sizingOptions = []
       page.title = section.title
-      page.view.frame.size = Self.contentSize
+      // 只给大小，不碰 page.view：碰了就当场建好这一页的 SwiftUI 表单。四页一起建，第一次打开设置时
+      // 主线程停 700 毫秒以上（CI 场景 H01、H02、C15）。其余分页切过去时才建。
+      page.preferredContentSize = Self.contentSize
       let item = NSTabViewItem(viewController: page)
       item.label = section.title
       item.image = NSImage(systemSymbolName: section.symbolName, accessibilityDescription: section.title)
@@ -80,9 +82,10 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
       self.window?.title = section.title
       if self.remembersState { section.remember() }
     }
+    // 先选好分页再装进窗口：装进去时才建选中那一页；反过来会先建第一页，再建上次看的那页。
+    select(section: .lastViewed())
     window.contentViewController = tabs
     window.setContentSize(Self.contentSize)
-    select(section: .lastViewed())
     if remembersState { window.setFrameAutosaveName("WindowShade.Settings") }
     window.center()
   }

@@ -31,6 +31,13 @@ struct SettingsNavigationTests {
       preconditionFailure("Settings window is missing")
     }
 
+    // 缺陷回归（CI 场景 H01、H02、C15）：打开设置窗口时四页表单当场全部建好，主线程停 700 毫秒以上。
+    // 只建当前那一页，其余分页切过去时再建。
+    let pages = (window.contentViewController as? NSTabViewController)?.tabViewItems.compactMap(\.viewController) ?? []
+    precondition(pages.count == WindowShadeSettingsSection.allCases.count, "One page per settings section")
+    let loaded = pages.filter(\.isViewLoaded).count
+    precondition(loaded <= 1, "Opening Settings builds only the page shown, not every page: \(loaded) loaded")
+
     // 分页是系统的工具栏标签：每页一个，带 SF Symbol 和名字，选中哪页标题就是哪页。
     let items = window.toolbar?.items.filter { $0.label.isEmpty == false } ?? []
     precondition(items.map(\.label) == WindowShadeSettingsSection.allCases.map(\.title),

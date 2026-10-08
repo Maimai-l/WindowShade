@@ -152,8 +152,8 @@ let stripScenarios: [Scenario] = [
     Scenario(id: "C15", title: "卷帘条是当前窗口时按其他组合键：不转给原应用程序", options: [],
              changesSettings: true) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
-        // 收起时隐藏应用程序也会记一条 hidden：只数按键之后新增的。
-        let kinds = ["closed", "minimized", "hidden", "new-window", "quit-request"]
+        // 只数按键之后新增的。按的是 ⌘F、⌘,，不会隐藏应用程序；hidden 只会来自收起和“看一眼”收回时藏回去，不算。
+        let kinds = ["closed", "minimized", "new-window", "quit-request"]
         let before = kinds.map(probe.count).reduce(0, +)
         await pressOnStrip(folded, 3, .maskCommand, h)    // F
         await pressKey(43, .maskCommand)                   // ,
