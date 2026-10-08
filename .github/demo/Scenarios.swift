@@ -124,14 +124,19 @@ final class Probe {
         process.arguments = ["-n", "-a", appPath, "--args", "--events=\(eventsPath)"] + options
         guard (try? process.run()) != nil else { return nil }
         process.waitUntilExit()
-        for _ in 0..<60 {
+        // CI 虚拟机忙的时候启动一个应用程序可能要好几秒：等到 15 秒。
+        for _ in 0..<150 {
             await pause(0.1)
             if let launched = readEvents(eventsPath).first(where: { $0["event"] as? String == "launched" }),
                let pid = (launched["pid"] as? NSNumber)?.int32Value {
                 await pause(0.8)
-                return Probe(pid: pid, eventsPath: eventsPath)
+                let probe = Probe(pid: pid, eventsPath: eventsPath)
+                await probe.bringToFront()
+                return probe
             }
         }
+        log("ProbeApp \(name) did not report launched; running ProbeApps: "
+            + "\(NSRunningApplication.runningApplications(withBundleIdentifier: "com.windowshade.probe").map(\.processIdentifier))")
         return nil
     }
 
@@ -159,6 +164,15 @@ final class Probe {
     var isRunning: Bool { kill(pid, 0) == 0 }
 
     func forceQuit() { kill(pid, SIGKILL) }
+
+    /// 让 ProbeApp 成为当前应用程序、第一扇窗口在最上面：前面的场景留下的文本编辑、访达窗口可能盖在它上面，
+    /// 双击会落到别的窗口上。用辅助功能设置（驱动程序是后台应用程序，激活别的应用程序可能被系统拒绝）。
+    func bringToFront() async {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        if let window = window() { AXUIElementPerformAction(window, kAXRaiseAction as CFString) }
+        _ = await eventually(2) { frontmostPID() == pid }
+    }
 }
 
 // MARK: - 场景和不变式
@@ -230,6 +244,31 @@ final class Harness {
 
     func logLines() -> [String] { log.lines() }
 
+    /// 场景失败时记下当时的样子：截图、当前应用程序、屏幕上的窗口、这段时间 WindowShade 的日志。
+    func diagnose() {
+        guard result.notes["diagnosis"] == nil else { return }
+        let shot = "\(Suite.outputDir)/fail-\(result.id).png"
+        run("/usr/sbin/screencapture", ["-x", shot])
+        let windows = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                        as? [[String: Any]] ?? [])
+            .filter { ($0[kCGWindowLayer as String] as? Int ?? 0) < 1000 }
+            .prefix(20)
+            .map { info -> String in
+                let owner = info[kCGWindowOwnerName as String] as? String ?? "?"
+                let name = info[kCGWindowName as String] as? String ?? ""
+                let layer = info[kCGWindowLayer as String] as? Int ?? 0
+                let bounds = (info[kCGWindowBounds as String] as? NSDictionary)
+                    .flatMap { CGRect(dictionaryRepresentation: $0) } ?? .zero
+                return "\(owner) \"\(name)\" layer=\(layer) \(Int(bounds.minX)),\(Int(bounds.minY)) \(Int(bounds.width))x\(Int(bounds.height))"
+            }
+        result.notes["diagnosis"] = [
+            "screenshot": shot,
+            "frontmost": NSWorkspace.shared.frontmostApplication?.localizedName ?? "?",
+            "windows": Array(windows),
+            "log": Array(log.lines().suffix(40)),
+        ] as [String: Any]
+    }
+
     /// 等日志里出现某一行，最多等 timeout 秒。
     func waitForLog(_ fragment: String, timeout: Double) async -> Bool {
         let start = Date()
@@ -281,6 +320,7 @@ func foldProbe(_ probe: Probe, _ harness: Harness) async -> Folded? {
         return nil
     }
     place(window, origin: probeOrigin, size: probeSize)
+    await probe.bringToFront()
     await pause(0.6)
     guard let frame = axFrame(window) else { return nil }
     let titleBar = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -350,6 +390,8 @@ func click(_ point: CGPoint) async {
 
 /// 整个场景套件共用：两个 App 的路径，以及场景结束后要恢复的 WindowShade 设置。
 enum Suite {
+    /// 结果、失败截图放在这里（和 scenarios.json 同一目录）。
+    nonisolated(unsafe) static var outputDir = ""
     nonisolated(unsafe) static var probeApp = ""
     nonisolated(unsafe) static var shadeApp = ""
     nonisolated(unsafe) static var audit: EventAudit?
@@ -728,6 +770,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
                       shard: (index: Int, count: Int)? = nil) async {
     let audit = EventAudit()
     guard audit.start() else { log("cannot install the event audit tap"); exit(2) }
+    Suite.outputDir = output.deletingLastPathComponent().path
     Suite.probeApp = probeApp
     Suite.shadeApp = shadeApp
     Suite.audit = audit
@@ -756,12 +799,18 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
                               tagBase: Int64(0x5e00_0000 + index * 0x1000))
         if let probe = await Probe.launch(probeApp, name: scenario.id, options: scenario.options) {
             await scenario.run(probe, harness)
+            if !harness.result.violations.isEmpty { harness.diagnose() }
             if probe.isRunning { probe.forceQuit() }
             await pause(1.0)
         } else {
             harness.result.violations.append("setup: ProbeApp did not start")
         }
-        let result = harness.finish()
+        if !harness.result.violations.isEmpty { harness.diagnose() }
+        var result = harness.finish()
+        if !result.violations.isEmpty, result.notes["diagnosis"] == nil {
+            harness.diagnose()
+            result = harness.result
+        }
         if !result.violations.isEmpty { failed += 1 }
         log("scenario \(scenario.id): \(result.violations.isEmpty ? "passed" : "failed \(result.violations)")")
         results.append(result.json)

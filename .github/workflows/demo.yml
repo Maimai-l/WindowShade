@@ -43,6 +43,9 @@ jobs:
         env:
           RECORD_PART: ${{ matrix.part }}
         run: bash .github/demo/record.sh
+      - name: Collect the WindowShade log
+        if: always()
+        run: cp ~/Library/Logs/WindowShade/windowshade.log .build/demo/windowshade.log 2>/dev/null || true
       - name: Upload recording
         if: always()
         uses: actions/upload-artifact@v4

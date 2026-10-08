@@ -7,8 +7,15 @@ import AppKit
 import ApplicationServices
 import ScreenCaptureKit
 
+private let logClock: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm:ss.SSS"
+    return formatter
+}()
+
+/// 每行带时刻，便于和 WindowShade 的日志、录像对上。
 func log(_ message: String) {
-    FileHandle.standardError.write("[driver] \(message)\n".data(using: .utf8)!)
+    FileHandle.standardError.write("[driver \(logClock.string(from: Date()))] \(message)\n".data(using: .utf8)!)
 }
 
 func pause(_ seconds: Double) async {
