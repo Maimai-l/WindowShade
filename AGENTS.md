@@ -3,6 +3,7 @@
 WindowShade 是一个 macOS 窗口工具：双击标题栏，窗口卷成一条留在原处的卷帘条。
 源码在 `prototype/`，构建、测试、签名和发布见 [`DEVELOPMENT.md`](DEVELOPMENT.md)。
 整体设计、功能需求和改写计划见 [`docs/design.md`](docs/design.md)；改代码前先对上它。
+测试的内容和方法见 [`docs/testing.md`](docs/testing.md)。修复缺陷时先写能复现它的测试，再改代码；新增需求时同时补测试。
 面向用户的说明见 [`README_CN.md`](README_CN.md) / [`README.md`](README.md)。
 
 ## 文案（产品与官网共用）
