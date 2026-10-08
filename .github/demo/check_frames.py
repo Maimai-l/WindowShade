@@ -45,7 +45,7 @@ def crops(video, rect, scale, shrink):
     x, y, w, h = (int(round(v * scale)) for v in rect)
     ow, oh = max(1, w // shrink), max(1, h // shrink)
     raw = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", video, "-vsync", "0",
+        ["ffmpeg", "-v", "error", "-i", video, "-fps_mode", "passthrough",
          "-vf", f"crop={w}:{h}:{x}:{y},scale={ow}:{oh}",
          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
         capture_output=True, check=True).stdout
@@ -120,6 +120,16 @@ def check_geometry(log_text, window):
 
 def main():
     video, events_path, log_path = sys.argv[1:4]
+    try:
+        return check(video, events_path, log_path)
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or b"")
+        detail = detail.decode(errors="replace") if isinstance(detail, bytes) else detail
+        print(f"FAIL {video}: {error.cmd[0]} could not read the recording: {detail.strip()}")
+        return 1
+
+
+def check(video, events_path, log_path):
     events = json.load(open(events_path))
     window, scale = events["window"], events["scale"]
     screen_w = events["screen"]["w"]

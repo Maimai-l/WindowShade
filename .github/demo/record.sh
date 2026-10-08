@@ -80,16 +80,27 @@ if ! pgrep -x WindowShade >/dev/null; then
   exit 1
 fi
 
+# 录一段。ReplayKit 偶尔在第一帧报 -5822，录像文件不完整，App 本身没有问题：
+# 这种情况重录一次，并在日志里写明；第二次仍然失败就让 CI 失败。
+record() {
+  local log="$1"; shift
+  open -W --stderr "$log" "$DRIVER" --args "$@"
+  cat "$log" || true
+  if grep -q "recording failed" "$log"; then
+    echo "recording failed (ReplayKit), recording this scenario once more"
+    open -W --stderr "$log" "$DRIVER" --args "$@"
+    cat "$log" || true
+  fi
+}
+
 echo "==> record TextEdit"
-open -W --stderr "$OUT/driver.log" "$DRIVER" --args "$OUT/demo.mp4"
-cat "$OUT/driver.log" || true
+record "$OUT/driver.log" "$OUT/demo.mp4"
 
 # 访达：工具栏比普通标题栏高一倍多，窗口也更宽；双击点放在工具栏按钮上面的空白。
 echo "==> record Finder"
 open /Applications
 sleep 3
-open -W --stderr "$OUT/driver-finder.log" "$DRIVER" --args "$OUT/demo-finder.mp4" com.apple.finder 900 500 8
-cat "$OUT/driver-finder.log" || true
+record "$OUT/driver-finder.log" "$OUT/demo-finder.mp4" com.apple.finder 900 500 8
 
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
 collect_crashes

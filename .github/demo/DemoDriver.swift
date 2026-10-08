@@ -74,6 +74,8 @@ func place(_ window: AXUIElement, origin: CGPoint, size: CGSize) {
 final class Recorder: NSObject, SCRecordingOutputDelegate, SCStreamDelegate {
     private var stream: SCStream?
     private var finished: CheckedContinuation<Void, Never>?
+    /// ReplayKit 报错时录像文件不完整（没有 moov），record.sh 据此重录一次。
+    private(set) var failed = false
 
     func start(to url: URL) async throws {
         let content = try await SCShareableContent.current
@@ -111,6 +113,7 @@ final class Recorder: NSObject, SCRecordingOutputDelegate, SCStreamDelegate {
 
     func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: any Error) {
         log("recording failed: \(error)")
+        failed = true
         finished?.resume()
         finished = nil
     }
@@ -183,6 +186,6 @@ struct DemoDriver {
             try? data.write(to: eventsURL)
         }
         log("done")
-        exit(0)
+        exit(recorder.failed ? 4 : 0)
     }
 }
