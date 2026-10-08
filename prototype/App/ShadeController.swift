@@ -360,12 +360,11 @@ extension AppDelegate {
             let hideStartedAt = CFAbsoluteTimeGetCurrent()
             hideWindowInBackground(win, pid: pid, originalPosition: pos, size: size,
                                    policy: policy, appHideSafe: appHideSafe,
-                                   delay: revealedBeforeHide ? 2.0 / 60 : 0) { [self] hide in
-            foldPhaseTotals["隐藏窗口", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
-            if !mayHideApp {
-                // 窗口已经藏好：键盘别再落到它身上。
-                _ = foldPhase("焦点交接") { handOffFocus(win: win, pid: pid, id: id) }
-            }
+                                   delay: revealedBeforeHide ? 2.0 / 60 : 0,
+                                   handOffFocusAfter: !mayHideApp) { [self] hide in
+            foldPhaseTotals["隐藏窗口与焦点交接", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
+            // 交接已在后台做完：撤掉截图期的焦点停靠。
+            if !mayHideApp { focusParkingWindow?.orderOut(nil) }
             // minimize / app-hide 的状态读回是异步的（最小化动画进行中 kAXMinimized
             // 尚未翻转、NSRunningApplication.isHidden 缓存滞后），立即验证会产生假阴性。
             // 立即通过 → 立即 reveal；否则延迟验证（+0.15/+0.45s），通过后才 reveal，

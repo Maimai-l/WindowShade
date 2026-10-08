@@ -45,3 +45,33 @@ struct WindowControlSystem: WindowControl {
 extension WindowHandle {
     init(ax element: AXUIElement) { self.init(element: element) }
 }
+
+/// FocusControl 的真实实现：辅助功能和窗口服务器的调用。可以在任意线程执行。
+struct FocusControlSystem: FocusControl {
+    private func element(_ window: WindowHandle) -> AXUIElement { unsafeDowncast(window.element, to: AXUIElement.self) }
+
+    func windows(pid: pid_t) -> [WindowHandle] { appWindows(pid: pid).map { WindowHandle(ax: $0) } }
+    func isSameWindow(_ a: WindowHandle, _ b: WindowHandle) -> Bool { CFEqual(element(a), element(b)) }
+    func isMinimized(_ window: WindowHandle) -> Bool { axBoolAttribute(element(window), kAXMinimizedAttribute as String) }
+    func windowNumber(_ window: WindowHandle) -> CGWindowID? { windowID(of: element(window)) }
+    func frame(_ window: WindowHandle) -> CGRect? {
+        guard let pos = axPosition(element(window)), let size = axSize(element(window)) else { return nil }
+        return CGRect(origin: pos, size: size)
+    }
+    func onScreenWindows() -> [OnScreenWindow] {
+        WindowListCache.shared.onScreenWindows().compactMap { info in
+            guard let number = info[kCGWindowNumber as String] as? NSNumber,
+                  let owner = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  let bounds = cgWindowBounds(info) else { return nil }
+            return OnScreenWindow(id: CGWindowID(number.uint32Value), pid: owner,
+                                  layer: (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1,
+                                  alpha: (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1,
+                                  bounds: bounds)
+        }
+    }
+    func isRegularApp(pid: pid_t) -> Bool { NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular }
+    func appName(pid: pid_t) -> String { NSRunningApplication(processIdentifier: pid)?.localizedName ?? String(pid) }
+    func activate(pid: pid_t) { NSRunningApplication(processIdentifier: pid)?.activate(options: []) }
+    func focus(_ window: WindowHandle, pid: pid_t) { focusAXWindow(element(window), pid: pid) }
+    func log(_ message: String) { wlog(message) }
+}

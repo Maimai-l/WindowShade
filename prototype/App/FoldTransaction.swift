@@ -40,64 +40,17 @@ extension AppDelegate {
     // app-hide 才不会触发选举。
     @discardableResult
     func handOffFocus(win: AXUIElement, pid: pid_t, id: CGWindowID) -> Bool {
-        let selfPid = ProcessInfo.processInfo.processIdentifier
-        let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
         // 交接后撤掉截图期的焦点停靠（成功路径此前从不释放）。
         defer { focusParkingWindow?.orderOut(nil) }
-        guard frontmostPid == pid || frontmostPid == selfPid else {
-            return true   // 目标 app 本就不在前台，隐藏它不会触发焦点级联
-        }
+        return FocusHandoff(control: FocusControlSystem()).handOff(focusHandoffRequest(win: win, pid: pid, id: id)).appHideSafe
+    }
 
-        let onScreenIDs = currentOnScreenWindowIDs()
-
-        // 1) 同 app 在当前 Space 的另一个窗口：焦点交给它，app 保持前台，菜单栏不变。
-        for candidate in appWindows(pid: pid) {
-            guard !CFEqual(candidate, win),
-                  !axBoolAttribute(candidate, kAXMinimizedAttribute as String),
-                  let cid = windowID(of: candidate), cid != id,
-                  onScreenIDs.contains(cid) else { continue }
-            focusAXWindow(candidate, pid: pid)
-            wlog("focus: handoff strategy=same-app heir=\(cid) id=\(id)")
-            return true
-        }
-
-        // 2) 当前 Space 最顶层的其他 regular app 窗口。
-        let windows = WindowListCache.shared.onScreenWindows()
-        for info in windows {
-            guard let owner = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
-                  owner != pid, owner != selfPid,
-                  ((info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1) == 0,
-                  ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
-                  let number = info[kCGWindowNumber as String] as? NSNumber,
-                  !overlayIDs.contains(CGWindowID(number.uint32Value)),
-                  let bounds = cgWindowBounds(info), bounds.width > 1, bounds.height > 1,
-                  let heirApp = NSRunningApplication(processIdentifier: owner),
-                  heirApp.activationPolicy == .regular else { continue }
-            heirApp.activate(options: [])
-            var best: (win: AXUIElement, delta: CGFloat)?
-            for heirWin in appWindows(pid: owner) {
-                guard let p = axPosition(heirWin), let s = axSize(heirWin) else { continue }
-                let delta = frameDistance(CGRect(origin: p, size: s), bounds)
-                if delta <= 96, best == nil || delta < best!.delta {
-                    best = (heirWin, delta)
-                }
-            }
-            if let heirWin = best?.win {
-                focusAXWindow(heirWin, pid: owner)
-            }
-            wlog("focus: handoff strategy=top-window heir=\(heirApp.localizedName ?? String(owner)) id=\(id)")
-            return true
-        }
-
-        // 3) 当前 Space 没有任何其他窗口：无处交接。
-        //    实测教训（13:37/13:49）：激活 Finder 会被 Mission Control 拉去它有
-        //    窗口的 Space；焦点停靠 + app-hide 也躲不过系统的前台选举跳变；
-        //    补偿式跳回受限于"新 Space 值在动画提交前读不到"，永远慢一拍。
-        //    根治 = 不交接、返回 app-hide 不安全：调用方将禁用 app-hide 改走
-        //    minimize——最小化不触发前台选举（app 保持前台，菜单栏不变），
-        //    这是 macOS 的稳定语义（⌘M 从不切 Space）。
-        wlog("focus: handoff strategy=stay-minimize id=\(id)")
-        return false
+    /// 只在主线程调用：取当前的前台应用程序和卷帘条窗口号。
+    func focusHandoffRequest(win: AXUIElement, pid: pid_t, id: CGWindowID) -> FocusHandoffRequest {
+        FocusHandoffRequest(window: WindowHandle(ax: win), id: id, pid: pid,
+                            frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                            selfPID: ProcessInfo.processInfo.processIdentifier,
+                            overlayIDs: overlayIDs)
     }
 
     // Compatibility Bool now reports only a positive observation, never an AX read failure.
@@ -460,19 +413,23 @@ extension AppDelegate {
     /// delay：开始移开之前等多久（卷帘条刚亮出来时等两帧，让它先上屏）。
     func hideWindowInBackground(_ win: AXUIElement, pid: pid_t, originalPosition pos: CGPoint,
                                 size: CGSize, policy: ShadePolicy, appHideSafe: Bool,
-                                delay: TimeInterval = 0,
+                                delay: TimeInterval = 0, handOffFocusAfter: Bool = false,
                                 completion: @escaping (HideMethod) -> Void) {
         let id = windowID(of: win)
         if let hide = orderOutOwnWindowIfNeeded(id: id, pid: pid, reason: "shade") {
+            if handOffFocusAfter, let id { _ = handOffFocus(win: win, pid: pid, id: id) }
             completion(hide)
             return
         }
         let request = HideRequest(window: WindowHandle(ax: win), id: id, pid: pid, position: pos, size: size,
                                   policy: policy, appHideSafe: appHideSafe, layout: .current())
+        // 窗口藏好之后键盘别再落到它身上：交出焦点和移开放在同一个后台任务里，主线程不等。
+        let focusRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
         let hider = windowHider
         let finish = HandOff(completion)
         windowHideQueue.asyncAfter(deadline: .now() + delay) {
             let hide = hider.hide(request)
+            if let focusRequest { _ = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest) }
             DispatchQueue.main.async { finish.value(hide) }
         }
     }
