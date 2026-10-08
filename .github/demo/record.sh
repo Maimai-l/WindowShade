@@ -69,6 +69,16 @@ open -a TextEdit "$OUT/参考资料.txt"
 sleep 3
 open "$APP"
 sleep 6
+collect_crashes() {
+  cp ~/Library/Logs/DiagnosticReports/WindowShade* "$OUT/" 2>/dev/null || true
+  for report in "$OUT"/WindowShade*.ips; do [ -f "$report" ] && head -80 "$report"; done
+}
+# 没在跑就别录了：录出来只是系统自己的双击缩放，看着像通过。
+if ! pgrep -x WindowShade >/dev/null; then
+  echo "WindowShade is not running after launch"
+  collect_crashes
+  exit 1
+fi
 
 echo "==> record TextEdit"
 open -W --stderr "$OUT/driver.log" "$DRIVER" --args "$OUT/demo.mp4"
@@ -82,6 +92,8 @@ open -W --stderr "$OUT/driver-finder.log" "$DRIVER" --args "$OUT/demo-finder.mp4
 cat "$OUT/driver-finder.log" || true
 
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
+collect_crashes
+pgrep -x WindowShade >/dev/null || { echo "WindowShade exited during the recording"; exit 1; }
 grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|space:|screen:|capture full|titlebar" "$OUT/windowshade.log" | tail -80 || true
 
 screencapture -x "$OUT/end.png" 2>/dev/null || true

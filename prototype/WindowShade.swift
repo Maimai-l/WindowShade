@@ -847,16 +847,15 @@ enum PrivateSLSMemo {
 }
 
 extension AppDelegate {
-    /// 启动后在后台截一张自己菜单栏图标的图：窗口截图第一次调用要先热身（实测可达 0.7 秒），
+    /// 启动一秒后在后台截 1 像素：窗口截图第一次调用要先热身（实测可达 0.7 秒），
     /// 不预热的话这段时间会落在第一次收起上。
     func prewarmFastCapture() {
-        guard hasScreenRecordingPermission(),
-              let number = statusItem.button?.window?.windowNumber, number > 0 else { return }
-        let id = CGWindowID(number)
-        pixelAnalysisQueue.async {
+        guard hasScreenRecordingPermission() else { return }
+        pixelAnalysisQueue.asyncAfter(deadline: .now() + 1) {
             let startedAt = CFAbsoluteTimeGetCurrent()
-            let image = FastCapture.window(id)
-            wlog("capture: prewarm \(image == nil ? "no image" : "ok") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
+            let ok = FastCapture.warmUp()
+            wlog("capture: prewarm \(ok ? "ok" : "no image") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
         }
     }
+
 }

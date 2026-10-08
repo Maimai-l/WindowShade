@@ -36,6 +36,13 @@ enum FastCapture {
         return image
     }
 
+    /// 截屏幕左上角 1 像素：只为让截图接口先热身，不针对任何窗口。
+    static func warmUp() -> Bool {
+        guard !disabled, let createImage else { return false }
+        return createImage(CGRect(x: 0, y: 0, width: 1, height: 1), .optionOnScreenOnly,
+                           kCGNullWindowID, [])?.takeRetainedValue() != nil
+    }
+
     private typealias CreateImageFromArray = @convention(c) (CGRect, CFArray, CGWindowImageOption)
         -> Unmanaged<CGImage>?
 
