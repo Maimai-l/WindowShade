@@ -172,10 +172,22 @@ run_group() {
   # 系统自带的收回方式也用一遍（用户和系统两份记录）：只删数据库时，辅助功能的授权在 CI 上仍然有效过。
   tccutil reset "$service" com.windowshade.prototype || true
   sudo tccutil reset "$service" com.windowshade.prototype || true
+  # 旧版系统的“所有程序都可以用辅助功能”开关文件：存在时收回单个应用程序的授权无效，这一组跑完再放回。
+  if [ "$service" = Accessibility ] && sudo test -e /private/var/db/.AccessibilityAPIEnabled; then
+    echo "legacy accessibility switch present; moving it aside for this group"
+    sudo mv /private/var/db/.AccessibilityAPIEnabled /private/var/db/.AccessibilityAPIEnabled.off
+  fi
   sudo killall tccd 2>/dev/null || true
   sleep 2
+  echo "remaining kTCCService$service rows for WindowShade:"
+  for db in "/Library/Application Support/com.apple.TCC/TCC.db" "$HOME/Library/Application Support/com.apple.TCC/TCC.db"; do
+    sudo sqlite3 "$db" "select client, client_type, auth_value, auth_reason from access where service='kTCCService$service' and client like '%windowshade%'" 2>&1 | sed "s|^|  $db: |"
+  done
   open -W --stderr "$OUT/driver-$name.log" "$DRIVER" --args "$OUT/$name.json" scenarios "$PROBE" "$APP" "$ids"
   cat "$OUT/driver-$name.log" || true
+  if sudo test -e /private/var/db/.AccessibilityAPIEnabled.off; then
+    sudo mv /private/var/db/.AccessibilityAPIEnabled.off /private/var/db/.AccessibilityAPIEnabled
+  fi
   grant_all
 }
 if $RECORDINGS; then
