@@ -1,7 +1,7 @@
 // 应用内更新：main.swift 里、NSApplication 之前要做的两件事。
 //
 // 1. `--self-check`：长期约定，每一版都得支持。不建窗口、不碰授权、不联网、不写真实状态；
-//    只让系统加载全部链接的框架（包括 Sparkle 和 libswift_Concurrency），载入 Duo.metallib，读一遍资源，
+//    只让系统加载全部链接的框架（包括 Sparkle 和 libswift_Concurrency），读一遍资源，
 //    打印带 build 号的一行就退出。安装前的关和发布关都靠它试跑新版。
 //    发布关第 4.9 步另用两个参数（也是长期约定，从第一个带更新器的版本起）：
 //      --self-check --write-sample-state <目录>  这一版把停车日志、偏好、更新日志的样例写进 <目录>
@@ -15,7 +15,6 @@
 //     UpdateLaunch.recordLaunch()
 
 import Foundation
-import Metal
 
 enum UpdateLaunchNotice: Equatable {
     case restored(to: String, from: String, reason: UpdateRestoreReason?)
@@ -58,12 +57,7 @@ enum UpdateLaunch {
         // 链接了 Sparkle 时，框架缺失 dyld 在 main 之前就会失败；这里再确认类真的载入了。
         guard NSClassFromString("SPUUpdater") != nil else { return fail(3, "Sparkle not loaded") }
         #endif
-        guard let metallib = bundle.url(forResource: "Duo", withExtension: "metallib") else {
-            return fail(4, "Duo.metallib missing")
-        }
-        if let device = MTLCreateSystemDefaultDevice() {
-            do { _ = try device.makeLibrary(URL: metallib) } catch { return fail(5, "Duo.metallib: \(error)") }
-        }
+        // 4、5 曾用于检查收起动画的着色器库，那项功能已经拿掉，编号不再复用。
         if let icon = bundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String, !icon.isEmpty {
             let name = (icon as NSString).deletingPathExtension
             guard bundle.url(forResource: name, withExtension: "icns") != nil else { return fail(6, "icon missing") }

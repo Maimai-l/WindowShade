@@ -1,18 +1,7 @@
-// “少做”的默认值：⌃⌘ 快捷键新装的不占、升级的照旧。
+// 快捷键：新装的不占、升级的照旧，录制规则和菜单上的按键。
 // 纯逻辑，用单独的偏好域，不碰用户的设置、不碰任何窗口。
 import Carbon.HIToolbox
-import CoreGraphics
-import Foundation
-
-/// 窗口浏览那一份设置只用到快捷键这几样：换成内存里的，省得把窗口浏览整套编进来。
-enum WindowBrowserSettings {
-    struct HotKey: Equatable {
-        let keyCode: UInt32
-        let modifiers: UInt32
-    }
-    static var hotKey: HotKey?
-    static func displayName(for hotKey: HotKey) -> String { "key \(hotKey.keyCode)" }
-}
+import Cocoa
 
 @main
 struct QuietDefaultsTests {
@@ -21,7 +10,6 @@ struct QuietDefaultsTests {
         if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message)") }
     }
 
-    typealias HotKey = WindowBrowserSettings.HotKey
     static let controlCommand = UInt32(controlKey | cmdKey)
     static func ctrlCmd(_ code: Int) -> HotKey { HotKey(keyCode: UInt32(code), modifiers: controlCommand) }
 
@@ -32,7 +20,6 @@ struct QuietDefaultsTests {
         defaults.removePersistentDomain(forName: suite)
         let saved = GlobalShortcutSettings.defaults
         GlobalShortcutSettings.defaults = defaults
-        WindowBrowserSettings.hotKey = nil
         defer {
             defaults.removePersistentDomain(forName: suite)
             GlobalShortcutSettings.defaults = saved
@@ -42,18 +29,15 @@ struct QuietDefaultsTests {
     }
 
     static let shipped: [GlobalShortcut: HotKey] = [
-        .toggleShade: ctrlCmd(kVK_ANSI_C), .arrangeOrFocus: ctrlCmd(kVK_ANSI_0), .pinPreview: ctrlCmd(kVK_ANSI_P),
-        .carry: ctrlCmd(kVK_ANSI_G), .stepSmaller: ctrlCmd(kVK_UpArrow), .stepLarger: ctrlCmd(kVK_DownArrow),
-        .leftHalf: ctrlCmd(kVK_LeftArrow), .rightHalf: ctrlCmd(kVK_RightArrow),
-    ]
-    static let previewOnly: [GlobalShortcut: HotKey] = [
-        .nextDisplay: ctrlCmd(kVK_ANSI_N),
+        .toggleShade: ctrlCmd(kVK_ANSI_C), .arrangeOrFocus: ctrlCmd(kVK_ANSI_0),
     ]
 
     static func main() {
         installHistory()
         shortcuts()
         identifiers()
+        hotKeyPolicy()
+        menuKeyEquivalents()
         print(failures == 0 ? "all quiet-defaults tests passed" : "\(failures) quiet-defaults test(s) FAILED")
         exit(failures == 0 ? 0 : 1)
     }
@@ -131,7 +115,7 @@ struct QuietDefaultsTests {
             GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_C), for: .toggleShade)
             expect(GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_C) && !GlobalShortcutSettings.isAllDefault,
                    "recording ⌃⌘C on a new install works and counts as a change")
-            expect(GlobalShortcutSettings.conflictName(for: ctrlCmd(kVK_ANSI_C), excluding: .pinPreview) == GlobalShortcut.toggleShade.title,
+            expect(GlobalShortcutSettings.conflictName(for: ctrlCmd(kVK_ANSI_C), excluding: .arrangeOrFocus) == GlobalShortcut.toggleShade.title,
                    "a recorded combination is reported as taken")
             GlobalShortcutSettings.setHotKey(nil, for: .toggleShade)
             expect(GlobalShortcutSettings.hotKey(for: .toggleShade) == nil && GlobalShortcutSettings.isAllDefault,
@@ -139,7 +123,7 @@ struct QuietDefaultsTests {
             GlobalShortcutSettings.numberedExpandEnabled = true
             expect(GlobalShortcutSettings.numberedExpandEnabled && !GlobalShortcutSettings.isAllDefault,
                    "⌃⌘1…9 can be switched on in Settings")
-            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_N), for: .nextDisplay)
+            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_N), for: .arrangeOrFocus)
             GlobalShortcutSettings.resetAll()
             expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == nil }
                     && !GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.isAllDefault,
@@ -148,15 +132,15 @@ struct QuietDefaultsTests {
 
         withDefaults({ $0.set(true, forKey: "ShadeOnboardingShown") }) { defaults in
             let kept = GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == shipped[$0] }
-            expect(kept, "an upgrade from 1.0.15 keeps exactly its ⌃⌘C / 0 / P / G / arrows and nothing new")
+            expect(kept, "an upgrade from 1.0.15 keeps exactly its ⌃⌘C / ⌃⌘0 and nothing new")
             expect(GlobalShortcutSettings.numberedExpandEnabled, "an upgrade keeps ⌃⌘1…9")
             expect(GlobalShortcutSettings.isAllDefault, "an untouched upgrade still counts as the defaults (restore button stays off)")
             expect(defaults.object(forKey: "GlobalShortcut.toggleShade") == nil, "nothing is copied into the per-shortcut settings")
             // 他关掉一个、改掉一个：照他的；恢复默认回到他原来的那一套，而不是清空。
-            GlobalShortcutSettings.setHotKey(nil, for: .leftHalf)
+            GlobalShortcutSettings.setHotKey(nil, for: .arrangeOrFocus)
             GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_K), for: .toggleShade)
             GlobalShortcutSettings.numberedExpandEnabled = false
-            expect(GlobalShortcutSettings.hotKey(for: .leftHalf) == nil && GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_K)
+            expect(GlobalShortcutSettings.hotKey(for: .arrangeOrFocus) == nil && GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_K)
                     && !GlobalShortcutSettings.numberedExpandEnabled,
                    "an upgrade can still clear or re-record its shortcuts")
             GlobalShortcutSettings.resetAll()
@@ -168,24 +152,51 @@ struct QuietDefaultsTests {
         // 1.0.15 时关掉过 ⌃⌘1…9、清掉过一个：升级后照旧关着。
         withDefaults({
             $0.set(false, forKey: GlobalShortcutSettings.numberedExpandKey)
-            $0.set([Int](), forKey: "GlobalShortcut.pinPreview")
+            $0.set([Int](), forKey: "GlobalShortcut.arrangeOrFocus")
         }) { _ in
-            expect(!GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.hotKey(for: .pinPreview) == nil
+            expect(!GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.hotKey(for: .arrangeOrFocus) == nil
                     && GlobalShortcutSettings.hotKey(for: .toggleShade) == shipped[.toggleShade],
                    "what an upgrade had switched off stays off, the rest keep working")
         }
 
+        // 1.0.16 测试版多占的那几个组合属于已经拿掉的动作：留下的两个照 1.0.15。
         withDefaults({ $0.set(true, forKey: InstallHistory.previewMarker) }) { _ in
-            let expected = shipped.merging(previewOnly) { a, _ in a }
-            expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == expected[$0] },
-                   "a Mac that ran the 1.0.16 preview also keeps ⌃⌘N")
+            expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == shipped[$0] },
+                   "a Mac that ran the 1.0.16 preview keeps ⌃⌘C / ⌃⌘0")
         }
-        withDefaults({
-            $0.set(true, forKey: InstallHistory.previewMarker)
-            $0.set([Int](), forKey: "GlobalShortcut.nextDisplay")
-        }) { _ in
-            expect(GlobalShortcutSettings.hotKey(for: .nextDisplay) == nil,
-                   "a preview default that was left off because it clashed stays off")
+    }
+
+    // MARK: 录制规则
+
+    static func hotKeyPolicy() {
+        func hotKey(_ keyCode: Int, _ modifiers: Int) -> HotKey {
+            HotKey(keyCode: UInt32(keyCode), modifiers: UInt32(modifiers))
         }
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_Q, cmdKey)), "⌘Q is rejected as a reserved shortcut")
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_K, 0)), "unmodified single letters are rejected")
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_K, shiftKey)), "shift-only shortcuts are rejected")
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_K, cmdKey)),
+               "plain ⌘ combinations are rejected (they collide with app shortcuts)")
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_K, cmdKey | shiftKey)), "⌘⇧ combinations are rejected as well")
+        expect(!HotKey.isReserved(hotKey(kVK_ANSI_K, cmdKey | optionKey)), "a deliberate combination is accepted")
+        expect(!HotKey.isReserved(hotKey(kVK_ANSI_K, controlKey)), "control combinations are accepted")
+        let name = HotKey.displayName(for: hotKey(kVK_ANSI_K, cmdKey | shiftKey))
+        expect(name.contains("⌘") && name.contains("⇧") && !name.isEmpty,
+               "display name renders modifier glyphs and a layout key name")
+        expect(HotKey.isModifierOnlyKeyCode(UInt16(kVK_Command)) && HotKey.isModifierOnlyKeyCode(UInt16(kVK_RightOption)),
+               "modifier-only presses are not recorded as shortcuts")
+        expect(!HotKey.isModifierOnlyKeyCode(UInt16(kVK_ANSI_K)), "a real key can be recorded")
+        expect(!HotKey.isReserved(hotKey(kVK_ANSI_C, cmdKey | controlKey)),
+               "the app's own ⌃⌘ combinations can be re-recorded; clashes are checked per setting")
+    }
+
+    static func menuKeyEquivalents() {
+        let menu = GlobalShortcutSettings.menuKeyEquivalent(for: ctrlCmd(kVK_ANSI_C))
+        expect(menu?.modifiers == [.control, .command] && menu?.key.count == 1 && menu?.key == menu?.key.lowercased(),
+               "menu items show a lower-case key so AppKit does not add a phantom ⇧")
+        let f5 = ctrlCmd(kVK_F5)
+        let f5Name = HotKey.displayName(for: f5)
+        expect(GlobalShortcutSettings.menuKeyEquivalent(for: f5) == nil || f5Name.drop { "⌃⌥⇧⌘".contains($0) }.count == 1,
+               "keys whose name is not one character are not squeezed into a menu key (\(f5Name))")
     }
 }

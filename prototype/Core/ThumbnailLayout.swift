@@ -12,7 +12,7 @@ enum ThumbnailLayout {
     static let box: CGFloat = 180
     /// 短边至少这么长，太扁的窗口也点得中；这时长边最多到 2 × box，多出来的画面裁掉。
     static let minShortSide: CGFloat = 28
-    /// 圆角：和窗口浏览里的卡片同一档（SystemCornerRadius.item）。
+    /// 圆角：SystemCornerRadius.item 那一档。
     static let cornerRadius: CGFloat = 8
     /// 右下角的 App 图标。
     static let iconSize: CGFloat = 26

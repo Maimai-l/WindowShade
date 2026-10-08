@@ -36,7 +36,7 @@ extension AppDelegate {
   ) {
     let id = state.sourceWindowID
     let token = UUID()
-    duoRestoreVerificationTokens[id] = token
+    restoreVerificationTokens[id] = token
     markShadeJournalStage(id: id, .restoring, reason: "awaiting-restore-verification")
     // Keep the last durable position current even when the strip was dragged.
     updateShadeJournal(id: id, reason: "restore-target") { entry in
@@ -46,15 +46,15 @@ extension AppDelegate {
     }
     RestoreVerifier(
       now: CACurrentMediaTime,
-      schedule: { delay, action in runOnMainQueue(after: delay, action) }, isCurrent: { [weak self] in self?.duoRestoreVerificationTokens[id] == token },
+      schedule: { delay, action in runOnMainQueue(after: delay, action) }, isCurrent: { [weak self] in self?.restoreVerificationTokens[id] == token },
       observe: { [weak self] in self?.observeRestoredWindow(state, to: position) ?? .pending },
       acknowledge: { [weak self] in self?.clearShadeJournal(id: id) },
       completion: { [weak self] success in
-        self?.duoRestoreVerificationTokens.removeValue(forKey: id)
+        self?.restoreVerificationTokens.removeValue(forKey: id)
         completion?(success)
         if !success {
           wlog(
-            "duo: restoration not visible; recovery record retained unless closure confirmed id=\(id)"
+            "restore: window not visible; recovery record kept unless it was closed id=\(id)"
           )
         }
       }

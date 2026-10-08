@@ -1,10 +1,10 @@
 
 // Appended to Glance.swift by the runner to exercise actual session transitions
 // without a screen-capture stream, real window, or AX write.
-@MainActor private final class LifecycleCarrySource: GlanceCarrySource {
+@MainActor private final class LifecycleSource {
     let frame = NSRect(x: 100, y: 100, width: 260, height: 30)
-    /// The strip can outlive the carried window: a target lookup may start
-    /// failing while `carriedStripFrame` still answers.
+    /// The strip can outlive its window's glance: a target lookup may start
+    /// failing while the strip is still on screen.
     var target: GlanceTarget?
 
     init() {
@@ -13,23 +13,19 @@
                               snapshot: nil, pid: 123_456, bundleID: "test.lifecycle",
                               accessibilityTitle: "test", staleText: "test")
     }
-
-    func carriedStripFrame(_ id: CGWindowID) -> NSRect? { frame }
-    func glanceTarget(forCarried id: CGWindowID) -> GlanceTarget? { target }
-    func openCarriedWindow(_ id: CGWindowID) {}
 }
 
 extension GlanceController {
     @MainActor static func verifyLifecycle() {
         let owner = AppDelegate()
         let controller = GlanceController(owner: owner)
-        let source = LifecycleCarrySource()
-        controller.carrySource = source
+        let source = LifecycleSource()
+        controller.testTarget = { _ in (source.frame, source.target) }
         controller.clock = { 10 }
         let id: CGWindowID = 4_000_001
         func install() -> GlanceSession {
             let session = GlanceSession(id: id, preparedAt: 1, stripFrame: source.frame,
-                                        liveExpected: true, carried: false)
+                                        liveExpected: true)
             session.pid = 123_456
             session.viaUnhide = true
             controller.sessions[id] = session
@@ -92,8 +88,8 @@ extension GlanceController {
         precondition(controller.sessions[id] === preparing && restored == [id])
         controller.finish(preparing, reason: "test-cleanup")
 
-        // The strip can still be on screen while its carried window is no longer
-        // carried: opening must not leave the preparing session and intent alive.
+        // The strip can still be on screen while its window can no longer be
+        // glanced: opening must not leave the preparing session and intent alive.
         controller.apply(controller.intent.entered(id, at: 1))
         let stale = controller.sessions[id]
         precondition(stale != nil && stale!.stage == .preparing && !stale!.liveExpected)
@@ -111,23 +107,21 @@ extension GlanceController {
         precondition(controller.intent.blocked.isEmpty)
         precondition(!controller.needsTimer, "Nothing left to sample: the timer must stop")
         // Restore the fixture so later scenarios still see a target.
-        source.target = LifecycleCarrySource().target
+        source.target = LifecycleSource().target
     }
 }
 
-@MainActor private final class StagedOpenCarrySource: GlanceCarrySource {
+@MainActor private final class StagedOpenSource {
     let frame = NSRect(x: 100, y: 100, width: 260, height: 30)
     var snapshot: CGImage?
     let source: GlanceTarget.Source = .stream
 
-    func carriedStripFrame(_ id: CGWindowID) -> NSRect? { frame }
-    func glanceTarget(forCarried id: CGWindowID) -> GlanceTarget? {
+    var target: GlanceTarget {
         GlanceTarget(strip: frame, panel: frame, card: frame, picture: frame,
                      backdropArea: nil, cornerRadius: 8, source: source,
                      snapshot: snapshot, pid: 123_456, bundleID: "test.lifecycle",
                      accessibilityTitle: "test", staleText: "收起时的画面")
     }
-    func openCarriedWindow(_ id: CGWindowID) {}
 }
 
 extension GlanceController {
@@ -135,14 +129,14 @@ extension GlanceController {
     @MainActor static func verifyOpenStaging() {
         let owner = AppDelegate()
         let controller = GlanceController(owner: owner)
-        let source = StagedOpenCarrySource()
-        controller.carrySource = source
+        let source = StagedOpenSource()
+        controller.testTarget = { _ in (source.frame, source.target) }
         let id: CGWindowID = 4_100_001
         var now = 10.0
         controller.clock = { now }
         func install() -> GlanceSession {
             let session = GlanceSession(id: id, preparedAt: 1, stripFrame: source.frame,
-                                        liveExpected: true, carried: true)
+                                        liveExpected: true)
             session.pid = 123_456
             controller.sessions[id] = session
             return session
@@ -194,25 +188,6 @@ extension GlanceController {
         _ = NSApplication.shared
         GlanceController.verifyLifecycle()
         GlanceController.verifyOpenStaging()
-        let element = AXUIElementCreateApplication(getpid())
-        var events: [String] = []
-        let opened = CarryController.restoreForOpening(element,
-            isMinimized: { _ in true },
-            unminimize: { _ in events.append("unminimize"); return .success },
-            bringForward: { events.append("front") })
-        precondition(opened && events == ["unminimize", "front"])
-        events = []
-        let failed = CarryController.restoreForOpening(element,
-            isMinimized: { _ in true },
-            unminimize: { _ in events.append("unminimize"); return .cannotComplete },
-            bringForward: { events.append("front") })
-        precondition(!failed && events == ["unminimize"], "Do not focus another window after failed restoration")
-        events = []
-        let visible = CarryController.restoreForOpening(element,
-            isMinimized: { _ in false },
-            unminimize: { _ in preconditionFailure("No AX write needed for a visible window") },
-            bringForward: { events.append("front") })
-        precondition(visible && events == ["front"])
         print("GlanceLifecycleTests passed")
     }
 }

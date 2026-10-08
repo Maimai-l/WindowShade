@@ -1,7 +1,6 @@
 // 应用自己的全局快捷键：每个动作一条可改、可关的组合。
 // 1.0.16 起新装的一个都不占（docs/direction.md“少做”：⌃⌘ 那一组要的人自己在设置里录）；从以前的版本升级上来的，
 // 没改过的那几个照他原来在用的（新装还是升级见文件末尾的 InstallHistory）。
-// 窗口浏览的快捷键仍存在 WindowBrowserSettings 里（默认不注册），这里只统一读写与查冲突。
 
 import Cocoa
 import Carbon.HIToolbox
@@ -9,72 +8,12 @@ import Carbon.HIToolbox
 enum GlobalShortcut: String, CaseIterable {
     case toggleShade
     case arrangeOrFocus
-    case pinPreview
-    case windowBrowser
-    case carry
-    // 排布当前窗口：和标题栏手势是同一架梯子（卷帘条 ⇄ 原来大小 ⇄ 铺满屏幕），左右占半屏。
-    case stepSmaller
-    case stepLarger
-    case leftHalf
-    case rightHalf
-    /// 暂时取消全部置顶 / 恢复（老板键）：默认不占快捷键，需要的人在设置里录一个。
-    case suspendPins
-    /// 当前窗口移到下一块屏幕，排法不变（显示器上下摆时，左右梯子走不过去）。
-    case nextDisplay
-    /// Rectangle、Raycast 里有的那些排法：默认不占快捷键，在设置里录一个，或一键换成 Rectangle 的那一套。
-    case topHalf
-    case bottomHalf
-    case topLeft
-    case topRight
-    case bottomLeft
-    case bottomRight
-    case leftThird
-    case centerThird
-    case rightThird
-    case leftTwoThirds
-    case rightTwoThirds
-    case fill
-    case fullHeight
-    case larger
-    case smaller
-    case center
-    case undoPlacement
-    case previousDisplay
-
-    typealias HotKey = WindowBrowserSettings.HotKey
 
     /// Carbon 热键编号：事件处理按它分派，与 1.0 起的编号一致；拿掉的动作空出的编号不再复用。
     var hotKeyID: UInt32 {
         switch self {
         case .toggleShade: return 1
         case .arrangeOrFocus: return 2
-        case .pinPreview: return 3
-        case .windowBrowser: return 4
-        case .carry: return 5
-        case .stepSmaller: return 6
-        case .stepLarger: return 7
-        case .leftHalf: return 8
-        case .rightHalf: return 9
-        case .suspendPins: return 12
-        case .nextDisplay: return 14
-        case .topHalf: return 16
-        case .bottomHalf: return 17
-        case .topLeft: return 18
-        case .topRight: return 19
-        case .bottomLeft: return 20
-        case .bottomRight: return 21
-        case .leftThird: return 22
-        case .centerThird: return 23
-        case .rightThird: return 24
-        case .leftTwoThirds: return 25
-        case .rightTwoThirds: return 26
-        case .fill: return 27
-        case .fullHeight: return 28
-        case .larger: return 29
-        case .smaller: return 30
-        case .center: return 31
-        case .undoPlacement: return 32
-        case .previousDisplay: return 33
         }
     }
 
@@ -83,38 +22,11 @@ enum GlobalShortcut: String, CaseIterable {
         switch self {
         case .toggleShade: return "收起或展开当前窗口"
         case .arrangeOrFocus: return "整理卷帘条"
-        case .pinPreview: return "置顶或取消置顶当前窗口"
-        case .windowBrowser: return "选择窗口…"
-        case .carry: return "把当前窗口带到每张桌面"
-        case .stepSmaller: return "变小一级"
-        case .stepLarger: return "变大一级"
-        case .leftHalf: return "左半屏"
-        case .rightHalf: return "右半屏"
-        case .suspendPins: return "暂时取消全部置顶"
-        case .nextDisplay: return "移到另一块屏幕"
-        case .topHalf: return "上半屏"
-        case .bottomHalf: return "下半屏"
-        case .topLeft: return "左上角"
-        case .topRight: return "右上角"
-        case .bottomLeft: return "左下角"
-        case .bottomRight: return "右下角"
-        case .leftThird: return "左三分之一"
-        case .centerThird: return "中间三分之一"
-        case .rightThird: return "右三分之一"
-        case .leftTwoThirds: return "左三分之二"
-        case .rightTwoThirds: return "右三分之二"
-        case .fill: return "铺满屏幕"
-        case .fullHeight: return "高度占满"
-        case .larger: return "大一点"
-        case .smaller: return "小一点"
-        case .center: return "居中"
-        case .undoPlacement: return "撤销上次排布"
-        case .previousDisplay: return "移到上一块屏幕"
         }
     }
 
-    /// 各版本出厂就占着的组合：新装的一个都不占；1.0.15 及以前是 ⌃⌘C、0、P、G 和四个方向键；
-    /// 1.0.16 测试版另占 ⌃⌘N。只用来让升级上来的人照原样用下去，不再给新装的。
+    /// 各版本出厂就占着的组合：新装的一个都不占；1.0.15 及以前是 ⌃⌘C 和 ⌃⌘0。
+    /// 只用来让升级上来的人照原样用下去，不再给新装的。
     func factoryHotKey(for history: InstallHistory) -> HotKey? {
         guard history.hadFactoryShortcuts else { return nil }
         let controlCommand = UInt32(controlKey | cmdKey)
@@ -122,16 +34,6 @@ enum GlobalShortcut: String, CaseIterable {
         switch self {
         case .toggleShade: return key(kVK_ANSI_C)
         case .arrangeOrFocus: return key(kVK_ANSI_0)
-        case .pinPreview: return key(kVK_ANSI_P)
-        case .carry: return key(kVK_ANSI_G)
-        case .stepSmaller: return key(kVK_UpArrow)
-        case .stepLarger: return key(kVK_DownArrow)
-        case .leftHalf: return key(kVK_LeftArrow)
-        case .rightHalf: return key(kVK_RightArrow)
-        case .nextDisplay: return history == .preview ? key(kVK_ANSI_N) : nil
-        case .windowBrowser, .suspendPins, .topHalf, .bottomHalf, .topLeft, .topRight, .bottomLeft, .bottomRight, .leftThird,
-             .centerThird, .rightThird, .leftTwoThirds, .rightTwoThirds, .fill, .fullHeight, .larger, .smaller, .center,
-             .undoPlacement, .previousDisplay: return nil
         }
     }
 
@@ -139,8 +41,6 @@ enum GlobalShortcut: String, CaseIterable {
 }
 
 enum GlobalShortcutSettings {
-    typealias HotKey = WindowBrowserSettings.HotKey
-
     static let numberedExpandKey = "GlobalShortcut.numberedExpand"
     /// ⌃⌘1…9 这一组的修饰键：编号和菜单顺序绑定，不单独改键，只能整组开关。
     static let numberedModifiers = UInt32(controlKey | cmdKey)
@@ -157,12 +57,11 @@ enum GlobalShortcutSettings {
 
     /// 没动过时的组合：新装的一个都不占；升级上来的照他原来在用的出厂组合。
     static func defaultHotKey(for shortcut: GlobalShortcut) -> HotKey? {
-        shortcut == .windowBrowser ? nil : shortcut.factoryHotKey(for: history)
+        shortcut.factoryHotKey(for: history)
     }
 
     /// 当前组合；nil 表示没设或关掉了。没设置过时就是默认值。
     static func hotKey(for shortcut: GlobalShortcut) -> HotKey? {
-        if shortcut == .windowBrowser { return WindowBrowserSettings.hotKey }
         guard let stored = defaults.array(forKey: shortcut.defaultsKey) as? [Int] else {
             return defaultHotKey(for: shortcut)
         }
@@ -171,10 +70,6 @@ enum GlobalShortcutSettings {
     }
 
     static func setHotKey(_ hotKey: HotKey?, for shortcut: GlobalShortcut) {
-        if shortcut == .windowBrowser {
-            WindowBrowserSettings.hotKey = hotKey
-            return
-        }
         if hotKey == defaultHotKey(for: shortcut) {
             defaults.removeObject(forKey: shortcut.defaultsKey)
         } else if let hotKey {
@@ -204,11 +99,7 @@ enum GlobalShortcutSettings {
     static func resetAll() {
         for shortcut in GlobalShortcut.allCases { setHotKey(defaultHotKey(for: shortcut), for: shortcut) }
         numberedExpandEnabled = numberedExpandDefault
-        defaults.removeObject(forKey: directionKeysRecordKey)
     }
-
-    /// 方向键换成字母之前四个方向是什么（换回来用，见 App/DirectionKeyPresets.swift）。恢复默认时一并忘掉。
-    static let directionKeysRecordKey = "GlobalShortcut.directionKeys"
 
     /// 这个组合已经被本应用的哪个动作占用（`excluding` 是正在录制的那一个）。
     /// 返回用户看得懂的名字；没冲突返回 nil。
@@ -224,7 +115,7 @@ enum GlobalShortcutSettings {
     }
 
     static func displayName(for shortcut: GlobalShortcut) -> String? {
-        hotKey(for: shortcut).map(WindowBrowserSettings.displayName(for:))
+        hotKey(for: shortcut).map(HotKey.displayName(for:))
     }
 
     static let numberedDisplayName = "⌃⌘1…9"
@@ -232,7 +123,7 @@ enum GlobalShortcutSettings {
     /// 菜单项上显示的按键：只处理单个字符的键；功能键等显示不了的返回 nil，
     /// 快捷键本身照常生效。
     static func menuKeyEquivalent(for hotKey: HotKey) -> (key: String, modifiers: NSEvent.ModifierFlags)? {
-        let key = WindowBrowserSettings.displayName(for: hotKey)
+        let key = HotKey.displayName(for: hotKey)
             .drop { "⌃⌥⇧⌘".contains($0) }
         guard key.count == 1, let character = key.first,
               character.isLetter || character.isNumber || character.isPunctuation else { return nil }

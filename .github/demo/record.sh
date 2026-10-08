@@ -16,7 +16,6 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp prototype/Info.plist "$APP/Contents/Info.plist"
 cp "$OUT/bin/WindowShade" "$APP/Contents/MacOS/WindowShade"
-cp "$OUT/bin/Duo.metallib" "$APP/Contents/Resources/Duo.metallib"
 cp assets/app-icon/WindowShade.icns "$APP/Contents/Resources/" 2>/dev/null || true
 ditto prototype/Vendor/Sparkle.framework "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --deep -s - "$APP"

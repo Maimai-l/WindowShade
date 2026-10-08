@@ -167,7 +167,7 @@ extension AppDelegate {
             ?? sourceDisplayID.flatMap { mover.currentSpace(displayID: $0) }
     }
     func shade(_ win: AXUIElement, _ id: CGWindowID,
-                       options: ShadeInvocationOptions? = nil, bypassDuo: Bool = false,
+                       options: ShadeInvocationOptions? = nil,
                        preparedImage: CGImage? = nil, trustElement: Bool = false,
                        preparedProfile: WindowChromeProfile? = nil,
                        recordedPosition: CGPoint? = nil) {
@@ -198,13 +198,6 @@ extension AppDelegate {
         defer { endAppWindowsMemo(memoScope) }
         let win = foldPhase("元素刷新") {
             refreshedWindowElement(id: id, fallback: win, trustFallback: trustElement)
-        }
-        // 缩略图有自己的收起动画（截图缩进缩略图，见 Thumbnail.swift），不再播卷帘动画；
-        // 手势跟手中已经开始的那一段照旧交给它收尾。
-        let thumbnailFold = (options?.forcedAppearanceMode ?? appearanceMode) == .thumbnail
-            && !duoController.windowEffects.hasActiveTransition(for: id)
-        if !bypassDuo, !thumbnailFold, duoController.windowEffects.interceptFold(win, id: id, options: options) {
-            return
         }
         // 状态机防护：折叠中/已折叠/展开中的窗口再次触发折叠一律忽略，
         // 避免状态损坏（与 shadeOperationIDs 在途去重互为冗余）。
@@ -342,10 +335,8 @@ extension AppDelegate {
                 quietNotice("恢复记录存不下来，窗口没有收起", log: "shade: refusing hide without durable intent id=\(id)")
                 return
             }
-            // 这里不套 foldPhase 的闭包写法：tests/duo-integration-check.py 用
-            // 「recordShadeRecoveryIntent 出现在 let hide = hideWindow( 之前」这条
-            // 源码顺序断言守卫崩溃一致性，包装会让它认不出来。改成手工计时，
-            // 既保留分段数据，也不动那道守卫认的文本。
+            // 恢复记录必须先于隐藏写下（崩溃一致性），这里手工计时、不套 foldPhase 的闭包写法，
+            // 让这条顺序在源码里一眼可见。
             var finalPID: pid_t = 0
             if AXUIElementGetPid(win, &finalPID) != .success || finalPID != pid || windowID(of: win) != id || !admissionCurrent() {
                 dismissOverlay(overlay); transitionOperationState(id: id, to: .failed, reason: "changed-before-hide")
@@ -397,8 +388,7 @@ extension AppDelegate {
             // 尚未翻转、NSRunningApplication.isHidden 缓存滞后），立即验证会产生假阴性。
             // 立即通过 → 立即 reveal；否则延迟验证（+0.15/+0.45s），通过后才 reveal，
             // 两次仍失败才补救/回滚。见 scheduleFoldVerification。
-            // 与上面的 hideWindow 同理：duo-integration-check.py 用这行的源码文本
-            // 断言「验证发生在 didVerifyFold 之前」，所以手工计时不做包装。
+            // 与上面的 hideWindow 同理，手工计时不做包装。
             let verifyStartedAt = CFAbsoluteTimeGetCurrent()
             let hideVerifiedNow = hideTookEffect(hide, win: win, pid: pid, id: id, size: size)
             foldPhaseTotals["隐藏验证", default: 0] += CFAbsoluteTimeGetCurrent() - verifyStartedAt
@@ -439,8 +429,6 @@ extension AppDelegate {
                 bindFoldWaiters(id: id, tokens: completionTokens, transaction: state.foldTransactionID)
             }
             MainActor.assumeIsolated {
-                // 收起一扇带到每张桌面的窗口：它不再需要别处的卷帘条。
-                carry.stopIfCarried(id, reason: "shaded")
                 glance.attach(id: id, overlay: overlay)
             }
             foldPhase("状态机转换") {
@@ -466,7 +454,6 @@ extension AppDelegate {
                 }
                 if spaceInvariantHeld {
                     foldPhase("显示卷帘条") { revealPreparedOverlay(overlay, fade: mode == .thumbnail) }
-                    duoController.windowEffects.didVerifyFold(id: id, state: state)
                 }
                 // Hiding is committed even if the user switched away from its Space.
                 completeFold(success: true, transaction: state.foldTransactionID)
@@ -568,11 +555,6 @@ extension AppDelegate {
                     self.transitionOperationState(id: id, to: .failed, reason: "shade-capture-abort")
                     completeFold(success: false)
                 }
-            }
-            // 收起一个正被置顶捕获的窗口：先停掉置顶流。流在时系统会在它的红绿灯处画录屏胶囊；
-            // 截到的胶囊由 captureWindow 抹掉，不必再干等它消失（原先固定等 500ms）。
-            if self.pinnedPreviewController.stopPreviewBeforeFoldCapture(id: id), preparedImage == nil {
-                wlog("    pinned stream stopped before fold capture")
             }
             let shouldParkFocus = preparedImage == nil && !profile.isQuickLook
             if shouldParkFocus {

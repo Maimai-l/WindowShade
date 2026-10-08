@@ -1,18 +1,16 @@
 // 全应用共享的系统外观策略。
 //
-// 卷帘条、置顶预览、悬停缩略图、代理标题栏与窗口浏览面板都从这一份策略读取
+// 卷帘条、悬停缩略图、看一眼和代理标题栏都从这一份策略读取
 // 材质、边线、薄纱与动画时长，避免每个表面各自判断辅助功能开关：
 // - 减少透明度：改用不透明语义底色 + withinWindow 混合，并去掉内容薄纱；
 // - 提高对比度：边线加粗、去掉顶部高光、阴影加深，vibrancy 更实；
 // - 减少动态效果：所有新增过渡时长为 0；
-// - 系统支持公开玻璃 API 时，全应用只有窗口浏览面板本身是一层玻璃（内容挂在
-//   NSGlassEffectView.contentView 里）；内容/预览表面保持系统材质或系统填充色，
-//   不在窗口画面上再叠折射。
+// - 内容/预览表面保持系统材质或系统填充色，不在窗口画面上叠玻璃折射。
 
 import Cocoa
 
 enum SystemAppearancePurpose: String {
-    /// 悬浮面板与置顶预览的标题条。
+    /// 悬浮面板的标题条。
     case floatingChrome
     /// 悬停缩略图、菜单预览这类短暂出现的画面。
     case transientPeek
@@ -92,15 +90,6 @@ enum SystemAppearancePolicy {
     /// 顶边高光只在普通对比度下出现：高对比度下它是多余的噪声。
     static func highlightAlpha(_ capabilities: SystemAppearanceCapabilities) -> CGFloat {
         capabilities.increaseContrast ? 0 : 0.9
-    }
-
-    /// 卡片/列表行的状态文字色。11 pt 的 secondaryLabelColor 在浅色卡片上约 3.9:1，
-    /// 低于 HIG 对 17 pt 以下文字的 4.5:1；「提高对比度」打开时提到正文色，
-    /// 与同一开关下加粗的边线一致。警告状态仍用橙色。
-    static func statusTextColor(warning: Bool,
-                                _ capabilities: SystemAppearanceCapabilities = .current) -> NSColor {
-        if warning { return .systemOrange }
-        return capabilities.increaseContrast ? .labelColor : .secondaryLabelColor
     }
 
     static func shadowColor(_ capabilities: SystemAppearanceCapabilities) -> NSColor {
@@ -192,8 +181,7 @@ enum SystemCornerRadius {
     static let window: CGFloat = 13
     /// 内容级卡片、设置页分组盒。
     static let card: CGFloat = 12
-    /// 窗口浏览面板里的卡片、列表行、详情栏：嵌在 13 pt 面板里、距边 12 pt，
-    /// 取介于窗口级与控件级之间的 8 pt（严格同心会退化成 1 pt）。
+    /// 嵌在面板里的卡片和列表行：取介于窗口级与控件级之间的 8 pt。
     static let item: CGFloat = 8
     /// 控件级：自绘小按钮、chip、列表内小色块。
     static let control: CGFloat = 6

@@ -94,7 +94,7 @@ func cgWindowID(for window: NSWindow) -> CGWindowID? {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    let duoController = DuoController()
+    var settingsWindow: SettingsWindow?
     final class PendingTitlebarTripleClick {
         let id: CGWindowID
         let point: CGPoint
@@ -182,7 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var privateAlphaKnownIneffective = false
     // 跨进程的 SkyLight 挪窗口同理：第一次挪不动以后不再试，每试一次都要向目标 App 读好几次窗口位置。
     var privateOffscreenKnownIneffective = false
-    var duoRestoreVerificationTokens: [CGWindowID: UUID] = [:]
+    var restoreVerificationTokens: [CGWindowID: UUID] = [:]
     var restoreFocusTokens: [CGWindowID: UUID] = [:]
     var recoveryJournalOverride: DurableShadeJournal?
     var lastJournalRescueAttempt: Date?
@@ -207,28 +207,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var hoverPreviewSuppressedUntil: [CGWindowID: Date] = [:]
     var statusNoticeWorkItem: DispatchWorkItem?
     var onboardingWindow: NSWindow?
-    // 窗口浏览入口的折叠终态等待者：键 = 原窗口 ID，值 = token -> 回调。
-    // 折叠事务是异步的（立即验证 / 延迟验证 / 回滚），浏览器动作只在真实终态
-    // 到达时才完成；token 保证旧请求不会误结算新请求。
+    // 等折叠终态的回调（标题栏三击要等收起真正完成）：键 = 原窗口 ID，值 = token -> 回调。
+    // 折叠事务是异步的（立即验证 / 延迟验证 / 回滚），只在真实终态到达时才回调；
+    // token 保证旧请求不会误结算新请求。
     var foldWaiters: [CGWindowID: [UUID: (Bool) -> Void]] = [:]
     var foldWaiterTransactions: [UUID: UUID] = [:]
     var foldObserverSerial: UInt = 0
     var foldObserverRoutes: [UInt: FoldObserverRoute] = [:]
     var foldPresentationID = UUID()
-    var windowBrowserController: WindowBrowserController?
-    var windowBrowserHotKeyRef: EventHotKeyRef?
     var menuRebuildWorkItem: DispatchWorkItem?
     var suppressMenuRebuilds = false
     var pendingMenuRebuild = false
     var isUpdatingMenuFromDelegate = false
-    private var pinnedPreviewFocusMonitor: Any?
-    private var pinnedPreviewTargetRefreshWorkItem: DispatchWorkItem?
+    private var mouseDownMonitor: Any?
     private var titlebarPrefetchInFlight = false
     private var titlebarPrefetchGeneration: UInt64 = 0
     var spaceRefreshWorkItem: DispatchWorkItem?
-    /// 上一次看到的显示器与各屏可用区域，用来分辨“真的换了屏”和“只是菜单栏、Dock 变了”。
+    /// 上一次看到的显示器，用来分辨“真的换了屏”和“只是菜单栏、Dock 变了”。
     var lastDisplayLayout = DisplayLayout(screens: [])
-    var lastVisibleFrames: [CGRect] = []
     private var appNapActivity: NSObjectProtocol?
     weak var onboardingPermissionStack: NSStackView?
     weak var onboardingProgressLabel: NSTextField?
@@ -278,21 +274,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                            rebuildMenuAfterInstall: false)
     /// 看一眼：指针停在卷帘条上，窗口原样出现，移开就收回。
     lazy var glance = MainActor.assumeIsolated { GlanceController(owner: self) }
-    /// 带到每张桌面：窗口留在自己的桌面，别的桌面上看得到它的卷帘条。
-    lazy var carry = MainActor.assumeIsolated { CarryController(owner: self) }
-    lazy var gestures = MainActor.assumeIsolated { TrackpadGestureController(owner: self) }
-    /// Dock 留在一块屏上（见 DockLock.swift）。
-    lazy var dockLock = MainActor.assumeIsolated { DockLock() }
-    /// 调度中心里按 ⌘W 关窗、⌘Q 退出 App（见 MissionControlKeys.swift）。
-    lazy var missionControlKeys = MissionControlKeys()
-    lazy var pinnedPreviewController = PinnedPreviewController(
-        notice: { [weak self] message, log in
-            self?.quietNotice(message, log: log)
-        },
-        sessionsDidChange: { [weak self] in
-            self?.scheduleMenuRebuild()
-        }
-    )
 
     func applicationDidFinishLaunching(_ note: Notification) {
         // 新装还是升级：赶在这一次启动写下任何设置之前认一次、存下来（声音迁移每次启动都写，清理收起记录会删键；
@@ -300,7 +281,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = InstallHistory.settled(in: .standard)
         // 代理应用也要有标准主菜单：文本编辑快捷键与 ⌘W 都靠它的 key equivalent 派发。
         installStandardMainMenu()
-        duoController.start(owner: self)
         let sessionFormatter = DateFormatter()
         sessionFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         sessionFormatter.locale = Locale(identifier: "en_US_POSIX")
@@ -327,19 +307,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         logIfSlow("launch onboarding", threshold: 0.1) { showPermissionOnboardingIfNeeded(force: false) }
         logIfSlow("launch eventTap", threshold: 0.1) { setupEventTapWhenTrusted() }
-        logIfSlow("launch gestures", threshold: 0.1) {
-            MainActor.assumeIsolated { gestures.refreshMonitors() }
-        }
         installStripKeyForwarding()
-        dockLock.apply()
-        missionControlKeys.applySetting()
-        ArrangeGap.points = CGFloat(UserDefaults.standard.double(forKey: ArrangeGap.defaultsKey))
-        logIfSlow("launch pinTracking", threshold: 0.1) { setupPinnedPreviewFocusTracking() }
-        logIfSlow("launch windowBrowser", threshold: 0.1) {
-            let browser = WindowBrowserController(owner: self)
-            windowBrowserController = browser
-            browser.start()
-        }
+        setupMouseDownMonitor()
         NSWorkspace.shared.notificationCenter.addObserver(self,
                                                           selector: #selector(appTerminated(_:)),
                                                           name: NSWorkspace.didTerminateApplicationNotification,
@@ -353,13 +322,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                           name: NSWorkspace.activeSpaceDidChangeNotification,
                                                           object: nil)
         lastDisplayLayout = .current()
-        lastVisibleFrames = NSScreen.screens.map(\.visibleFrame)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(screenParametersChanged(_:)),
                                                name: NSApplication.didChangeScreenParametersNotification,
                                                object: nil)
         // 系统外观开关（减少透明度 / 提高对比度 / 减少动态效果）变化时，
-        // 已打开的卷帘条、悬停缩略图、置顶预览与窗口浏览面板立即跟着刷新。
+        // 已打开的卷帘条和悬停缩略图立即跟着刷新。
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(systemAppearanceOptionsChanged(_:)),
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
@@ -406,13 +374,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             content.needsDisplay = true
             (content as? TitleStripView)?.applySystemAppearance(capabilities: capabilities)
         }
-        // 置顶预览会话与临时悬停缩略图。
-        pinnedPreviewController.refreshSystemAppearance(capabilities: capabilities)
+        // 临时悬停缩略图。
         (activePreview?.window.contentView as? SafariStylePreviewView)?
             .applySystemAppearance(capabilities: capabilities)
-        (activePreview?.window.contentView as? PinnedLivePreviewView)?
-            .applySystemAppearance(capabilities: capabilities)
-        windowBrowserController?.refreshSystemAppearance()
     }
 
     /// 安装标准最小主菜单（关于/设置/服务/隐藏/退出 + 编辑 + 窗口）。
@@ -454,24 +418,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 
 
-    // 目标解析是后台单飞 AX 工作；只有实际 target 改变才重建菜单。这样一次点击
-    // 不会再形成“刷新 → rebuild → 再刷新”的同步 AX 放大链路。
-    func refreshPinnedPreviewTarget(reason: String) {
-        pinnedPreviewController.refreshCurrentTarget(reason: reason) { [weak self] _, didChange in
-            guard didChange else { return }
-            self?.scheduleMenuRebuild()
-        }
-    }
-
-    private func setupPinnedPreviewFocusTracking() {
-        refreshPinnedPreviewTarget(reason: "launch")
-        pinnedPreviewFocusMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            // NSEvent 全局 monitor 仍在主线程回调；连 WindowServer 的标题栏预过滤
+    /// 每次按下鼠标：可能是双击标题栏的第一下，先在后台预热截图要用的窗口清单。
+    private func setupMouseDownMonitor() {
+        mouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            // NSEvent 全局 monitor 在主线程回调；连 WindowServer 的标题栏预过滤
             // 也可能很慢。预热整体放到后台，连续点击至多留一份工作，过时结果直接丢弃。
-            if #available(macOS 14.0, *), event.type == .leftMouseDown {
+            if #available(macOS 14.0, *) {
                 self?.scheduleTitlebarPrefetch()
             }
-            self?.schedulePinnedPreviewTargetRefresh()
         }
     }
 
@@ -495,17 +449,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // 连续点击只在停顿后请求一次后台 AX 解析；全局 monitor 与菜单路径都不会
-    // 同步等待它。真正置顶动作会强制拿到新 target 后才继续。
-    private func schedulePinnedPreviewTargetRefresh() {
-        pinnedPreviewTargetRefreshWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.pinnedPreviewTargetRefreshWorkItem = nil
-            self?.refreshPinnedPreviewTarget(reason: "global-mouse-down")
-        }
-        pinnedPreviewTargetRefreshWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
-    }
 
 
 
@@ -579,8 +522,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // 动态翻转折叠项标题，与 ⌃⌘C 实际行为一致。这里绝不能为菜单文案同步读
-    // focusedWindow：忙 app 的 AX timeout 会把每一次菜单重建卡住。使用置顶预览
-    // 控制器维护的后台 target 快照；快照尚未就绪时宁可显示保守的“折叠”。
+    // focusedWindow：忙 app 的 AX timeout 会把每一次菜单重建卡住。只看本应用自己的窗口；
+    // 认不出时宁可显示保守的“收起”。
 
     func currentShadedOverlayID() -> CGWindowID? {
         let activeWindows = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
@@ -769,16 +712,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ note: Notification) {
         UpdaterController.shared.applicationWillTerminate()
-        duoController.stop()
-        windowBrowserController?.stop()
         restoreAll()
         reconcileTimer?.invalidate()
         reconcileTimer = nil
-        if let pinnedPreviewFocusMonitor {
-            NSEvent.removeMonitor(pinnedPreviewFocusMonitor)
-            self.pinnedPreviewFocusMonitor = nil
+        if let mouseDownMonitor {
+            NSEvent.removeMonitor(mouseDownMonitor)
+            self.mouseDownMonitor = nil
         }
-        pinnedPreviewController.stopAllPreviews(reason: "terminate")
         eventTapReenableWorkItem?.cancel()
         eventTapReenableWorkItem = nil
         // 退出前还原 Dock 偏好：同步等在途子进程排空，再按持久化 session 键

@@ -12,8 +12,6 @@ extension AppDelegate {
         let history = GlobalShortcutSettings.history
         wlog("hotkey: install history=\(history) factory ⌃⌘ shortcuts \(history.hadFactoryShortcuts ? "kept" : "off")")
         registerGlobalShortcuts()
-        // Dock 图标上的两指上下滑（默认关，见 DockSwipe.swift）：开着的话随启动装上监听；设置里开关时再装、拆。
-        MainActor.assumeIsolated { DockSwipeController.shared.apply(owner: self) }
     }
 
     private func installHotKeyHandler() {
@@ -41,7 +39,7 @@ extension AppDelegate {
         for ref in hotKeyRefs.values { UnregisterEventHotKey(ref) }
         hotKeyRefs.removeAll()
         var failed: [UInt32: (name: String, status: OSStatus)] = [:]
-        func register(_ hotKey: GlobalShortcutSettings.HotKey, id: UInt32, name: String) {
+        func register(_ hotKey: HotKey, id: UInt32, name: String) {
             var ref: EventHotKeyRef?
             let hkID = EventHotKeyID(signature: OSType(0x57534844), id: id) // 'WSHD'
             let status = RegisterEventHotKey(hotKey.keyCode, hotKey.modifiers,
@@ -52,15 +50,14 @@ extension AppDelegate {
                 failed[id] = (name, status)
             }
         }
-        // 窗口浏览的快捷键由窗口浏览自己注册。
-        for shortcut in GlobalShortcut.allCases where shortcut != .windowBrowser {
+        for shortcut in GlobalShortcut.allCases {
             guard let hotKey = GlobalShortcutSettings.hotKey(for: shortcut) else { continue }
             register(hotKey, id: shortcut.hotKeyID,
-                     name: WindowBrowserSettings.displayName(for: hotKey))
+                     name: HotKey.displayName(for: hotKey))
         }
         if GlobalShortcutSettings.numberedExpandEnabled {
             for (index, keyCode) in GlobalShortcutSettings.numberedKeyCodes.enumerated() {
-                register(GlobalShortcutSettings.HotKey(keyCode: keyCode,
+                register(HotKey(keyCode: keyCode,
                                                        modifiers: GlobalShortcutSettings.numberedModifiers),
                          id: UInt32(101 + index), name: "⌃⌘\(index + 1)")
             }
@@ -86,11 +83,10 @@ extension AppDelegate {
                             + failed.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.status)" }
                                 .joined(separator: ","))
         }
-        registerWindowBrowserHotKey()
     }
 
     /// 菜单项上要不要显示这个快捷键：设置里开着，而且注册没失败。
-    func menuHotKey(for shortcut: GlobalShortcut) -> GlobalShortcutSettings.HotKey? {
+    func menuHotKey(for shortcut: GlobalShortcut) -> HotKey? {
         guard !unavailableHotKeyIDs.contains(shortcut.hotKeyID) else { return nil }
         return GlobalShortcutSettings.hotKey(for: shortcut)
     }
@@ -100,43 +96,6 @@ extension AppDelegate {
             && !unavailableHotKeyIDs.contains(UInt32(101 + index))
     }
 
-    /// 独立快捷键：默认不注册。注册失败时保留旧的有效组合并提示。
-    @discardableResult
-    func registerWindowBrowserHotKey() -> Bool {
-        unregisterWindowBrowserHotKey()
-        guard let config = WindowBrowserSettings.hotKey else { return true }
-        guard !WindowBrowserSettings.isReserved(config) else {
-            // 旧版本可能存下现在被拒绝的组合（例如纯 ⌘ 系列）：清掉，避免每次启动
-            // 都重复提示；用户重新录制即可。
-            WindowBrowserSettings.hotKey = nil
-            quietNotice("这个快捷键被保留，已忽略",
-                        log: "window-browser: refused reserved hotkey \(config.keyCode)")
-            return false
-        }
-        var ref: EventHotKeyRef?
-        let hkID = EventHotKeyID(signature: OSType(0x57534844), id: 4)
-        let status = RegisterEventHotKey(config.keyCode, config.modifiers, hkID,
-                                         GetApplicationEventTarget(), 0, &ref)
-        guard status == noErr, let ref else {
-            unavailableHotKeyIDs.insert(GlobalShortcut.windowBrowser.hotKeyID)
-            let name = WindowBrowserSettings.displayName(for: config)
-            quietNotice(status == OSStatus(eventHotKeyExistsErr)
-                            ? "\(name) 被 WindowShade 里的另一个快捷键占用" : "快捷键 \(name) 注册失败",
-                        log: "window-browser: hotkey registration failed status=\(status)")
-            return false
-        }
-        windowBrowserHotKeyRef = ref
-        unavailableHotKeyIDs.remove(GlobalShortcut.windowBrowser.hotKeyID)
-        wlog("window-browser: hotkey registered \(WindowBrowserSettings.displayName(for: config))")
-        return true
-    }
-
-    func unregisterWindowBrowserHotKey() {
-        if let ref = windowBrowserHotKeyRef {
-            UnregisterEventHotKey(ref)
-            windowBrowserHotKeyRef = nil
-        }
-    }
     func handleHotKey(id: UInt32) {
         if id == 1 {
             toggle()
@@ -144,44 +103,6 @@ extension AppDelegate {
         }
         if id == 2 {
             focusCurrentAppCycle()
-            return
-        }
-        if id == 3 {
-            pinnedPreviewController.pinCurrentTargetPreview()
-            return
-        }
-        if id == 4 {
-            windowBrowserController?.toggleKeyboardPanel()
-            return
-        }
-        if id == GlobalShortcut.carry.hotKeyID {
-            MainActor.assumeIsolated { carry.toggleCurrentWindow() }
-            return
-        }
-        if id == GlobalShortcut.suspendPins.hotKeyID {
-            pinnedPreviewController.toggleSuspendAll()
-            rebuildMenu()
-            return
-        }
-        if id == GlobalShortcut.nextDisplay.hotKeyID {
-            MainActor.assumeIsolated { _ = gestures.moveToNextDisplay() }
-            return
-        }
-        if id == GlobalShortcut.previousDisplay.hotKeyID {
-            MainActor.assumeIsolated { _ = gestures.moveToNextDisplay(backward: true) }
-            return
-        }
-        if let action = GlobalShortcut.allCases.first(where: { $0.hotKeyID == id })?.placement {
-            MainActor.assumeIsolated { gestures.keyPlace(action) }
-            return
-        }
-        // 排布这一组：和手势同向，往上变小、往下变大。
-        let steps: [UInt32: GestureDirection] = [
-            GlobalShortcut.stepSmaller.hotKeyID: .up, GlobalShortcut.stepLarger.hotKeyID: .down,
-            GlobalShortcut.leftHalf.hotKeyID: .left, GlobalShortcut.rightHalf.hotKeyID: .right,
-        ]
-        if let step = steps[id] {
-            MainActor.assumeIsolated { gestures.keyStep(step) }
             return
         }
         guard id >= 101, id <= 109 else { return }
@@ -369,14 +290,12 @@ extension AppDelegate {
     func titlebarFoldCanBegin(id: CGWindowID) -> Bool {
         let state = currentOperationState(id)
         return shaded[id] == nil && !shadeOperationIDs.contains(id)
-            && !duoController.windowEffects.hasActiveTransition(for: id)
             && (state == .normal || state == .failed)
     }
     private func completeTitlebarTripleClick(on win: AXUIElement,
                                             pending: PendingTitlebarTripleClick) {
         // A new fold may have started while restoration was being verified.
         guard shaded[pending.id] == nil, !shadeOperationIDs.contains(pending.id),
-              !duoController.windowEffects.hasActiveTransition(for: pending.id),
               currentOperationState(pending.id) == .normal else { return }
         performSystemTitlebarDoubleClickAction(on: win, id: pending.id,
                                                originalClickPoint: pending.point,

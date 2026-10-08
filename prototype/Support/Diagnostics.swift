@@ -51,7 +51,7 @@ func wlog(_ s: String) {
 }
 
 // 主线程正在做什么。卡顿哨兵只能在阻塞结束之后才拿到控制权，光报时长无法定位；
-// 记下当前活动之后，「stall ≈1054ms」就变成「stall ≈1054ms 期间=duo: desktop show」。
+// 记下当前活动之后，「stall ≈1054ms」就变成「stall ≈1054ms 期间=fold: 折叠窗口」。
 // 只在主线程记账，因此不需要加锁。
 enum MainThreadActivity {
     private struct Span {

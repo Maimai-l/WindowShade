@@ -9,7 +9,7 @@ import Cocoa
 // 重复读取。windowID(of:) 优先读取元素自身的 ID；这些快照仅用于发现和兼容匹配，
 // 不作为动作提交、移动或隐藏完成的实时证明。
 // 单窗口查询 cgWindowInfo(id:) 不经过这里：watchdog 和折叠验证必须看到实时值。
-// 线程安全：PinnedPreview 的后台 AX 队列也会走 windowID(of:)，缓存读写用锁保护。
+// 线程安全：后台 AX 队列也会走 windowID(of:)，缓存读写用锁保护。
 // 可变状态只在持有 `lock` 时读写；`provider` 构造后不变。
 final class WindowListCache: @unchecked Sendable {
     static let shared = WindowListCache()

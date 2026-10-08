@@ -543,13 +543,11 @@ extension AppDelegate {
 
         let playSound = soundEnabled && !createdIDs.isEmpty
         suppressUnshadeSounds = true
-        duoController.windowEffects.suppressedForBulkOperation = true
         withMenuRebuildSuppressed {
             for id in createdIDs {
                 unshade(id)
             }
         }
-        duoController.windowEffects.suppressedForBulkOperation = false
         suppressUnshadeSounds = false
         if playSound {
             playUnfoldSound()

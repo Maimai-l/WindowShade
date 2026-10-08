@@ -127,7 +127,7 @@ extension AppDelegate {
                                    originalPosition: CGPoint, originalSize: CGSize,
                                    sourceDisplayID: CGDirectDisplayID?,
                                    sourceSpaceID: UInt64?) -> Bool {
-        duoRestoreVerificationTokens.removeValue(forKey: id)
+        restoreVerificationTokens.removeValue(forKey: id)
         _ = title
         let now = Date().timeIntervalSince1970
         var entries = shadeJournalEntries().filter { journalID($0) != id }

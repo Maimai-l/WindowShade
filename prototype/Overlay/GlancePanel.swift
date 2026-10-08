@@ -1,6 +1,5 @@
 // 看一眼的画面：一张单独的卡片，和真窗口分得开。
 // 收起的窗口：原貌卷帘条不动，卡片挂在它下面、隔一道缝，显示标题栏以下的内容。
-// 带到每张桌面的窗口：卡片挂在那条卷帘条下面，整扇窗按比例缩小。
 // 缩略图：卡片就是整扇窗口，从缩略图长回原来的大小，移开时缩回去（grow / shrink）。
 // 卡片四个角都用真窗口的圆角（从截图里量），带自己的投影；有画面时不铺底色。
 // 被隐藏的 App 临时在原处取消隐藏时，缝和圆角缺口底下垫一张真实背景，真窗口露不出来。
@@ -307,48 +306,6 @@ final class GlanceContentView: NSView {
         roll.duration = duration
         roll.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
         rollMask.add(roll, forKey: "glance-roll")
-    }
-
-    /// 手指在卷帘条上往下拉：卡片跟着手指卷下 fraction（0...1），不做动画。
-    func setRoll(_ fraction: CGFloat) {
-        layoutSubtreeIfNeeded()
-        let f = max(0, min(1, fraction))
-        rollMask.removeAllAnimations()
-        layer?.removeAnimation(forKey: "glance-fade")
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        rollMask.position = CGPoint(x: 0, y: bounds.height)
-        if reduceMotion {
-            layer?.opacity = Float(f)
-            rollMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height)
-        } else {
-            layer?.opacity = 1
-            rollMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height * f)
-        }
-        CATransaction.commit()
-    }
-
-    /// 没拉满就松手：从手指停下的地方接着卷到全开，停在“看一眼”。返回要多久。
-    @discardableResult
-    func settleRoll() -> CFTimeInterval {
-        let full = bounds.height
-        let current = rollMask.presentation()?.bounds.height ?? rollMask.bounds.height
-        rollMask.removeAllAnimations()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer?.opacity = 1
-        rollMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: full)
-        rollMask.position = CGPoint(x: 0, y: full)
-        CATransaction.commit()
-        guard !reduceMotion, full > 1, current < full - 0.5 else { return 0 }
-        let duration = 0.18 * Double(max(0.3, (full - current) / full))
-        let roll = CABasicAnimation(keyPath: "bounds.size.height")
-        roll.fromValue = current
-        roll.toValue = full
-        roll.duration = duration
-        roll.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
-        rollMask.add(roll, forKey: "glance-roll")
-        return duration
     }
 
     /// 卷上（或缩回缩略图）途中指针又回来了：停在全开，不重播卷下。

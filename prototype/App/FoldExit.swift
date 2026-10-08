@@ -7,7 +7,6 @@ extension AppDelegate {
     func unshadeReturningElement(_ id: CGWindowID, playSound: Bool = true,
                                          pinAfterRestore: Bool = true,
                                          onVerified: ((Bool) -> Void)? = nil) -> AXUIElement? {
-        duoController.windowEffects.cancelForSynchronousRestore(id)
         guard shaded[id] != nil else { return nil }
         // 同 ShadeController.shade：展开开始就在后台把音频设备叫醒，音效不迟半秒。
         prewarmUnfoldSound()
@@ -96,16 +95,10 @@ extension AppDelegate {
         defer { MainThreadActivity.pop() }
         let memoScope = beginAppWindowsMemo()
         defer { endAppWindowsMemo(memoScope) }
-        // 缩略图展开时截图自己从缩略图飞回原处（Thumbnail.swift），不再播卷帘展开的动画；
-        // 正在播的那一段（手势跟手收起到一半又放回）照旧交给它。
-        let thumbnail = shaded[id]?.appearanceMode == .thumbnail
-            && !duoController.windowEffects.hasActiveTransition(for: id)
-        if !thumbnail, duoController.windowEffects.interceptRestore(id: id) { return true }
         return unshadeReturningElement(id) != nil
     }
     func forceCleanup(_ id: CGWindowID, preserveFocusEntry: Bool = false, preserveRecovery: Bool = false) {
-        duoController.windowEffects.cancel(id)
-        duoRestoreVerificationTokens.removeValue(forKey: id)
+        restoreVerificationTokens.removeValue(forKey: id)
         guard shaded[id] != nil else { return }
         markShadeLifecycle(id: id, .cleaned, reason: "forceCleanup")
         guard let state = shaded.removeValue(forKey: id) else { return }

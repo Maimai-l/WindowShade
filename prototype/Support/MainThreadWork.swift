@@ -1,6 +1,6 @@
 // 跨线程交接的两层小包装。
 //
-// Dispatch、Metal 和 AppKit 的一部分回调在 macOS 26 SDK 里标成 @Sendable，
+// Dispatch 和 AppKit 的一部分回调在 macOS 26 SDK 里标成 @Sendable，
 // 而这些回调里传的闭包或值本身并不跨线程使用。用下面两个类型把“调用方已经保证了线程”
 // 写在类型上，两个版本的 SDK 都能编，也不用在每个调用点各自绕。
 

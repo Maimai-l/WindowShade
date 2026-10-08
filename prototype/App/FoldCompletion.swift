@@ -4,8 +4,8 @@ import Cocoa
 import Foundation
 #endif
 
-// Shared by browser/gesture requests. Mutations are MainActor-owned. Test hosts
-// supply only the actual dictionaries below, not an AppKit implementation.
+// Callers that must wait for a fold's real outcome (the title-bar triple click) register here.
+// Mutations are MainActor-owned.
 @MainActor extension AppDelegate {
     @discardableResult
     func registerFoldWaiter(id: CGWindowID, completion: @escaping (Bool) -> Void) -> UUID {

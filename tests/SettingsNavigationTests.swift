@@ -15,15 +15,17 @@ struct SettingsNavigationTests {
     defaults.set(999, forKey: "WindowShade.Settings.LastViewedSection")
     precondition(WindowShadeSettingsSection.lastViewed(in: defaults) == .shade)
 
+    // 拿掉的分页空出来的旧值（0 = 效果，2 = 窗口浏览）落回默认分页。
+    for removed in [0, 2] {
+      defaults.set(removed, forKey: "WindowShade.Settings.LastViewedSection")
+      precondition(WindowShadeSettingsSection.lastViewed(in: defaults) == .shade)
+    }
+
     _ = NSApplication.shared
     let owner = AppDelegate()
-    let controller = owner.duoController
-    controller.owner = owner
-    controller.isDesignPreview = true
-    controller.persistsSettings = false
-    let settings = DuoSettingsWindow(controller: controller)
-    controller.settingsWindow = settings
-    settings.select(section: .browser)
+    let settings = SettingsWindow(owner: owner, remembersState: false)
+    owner.settingsWindow = settings
+    settings.select(section: .shortcuts)
     // Complete the two deferred layout passes before simulating user scrolling.
     await drainLayout()
     guard let root = settings.window?.contentView,
@@ -34,7 +36,7 @@ struct SettingsNavigationTests {
     scroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: 80))
     let origin = scroll.contentView.bounds.origin
     let page = scroll.documentView?.subviews.first
-    settings.select(section: .browser)
+    settings.select(section: .shortcuts)
     await drainLayout()
     precondition(scroll.contentView.bounds.origin == origin,
                  "Selecting the current pane must preserve the user's scroll position")
@@ -47,10 +49,9 @@ struct SettingsNavigationTests {
                    "Explicit contextual navigation must still select the target pane")
     }
     // 带说明文字、右侧有控件的行：多行说明不能贴边，也不能压到控件上。
-    // 快捷键录制行在“快捷键”分页，窗口浏览页保留菜单开关与外观选项。
     let rowsBySection: [(WindowShadeSettingsSection, [String])] = [
-      (.browser, ["在菜单里显示“选择窗口…”", "面板背景", "默认显示方式"]),
-      (.shortcuts, ["整理卷帘条", "选择窗口…"]),
+      (.shade, ["双击标题栏收起窗口", "看一眼"]),
+      (.shortcuts, ["收起或展开当前窗口", "整理卷帘条"]),
       // 权限与启动页没有“标签 + 右侧控件”的行，这里只为出浅深色截图。
       (.permissions, []),
     ]

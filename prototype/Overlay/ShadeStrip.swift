@@ -46,7 +46,6 @@ struct ActivePreview {
     let ownerID: CGWindowID
     let window: NSWindow
     let trigger: PreviewTrigger
-    let isPinnedLive: Bool
 }
 
 final class ShadedAccessibilityActionTarget: NSObject {

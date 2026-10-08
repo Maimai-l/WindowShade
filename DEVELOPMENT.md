@@ -202,7 +202,7 @@ cd prototype
 
 1. **每个公开的包都升 `CFBundleVersion`**（`prototype/Info.plist`，同时升 `CFBundleShortVersionString`）。不再移动已发布的 tag，不再 `--clobber`；
    换包就升一个小版本。以前的“同一版本重新发布”一节作废。
-2. `./build.sh --stage` 隔离构建并签名，产物为 `.build/duo-validation/WindowShade.app`，不会停止或覆盖日常运行的应用。
+2. `./build.sh --stage` 隔离构建并签名，产物为 `.build/stage/WindowShade.app`，不会停止或覆盖日常运行的应用。
    它会写入 `SUFeedURL`，检查链接了 Sparkle、嵌套代码同一个 Team、`SUPublicEDKey` 没变，并试跑 `--self-check`。
    **输出里出现“更新器没接齐，这个包不能发布”就停下**：少了 `main.swift` 里的 `UpdateLaunch.handleEarlyArguments()` /
    `UpdateLaunch.recordLaunch()` 或 `WindowShade.swift` 里的 `UpdaterController.shared.start()` 等，安装前的试跑会拉起整个 App、
@@ -213,7 +213,7 @@ cd prototype
    cd prototype
    VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Info.plist)
    mkdir -p dist
-   ditto -c -k --sequesterRsrc --keepParent ../.build/duo-validation/WindowShade.app "dist/WindowShade-v${VERSION}.zip"
+   ditto -c -k --sequesterRsrc --keepParent ../.build/stage/WindowShade.app "dist/WindowShade-v${VERSION}.zip"
    (cd dist && shasum -a 256 "WindowShade-v${VERSION}.zip" > "WindowShade-v${VERSION}.zip.sha256")
    ```
 

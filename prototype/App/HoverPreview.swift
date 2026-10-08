@@ -91,8 +91,6 @@ extension AppDelegate {
         guard let anchor else { return }
         if shaded[id] != nil {
             showShadedMenuHoverPreview(id, anchor: anchor)
-        } else if pinnedPreviewController.isPreviewing(id: id) {
-            showPinnedMenuHoverPreview(id, anchor: anchor)
         }
     }
 
@@ -114,37 +112,20 @@ extension AppDelegate {
                                                  image: image,
                                                  windowTitle: hoverPreviewTitle(ownerID: id))
         presentPreview(ownerID: id, frame: frame, contentView: previewView,
-                       trigger: .menuHover, isPinnedLive: false)
+                       trigger: .menuHover)
     }
 
-    /// 悬停缩略图要展示的窗口名：折叠会话优先，其次置顶会话。
+    /// 悬停缩略图要展示的窗口名。
     func hoverPreviewTitle(ownerID: CGWindowID) -> String {
-        if let state = shaded[ownerID] {
-            return descriptiveDisplayTitle(appName: state.appName, windowTitle: state.title)
-        }
-        if let snapshot = pinnedPreviewController.sessionSnapshots()
-            .first(where: { $0.windowID == ownerID }) {
-            return descriptiveDisplayTitle(appName: snapshot.appName, windowTitle: snapshot.title)
-        }
-        return ""
-    }
-
-    func showPinnedMenuHoverPreview(_ id: CGWindowID, anchor: NSRect) {
-        guard !pinnedPreviewController.isSuspended(id: id),
-              let sourceSize = pinnedPreviewController.thumbnailSourceSize(id: id),
-              sourceSize.width > 1, sourceSize.height > 1 else { return }
-        let frame = menuHoverPreviewFrame(anchor: anchor, imageSize: sourceSize)
-        guard let previewView = pinnedPreviewController.makeThumbnailPreviewView(
-            frame: NSRect(origin: .zero, size: frame.size), id: id) else { return }
-        presentPreview(ownerID: id, frame: frame, contentView: previewView,
-                       trigger: .menuHover, isPinnedLive: true)
+        guard let state = shaded[ownerID] else { return "" }
+        return descriptiveDisplayTitle(appName: state.appName, windowTitle: state.title)
     }
 
     // 唯一的预览显示入口：菜单悬停和标题栏 peek 都经过这里建窗/挂载内容，同时保证
     // 系统中只有一个预览视窗存在——显示新的一定先关掉旧的（无论是哪种触发路径
     // 留下的），不需要每个调用端各自记得「要不要顺手关掉另一边」。
     func presentPreview(ownerID: CGWindowID, frame: NSRect, contentView: NSView,
-                                trigger: PreviewTrigger, isPinnedLive: Bool, alpha: CGFloat = 1) {
+                                trigger: PreviewTrigger, alpha: CGFloat = 1) {
         hidePreview(reason: "replaced")
         let window = PreviewWindow(contentRect: frame, styleMask: .borderless,
                                    backing: .buffered, defer: false)
@@ -156,7 +137,7 @@ extension AppDelegate {
         window.hasShadow = true
         window.contentView = contentView
         window.alphaValue = alpha
-        activePreview = ActivePreview(ownerID: ownerID, window: window, trigger: trigger, isPinnedLive: isPinnedLive)
+        activePreview = ActivePreview(ownerID: ownerID, window: window, trigger: trigger)
         window.orderFrontRegardless()
     }
 
@@ -166,11 +147,6 @@ extension AppDelegate {
         guard let active = activePreview else { return }
         if let ownerID, active.ownerID != ownerID { return }
         if let trigger, active.trigger != trigger { return }
-        // 若当前预览是已置顶窗口的实时镜像，断开镜像层，停止向其投喂采样帧。
-        // 对静态图预览是安全的空操作。
-        if active.isPinnedLive {
-            pinnedPreviewController.detachThumbnail(id: active.ownerID)
-        }
         active.window.orderOut(nil)
         activePreview = nil
     }
@@ -330,7 +306,7 @@ extension AppDelegate {
         // 不再跟随「半透明卷帘条」设置——peek 靠白纱+圆角本身就足够区分于真实窗口，
         // 不需要借用户的透明度偏好，也让它跟菜单悬停预览视觉上一致。
         presentPreview(ownerID: id, frame: frame, contentView: previewView,
-                       trigger: .titlebarPeek, isPinnedLive: false)
+                       trigger: .titlebarPeek)
         peekHoverID = id
         wlog("preview: show id=\(id) style=safari-card size=(\(Int(frame.width))x\(Int(frame.height)))")
     }

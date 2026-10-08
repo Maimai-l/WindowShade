@@ -554,9 +554,7 @@ extension AppDelegate {
         let overlay = ShadeThumbnailWindow(frame: frame)
         let view = ShadeThumbnailView(frame: NSRect(origin: .zero, size: frame.size),
                                       picture: picture, icon: runningApp(pid: pid)?.icon)
-        // 手势跟手的收起动画还在播的，不盖、也不飞（见 playThumbnailEntranceIfNeeded）。
-        let cover = !duoController.windowEffects.hasActiveTransition(for: id)
-        view.prepareEntrance(image: snapshot, from: windowFrame, to: thumbnail, cover: cover)
+        view.prepareEntrance(image: snapshot, from: windowFrame, to: thumbnail, cover: true)
         // 看一眼关着时，指针停久一点能看到是哪扇窗（和截图卷帘条一样）。
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         view.toolTip = cleanTitle.isEmpty ? appName : "\(appName) — \(cleanTitle)"
@@ -575,7 +573,6 @@ extension AppDelegate {
     }
 
     /// 缩略图第一次亮出来时（revealPreparedOverlay）：截图从窗口原处缩进去。
-    /// 系统正播着收起动画的，不再飞一次。
     func playThumbnailEntranceIfNeeded(_ overlay: NSWindow) {
         guard let view = overlay.contentView as? ShadeThumbnailView else { return }
         guard view.hasPendingEntrance else {
@@ -586,7 +583,7 @@ extension AppDelegate {
             view.discardEntrance()
             return
         }
-        if overlay.ignoresMouseEvents || duoController.windowEffects.hasActiveTransition(for: id) {
+        if overlay.ignoresMouseEvents {
             view.discardEntrance()
             return
         }
@@ -632,12 +629,6 @@ extension AppDelegate {
     private func unshadeThumbnail(_ id: CGWindowID, under cover: SnapshotFlight) {
         // 淡掉截图；调到第二次时它早已撤下，看不出任何变化。
         let release = { MainActor.assumeIsolated { cover.remove(fade: true) } }
-        guard !duoController.windowEffects.hasActiveTransition(for: id) else {
-            // 手势跟手的那段动画还在播：交给它收尾（unshade 里转给 Duo）。
-            release()
-            unshade(id)
-            return
-        }
         MainThreadActivity.push("restore: 展开窗口")
         defer { MainThreadActivity.pop() }
         let memoScope = beginAppWindowsMemo()

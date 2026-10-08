@@ -157,7 +157,6 @@ extension AppDelegate {
            enforceOverlaySpaceInvariant(id: id, state: state, reason: "hide-verified") {
             overlay.contentView?.toolTip = nil
             revealPreparedOverlay(overlay)
-            duoController.windowEffects.didVerifyFold(id: id, state: state)
         }
         // The exact transaction settles even when its proxy is on another Space.
         settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: true)
@@ -168,7 +167,6 @@ extension AppDelegate {
     // 撤 overlay/状态/journal。
     func rollbackFoldTransaction(id: CGWindowID, expectedTransaction: UUID? = nil) {
         if let expectedTransaction, shaded[id]?.foldTransactionID != expectedTransaction { return }
-        duoController.windowEffects.cancel(id)
         guard let state = shaded[id] else { return }
         if let expectedTransaction, state.foldTransactionID != expectedTransaction { return }
         switch state.hide {
@@ -975,9 +973,6 @@ extension AppDelegate {
 
     @objc func appTerminated(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        windowBrowserController?.applicationTerminated(pid: app.processIdentifier)
-        pinnedPreviewController.stopPreviews(forPID: app.processIdentifier, reason: "source-app-terminated")
-        MainActor.assumeIsolated { carry.stop(pid: app.processIdentifier, reason: "app-terminated") }
         for id in shaded.filter({ $0.value.pid == app.processIdentifier }).map(\.key) {
             forceCleanup(id)
         }
@@ -1002,11 +997,6 @@ extension AppDelegate {
                 glance.cancelAll(reason: "frontmost-app")
             }
         }
-        windowBrowserController?.closeTemporaryDockPanel(reason: "frontmost-app")
-        windowBrowserController?.noteAppBecameActive()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            self?.refreshPinnedPreviewTarget(reason: "frontmost-app")
-        }
         refreshOverlayPresentation()
     }
 
@@ -1022,29 +1012,14 @@ extension AppDelegate {
         MainThreadActivity.push("system: 屏幕参数变化")
         defer { MainThreadActivity.pop() }
         // 菜单栏时隐时现、Dock 高度差一点也会发这条通知（接 Studio Display 的 Mac 上每隔几秒
-        // 一次）。只有显示器本身变了才关窗口浏览、排回窗口、找回屏幕外的窗口；
-        // 可用区域变了只做跟它有关的事：卷帘条别压在菜单栏下，携带窗口那排卷帘条跟着菜单栏挪。
+        // 一次）。只有显示器本身变了才作废进行中的收起、找回屏幕外的窗口；可用区域变化不算：
+        // 收起时把窗口最小化，Dock 多一个图标就可能缩放、改变可用区域，若因此作废，卷帘条就再也等不到显示。
         let layout = DisplayLayout.current()
-        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         let displaysChanged = layout != lastDisplayLayout
-        let visibleChanged = visibleFrames != lastVisibleFrames
         lastDisplayLayout = layout
-        lastVisibleFrames = visibleFrames
-        // 只有显示器本身变了，进行中的收起确认才作废。可用区域变化不算：收起时把窗口最小化，
-        // Dock 多一个图标就可能缩放、改变可用区域，若因此作废，卷帘条就再也等不到显示。
-        if displaysChanged { foldPresentationID = UUID() }
         if displaysChanged {
+            foldPresentationID = UUID()
             wlog("screen: displays changed count=\(layout.screens.count)")
-            windowBrowserController?.screensDidChange()
-        }
-        if displaysChanged || visibleChanged {
-            MainActor.assumeIsolated {
-                carry.layout()
-                if displaysChanged { gestures.screensChanged() }
-            }
-        }
-        if displaysChanged {
-            pinnedPreviewController.refreshAll(reason: "screen")
         }
         for (id, state) in shaded {
             guard let overlay = state.overlay else { continue }
@@ -1072,25 +1047,19 @@ extension AppDelegate {
         MainThreadActivity.push("system: 切换桌面")
         defer { MainThreadActivity.pop() }
         restorePendingSourceSpacesIfNeeded(reason: "active-space-changed")
-        windowBrowserController?.spaceDidChange()
-        // 轻操作即时执行；开启置顶预览的动画抑制窗口期。
         hideHoverPreview()
         hideMenuHoverPreview()
         MainActor.assumeIsolated {
             glance.cancelAll(reason: "space-changed")
-            carry.activeSpaceChanged()
-            gestures.cancel(reason: "space-changed")
         }
         menuPreviewHoverID = nil
         menuPreviewAnchor = nil
-        pinnedPreviewController.noteSpaceTransition()
         // 重操作（逐窗口 AX/WindowServer 查询 + overlay space enforce）合并防抖：
         // 连续切 Space / 切换动画期间的通知风暴只结算一次。
         spaceRefreshWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.spaceRefreshWorkItem = nil
-            self.pinnedPreviewController.refreshAll(reason: "space")
             self.refreshOverlayPresentation(bringForward: false)
             wlog("space: active space changed; overlays enforced in assigned spaces")
         }

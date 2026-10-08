@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TEST_NAME="${1:-SettingsNavigationTests}"
 case "$TEST_NAME" in
-  all|SettingsNavigationTests|WindowFoldEffectsTests|GlanceLifecycleTests|CarryControllerTests) ;;
+  all|SettingsNavigationTests|GlanceLifecycleTests) ;;
   *) echo "Unknown AppKit test: $TEST_NAME" >&2; exit 2 ;;
 esac
 mkdir -p .build/appkit-tests
@@ -18,7 +18,7 @@ while IFS= read -r source; do
 done < <(rg --files prototype -g '*.swift' -g '!main.swift' -g '!*.app/**' | sort)
 TEST_SOURCE=()
 if [ "$TEST_NAME" = all ]; then
-  TESTS=(SettingsNavigationTests WindowFoldEffectsTests GlanceLifecycleTests CarryControllerTests)
+  TESTS=(SettingsNavigationTests GlanceLifecycleTests)
 else
   TESTS=("$TEST_NAME")
 fi
@@ -31,8 +31,6 @@ for name in "${TESTS[@]}"; do
     cp "tests/$name.swift" "$WORK/$name.swift"
   fi
   case "$name" in
-    WindowFoldEffectsTests) cat "$WORK/$name.swift" >> "$WORK/prototype/Effects/WindowFoldEffects.swift" ;;
-    CarryControllerTests) cat "$WORK/$name.swift" >> "$WORK/prototype/App/Carry.swift" ;;
     GlanceLifecycleTests) cat "$WORK/$name.swift" >> "$WORK/prototype/App/Glance.swift" ;;
     *) TEST_SOURCE+=("$WORK/$name.swift") ;;
   esac
@@ -44,9 +42,7 @@ import Cocoa
   @MainActor static func main() async {
     switch CommandLine.arguments.dropFirst().first {
     case "SettingsNavigationTests": await SettingsNavigationTests.main()
-    case "WindowFoldEffectsTests": await WindowFoldEffectsTests.main()
     case "GlanceLifecycleTests": GlanceLifecycleTests.main()
-    case "CarryControllerTests": CarryControllerTests.main()
     default: preconditionFailure("Choose an AppKit test suite")
     }
   }
@@ -62,8 +58,8 @@ swiftc -module-cache-path "$(pwd)/.build/module-cache" -whole-module-optimizatio
   "${SOURCES[@]}" ${TEST_SOURCE[@]+"${TEST_SOURCE[@]}"} \
   -framework Cocoa -framework Carbon -framework ApplicationServices -framework LocalAuthentication -framework LocalAuthenticationEmbeddedUI \
   -framework ScreenCaptureKit -framework QuartzCore -framework CoreText \
-  -framework AVFoundation -framework Vision -framework ServiceManagement -framework Metal \
-  -framework CoreAudio -framework MapKit -framework MetalKit -framework IOKit -framework CoreImage -framework VideoToolbox \
+  -framework AVFoundation -framework Vision -framework ServiceManagement \
+  -framework CoreAudio -framework MapKit -framework IOKit -framework CoreImage -framework VideoToolbox \
   -o ".build/appkit-tests/$TEST_NAME"
 if [ "$TEST_NAME" = all ]; then
   for name in "${TESTS[@]}"; do ".build/appkit-tests/$TEST_NAME" "$name"; done

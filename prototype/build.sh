@@ -4,7 +4,7 @@
 # 用法：
 #   ./build.sh            构建 + 签名（需要签名身份，见下）
 #   ./build.sh --check    隔离优化编译与链接验证，不签名、不修改 app bundle
-#   ./build.sh --stage    隔离构建到 .build/duo-validation/（发布包从这里打），写入更新清单地址 SUFeedURL
+#   ./build.sh --stage    隔离构建到 .build/stage/（发布包从这里打），写入更新清单地址 SUFeedURL
 #   ./build.sh --local-parallel  本地全模块优化，使用四个后端线程；发布仍用 --stage
 #
 # 应用内更新（docs/update.md）：主程序链接 prototype/Vendor/Sparkle.framework（2.10.0，已删 XPCServices），
@@ -30,11 +30,11 @@ SWIFT_LANGUAGE_FLAGS=(-swift-version 6 -strict-concurrency=complete -warnings-as
 if [ "${1:-}" = "--local-parallel" ]; then OPTIMIZATION_FLAGS+=(-num-threads 4); fi
 APP="WindowShade.app"
 if [ "$stage_only" = "1" ]; then
-  APP="$(cd .. && pwd)/.build/duo-validation/WindowShade.app"
+  APP="$(cd .. && pwd)/.build/stage/WindowShade.app"
 fi
 BIN="$APP/Contents/MacOS/WindowShade"
 TMP_BIN="windowshade"
-if [ "$stage_only" = "1" ]; then TMP_BIN="$(cd .. && pwd)/.build/duo-validation/windowshade"; fi
+if [ "$stage_only" = "1" ]; then TMP_BIN="$(cd .. && pwd)/.build/stage/windowshade"; fi
 MODULE_CACHE="$(cd .. && pwd)/.build/module-cache"
 # 更新清单地址与 EdDSA 公钥：只由 --stage 写进发布包；公钥必须和仓库 Info.plist 里的一致。
 FEED_URL="https://windowshade.aaronlau.me/appcast.xml"
@@ -55,8 +55,6 @@ FRAMEWORKS=(
   -framework AVFoundation
   -framework Vision
   -framework ServiceManagement
-  -framework Metal
-  -framework MetalKit
   -framework IOKit
   -framework CoreImage
   -framework VideoToolbox
@@ -108,9 +106,9 @@ if [ -f "$(xcrun --show-sdk-path --sdk macosx)/System/Library/Frameworks/AppKit.
 fi
 ARCH="${WINDOWSHADE_ARCH:-$(uname -m)}"
 # Compile one coherent source snapshot. Edits made while a long optimized build runs
-# cannot invalidate Swift inputs or mix newer shaders into the signed bundle.
+# cannot invalidate the Swift inputs of the signed bundle.
 mkdir -p "$(cd .. && pwd)/.build"
-WORK="$(mktemp -d "$(cd .. && pwd)/.build/duo-build.XXXXXX")"
+WORK="$(mktemp -d "$(cd .. && pwd)/.build/build.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 COMPILE_SOURCES=()
 for source in $SOURCES; do
@@ -118,7 +116,6 @@ for source in $SOURCES; do
   cp "$source" "$WORK/$source"
   COMPILE_SOURCES+=("$WORK/$source")
 done
-cp Effects/Duo.metal "$WORK/Duo.metal"
 # 看护：Watchdog/ 下的源码（入口和它自己的菜单栏图标）加上和 App 共用的更新代码（日志、判断、换回、文案），
 # 单独成一个可执行文件。共用的只有 Core/Update*.swift、App/UpdaterSystem.swift、App/UpdaterCopy.swift，
 # 它们只能依赖 Foundation/AppKit 和彼此；别的 App 文件不进看护，改它们不会让 --check 的第二次类型检查失败。
@@ -131,17 +128,9 @@ for source in Watchdog/main.swift Watchdog/GuardIcon.swift Core/UpdateVersion.sw
 done
 GUARD_FRAMEWORKS=(-framework AppKit -framework Security -framework ServiceManagement)
 
-# Shader checks and normal builds use the same source and deployment target.
-METAL_BUILD="$(cd .. && pwd)/.build/duo-metal"
-mkdir -p "$METAL_BUILD"
-xcrun -sdk macosx metal -mmacosx-version-min=14.0 -fmodules-cache-path="$MODULE_CACHE" -c "$WORK/Duo.metal" -o "$WORK/Duo.air"
-xcrun -sdk macosx metallib "$WORK/Duo.air" -o "$WORK/Duo.metallib"
-cp "$WORK/Duo.metallib" "$METAL_BUILD/Duo.metallib"
-
 if [ "$check_only" = "1" ]; then
   # 和发布构建用同一套编译参数（-O -whole-module-optimization），只把产物写到临时目录、不签名、
-  # 不碰 app bundle。旧的 -typecheck 看不到整模块优化下才报的隔离/所有性问题（TrackpadGestures
-  # 那次主线程命中测试就是 --check 通过、真构建失败），门禁要真挡住这类错误。
+  # 不碰 app bundle。只做 -typecheck 看不到整模块优化下才报的隔离/所有性问题。
   echo "==> 编译验证（--check，和发布构建同样的优化参数；不签名、不修改 app bundle）"
   mkdir -p "$MODULE_CACHE"
   env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
@@ -156,7 +145,6 @@ if [ "$check_only" = "1" ]; then
   if [ -n "${WINDOWSHADE_CHECK_OUTPUT:-}" ]; then
     mkdir -p "$WINDOWSHADE_CHECK_OUTPUT"
     cp "$WORK/windowshade-check" "$WINDOWSHADE_CHECK_OUTPUT/WindowShade"
-    cp "$WORK/Duo.metallib" "$WINDOWSHADE_CHECK_OUTPUT/Duo.metallib"
   fi
   exit 0
 fi
@@ -213,7 +201,7 @@ if [ "$stage_only" != "1" ]; then
 fi
 echo "==> 替换 Mach-O（保留 bundle、Info.plist、Resources）"
 cp "$TMP_BIN" "$BIN"
-cp "$WORK/Duo.metallib" "$APP/Contents/Resources/Duo.metallib"
+rm -f "$APP/Contents/Resources/Duo.metallib"
 rm -f "$APP/Contents/Resources/LockOverlay-LICENSE.txt"
 rm -rf "$APP/Contents/Resources/ThirdParty"
 # The released bundle historically carries the Swift concurrency runtime in

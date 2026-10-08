@@ -6,15 +6,13 @@ import Cocoa
 enum Motion {
     static var reduced: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
-    /// 设计系统 §4.6 的弹簧令牌。定义在 `Core/FlickMotion.swift` 的 `MotionSpring`（只编译 FlickMotion
-    /// 的单测也要能用），这里只是给 App 里的调用点留一个和文档一致的名字。
-    typealias Spring = MotionSpring
-}
+    /// 设计系统 §4.6 的弹簧令牌。dampingRatio = 1 − bounce。
+    struct Spring: Equatable {
+        var response: Double
+        var dampingRatio: Double
+        var bounce: CGFloat
 
-extension FlickGlidePath {
-    /// 真窗口滑行的路径：平时接上甩出去的速度、落定时带一点回弹；减少动态效果时不回弹、不带速度。
-    static func honoringMotion(from: CGRect, to: CGRect, velocity: CGVector) -> FlickGlidePath {
-        Motion.reduced ? FlickGlidePath(from: from, to: to, velocity: .zero, position: .calm, size: .calm)
-                       : FlickGlidePath(from: from, to: to, velocity: velocity)
+        /// 尺寸变化（不回弹）。
+        static let settle = Spring(response: 0.38, dampingRatio: 1, bounce: 0)
     }
 }

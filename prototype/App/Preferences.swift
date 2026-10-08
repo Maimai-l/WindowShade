@@ -14,34 +14,6 @@ extension AppDelegate {
     }
 
 
-@objc func togglePinnedPreviewAction() {
-        pinnedPreviewController.pinCurrentTargetPreview()
-    }
-
-@objc func toggleCarryAction() {
-        MainActor.assumeIsolated { carry.toggleCurrentWindow() }
-    }
-
-    @objc func nextDisplayAction() {
-        MainActor.assumeIsolated { _ = gestures.moveToNextDisplay() }
-    }
-
-@objc func cancelPinnedPreviewMenuItem(_ sender: NSMenuItem) {
-        guard let number = sender.representedObject as? NSNumber else { return }
-        pinnedPreviewController.stopPreviewFromMenu(id: CGWindowID(number.uint32Value))
-        rebuildMenu()
-    }
-
-@objc func toggleSuspendPinnedPreviewsAction() {
-        pinnedPreviewController.toggleSuspendAll()
-        rebuildMenu()
-    }
-
-@objc func stopAllPinnedPreviewsAction() {
-        pinnedPreviewController.stopAllPreviews(reason: "menu-stop-all")
-        rebuildMenu()
-    }
-
     func soundName(defaultsKey: String, fallback: String) -> String {
         let name = UserDefaults.standard.string(forKey: defaultsKey) ?? fallback
         return shadeSoundChoices.contains(where: { $0.name == name }) ? name : fallback
@@ -75,7 +47,7 @@ extension AppDelegate {
     }
 
     func refreshPreferencesWindowIfOpen() {
-        if let settingsWindow = duoController.settingsWindow,
+        if let settingsWindow,
            settingsWindow.window?.isVisible == true {
             settingsWindow.refreshSettings()
         }
@@ -130,7 +102,7 @@ extension AppDelegate {
         return (root, stack)
     }
 
-    // 与效果页一致：页内不重复大标题，只留一行说明。
+    // 与“高级”页一致：页内不重复大标题，只留一行说明。
     private func makeSettingsHeader(title: String, subtitle: String, symbolName: String? = nil) -> NSView {
         _ = title
         return SettingsRowContent.content(name: nil, subtitle: subtitle, symbol: SettingsRowContent.tableSymbol(symbolName)).view
@@ -146,27 +118,11 @@ extension AppDelegate {
                                  isOn: titlebarDoubleClickEnabled, action: #selector(prefToggleTitlebarDoubleClick(_:))),
             makeUnifiedToggleRow(name: "看一眼", subtitle: "指针停在卷帘条上，窗口在原处出现，移开就收回",
                                  isOn: GlanceController.isEnabled, action: #selector(prefToggleGlance(_:))),
-            makeUnifiedToggleRow(name: "标题栏手势", subtitle: trackpadGesturePreferenceSubtitle(),
-                                 isOn: TrackpadGestureController.isEnabled,
-                                 action: #selector(prefToggleTrackpadGestures(_:))),
         ])
         stack.addArrangedSubview(makePrefGroupLabel("触发"))
         stack.addArrangedSubview(trigger)
         trigger.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.setCustomSpacing(18, after: trigger)
-
-        let gapSeg = NSSegmentedControl(labels: ["不留", "窄", "宽"], trackingMode: .selectOne,
-                                        target: self, action: #selector(prefSelectArrangeGap(_:)))
-        gapSeg.selectedSegment = ArrangeGap.choices.firstIndex(of: ArrangeGap.points) ?? 0
-        let arrangeCard = makeUnifiedSettingsCard([
-            makeUnifiedControlRow(name: "窗口之间留缝",
-                                  subtitle: "半屏、四角、网格排好的窗口之间和屏幕边留一道缝",
-                                  control: gapSeg),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("排布"))
-        stack.addArrangedSubview(arrangeCard)
-        arrangeCard.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: arrangeCard)
 
         stack.addArrangedSubview(makePrefGroupLabel("外观"))
         let collapseRows = makeCollapseAppearanceRows()   // [收起后的样子, 卷帘条/缩略图半透明]
@@ -407,19 +363,6 @@ extension AppDelegate {
         rebuildMenu()
     }
 
-    func trackpadGesturePreferenceSubtitle() -> String {
-        if TrackpadGestureController.conflictingApp() != nil {
-            return "Swish 正在运行，标题栏上的手势交给它；在卷帘条上往下滑仍可展开"
-        }
-        return "在标题栏上两指滑动、滚动滚轮或拖着甩一下：往上收起，往下铺满"
-    }
-
-    @objc func prefToggleTrackpadGestures(_ sender: NSSwitch) {
-        TrackpadGestureController.isEnabled = sender.state == .on
-        MainActor.assumeIsolated { gestures.refreshMonitors() }
-        rebuildMenu()
-    }
-
     @objc func prefToggleGlance(_ sender: NSSwitch) {
         GlanceController.isEnabled = sender.state == .on
         if !GlanceController.isEnabled {
@@ -650,12 +593,6 @@ extension AppDelegate {
         return true
     }
 
-    // MARK: 窗口浏览
-
-    @objc func openWindowBrowserPanel() {
-        windowBrowserController?.openKeyboardPanel()
-    }
-
     func makeShortcutsSettingsPage() -> NSView {
         let (root, stack) = makeSettingsPageRoot()
         stack.addArrangedSubview(makeSettingsHeader(
@@ -679,70 +616,11 @@ extension AppDelegate {
 
         let window = makeUnifiedSettingsCard([
             recorderRow(.toggleShade, subtitle: nil),
-            recorderRow(.pinPreview, subtitle: nil),
-            recorderRow(.suspendPins, subtitle: "一下让开所有置顶的窗口，再按一下按原来的前后顺序放回"),
-            recorderRow(.carry, subtitle: "窗口留在原处，在别的桌面上也能看一眼"),
         ])
         stack.addArrangedSubview(makePrefGroupLabel("当前窗口"))
         stack.addArrangedSubview(window)
         window.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.setCustomSpacing(18, after: window)
-
-        // 和标题栏手势同一架梯子：往上变小、往下变大，左右占半屏。每一次都能撤销。
-        let arrange = makeUnifiedSettingsCard([
-            recorderRow(.stepLarger, subtitle: "卷帘条展开；原来大小的窗口铺满屏幕"),
-            recorderRow(.stepSmaller, subtitle: "铺满的窗口回到原来大小；原来大小的窗口收起"),
-            recorderRow(.leftHalf, subtitle: nil),
-            recorderRow(.rightHalf, subtitle: nil),
-            recorderRow(.nextDisplay, subtitle: "按原来的排法放到下一块屏幕上；上下摆的显示器也行"),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("排布当前窗口"))
-        stack.addArrangedSubview(arrange)
-        arrange.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: arrange)
-
-        // Rectangle、Raycast 里有的那些排法：默认不占快捷键。一键换成 Rectangle 的那一套，用惯它的人手上不用改。
-        let takeOver = NSButton(title: "换上", target: self, action: #selector(prefUseRectangleShortcuts))
-        takeOver.bezelStyle = .rounded
-        // Swish 的方向键位：排布当前窗口的四个方向一下换成 ⌃⌥ 加字母；键名按当前键盘布局显示（Dvorak 上是 ,AOE）。
-        let directionSets = DirectionKeySet.allCases
-        let directionKeys = NSSegmentedControl(labels: directionSets.map(DirectionKeyPresets.label(for:)),
-                                               trackingMode: .selectOne, target: self,
-                                               action: #selector(prefSelectDirectionKeys(_:)))
-        directionKeys.selectedSegment = DirectionKeyPresets.currentSet.flatMap(directionSets.firstIndex(of:)) ?? -1
-        directionKeys.setAccessibilityLabel("方向键换成字母")
-        let more = makeUnifiedSettingsCard([
-            makeUnifiedControlRow(
-                name: "用 Rectangle 的快捷键",
-                subtitle: "装过 Rectangle 的照它现在的设置，没装过的用它推荐的那一套（⌃⌥ 加方向键和字母）。下面的名字和 Raycast 的窗口命令一一对应",
-                control: takeOver),
-            makeUnifiedControlRow(
-                name: "方向键换成字母",
-                subtitle: "变小一级、变大一级、左半屏、右半屏改用 ⌃⌥ 加字母，和 Swish 一样。别的动作在用的组合不抢",
-                control: directionKeys),
-            recorderRow(.topHalf, subtitle: nil),
-            recorderRow(.bottomHalf, subtitle: nil),
-            recorderRow(.topLeft, subtitle: nil),
-            recorderRow(.topRight, subtitle: nil),
-            recorderRow(.bottomLeft, subtitle: nil),
-            recorderRow(.bottomRight, subtitle: nil),
-            recorderRow(.leftThird, subtitle: nil),
-            recorderRow(.centerThird, subtitle: nil),
-            recorderRow(.rightThird, subtitle: nil),
-            recorderRow(.leftTwoThirds, subtitle: nil),
-            recorderRow(.rightTwoThirds, subtitle: nil),
-            recorderRow(.fill, subtitle: nil),
-            recorderRow(.fullHeight, subtitle: "左右不动，上下占满"),
-            recorderRow(.center, subtitle: "大小不变，放到正中"),
-            recorderRow(.larger, subtitle: "四边各往外 30 点"),
-            recorderRow(.smaller, subtitle: "四边各往里 30 点"),
-            recorderRow(.undoPlacement, subtitle: "回到排之前的位置和大小"),
-            recorderRow(.previousDisplay, subtitle: "和“移到另一块屏幕”反着转"),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("更多排法"))
-        stack.addArrangedSubview(more)
-        more.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: more)
 
         let strips = makeUnifiedSettingsCard([
             recorderRow(.arrangeOrFocus, subtitle: "外观选“统一标题栏”时，改为专注当前 App；选“缩略图”时，把缩略图排到屏幕下边，再按放回原位"),
@@ -755,16 +633,7 @@ extension AppDelegate {
         stack.addArrangedSubview(makePrefGroupLabel("已收起的窗口"))
         stack.addArrangedSubview(strips)
         strips.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: strips)
-
-        let browser = makeUnifiedSettingsCard([
-            recorderRow(.windowBrowser,
-                        subtitle: "默认不设置。再按一次同一个组合会关掉面板。"),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("窗口浏览"))
-        stack.addArrangedSubview(browser)
-        browser.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(12, after: browser)
+        stack.setCustomSpacing(12, after: strips)
 
         let reset = NSButton(title: "恢复默认", target: self, action: #selector(prefResetShortcuts))
         reset.bezelStyle = .rounded
@@ -780,7 +649,7 @@ extension AppDelegate {
     }
 
     /// 改键后立刻生效：重新注册、刷新菜单；新组合注册失败时退回原来的组合。
-    private func applyShortcut(_ hotKey: GlobalShortcutSettings.HotKey?, for shortcut: GlobalShortcut) {
+    private func applyShortcut(_ hotKey: HotKey?, for shortcut: GlobalShortcut) {
         let previous = GlobalShortcutSettings.hotKey(for: shortcut)
         guard hotKey != previous else { return }
         GlobalShortcutSettings.setHotKey(hotKey, for: shortcut)
@@ -807,225 +676,10 @@ extension AppDelegate {
         refreshPreferencesWindowIfOpen()
     }
 
-    func makeWindowBrowserSettingsPage() -> NSView {
-        let (root, stack) = makeSettingsPageRoot()
-        stack.addArrangedSubview(makeSettingsHeader(
-            title: "窗口浏览",
-            subtitle: "在 Dock 图标上看这个应用的全部窗口，也可以用菜单或快捷键打开。",
-            symbolName: "rectangle.on.rectangle"))
-
-        let triggers = makeUnifiedSettingsCard([
-            makeUnifiedToggleRow(
-                name: "Dock 悬停查看窗口",
-                subtitle: "鼠标停在 Dock 图标上时显示窗口面板。不会启动没在运行的应用。",
-                isOn: WindowBrowserSettings.dockEnabled,
-                action: #selector(prefToggleWindowBrowserDock(_:))),
-            makeUnifiedToggleRow(
-                name: "在 Dock 图标上两指上下滑",
-                subtitle: "往上滑看这个 App 的所有窗口，往下滑让开这个 App",
-                isOn: DockSwipeController.isEnabled,
-                action: #selector(prefToggleDockSwipe(_:))),
-            makeUnifiedToggleRow(
-                name: "Dock 留在现在这块屏上",
-                subtitle: "指针碰到别的屏的底边时 Dock 不跟过去（只管放在底部的 Dock）；打开时记下 Dock 现在在哪",
-                isOn: DockLock.isEnabled,
-                action: #selector(prefToggleDockLock(_:))),
-            makeUnifiedToggleRow(
-                name: "调度中心里按 ⌘W 关窗",
-                subtitle: "指针指着哪扇就关哪扇，⌘Q 退出它的 App；只在调度中心开着时这样，平时不动你的 ⌘W",
-                isOn: MissionControlKeys.isEnabled,
-                action: #selector(prefToggleMissionControlKeys(_:))),
-            makeUnifiedToggleRow(
-                name: "在菜单里显示“选择窗口…”",
-                subtitle: "默认不占用快捷键，可以在“快捷键”里设置",
-                isOn: WindowBrowserSettings.keyboardPanelEnabled,
-                action: #selector(prefToggleWindowBrowserKeyboard(_:))),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("触发"))
-        stack.addArrangedSubview(triggers)
-        triggers.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: triggers)
-
-        let preview = makeUnifiedSettingsCard([
-            makeUnifiedToggleRow(
-                name: "普通窗口实时预览（实验）",
-                subtitle: "选中窗口 0.4 秒后开始播放实时画面",
-                isOn: WindowBrowserSettings.livePreviewEnabled,
-                action: #selector(prefToggleWindowBrowserLive(_:))),
-            makeUnifiedControlRow(
-                name: "打开窗口浏览",
-                subtitle: nil,
-                control: {
-                    let button = NSButton(title: "打开面板…", target: self,
-                                          action: #selector(openWindowBrowserPanel))
-                    button.bezelStyle = .rounded
-                    return button
-                }()),
-            makeUnifiedControlRow(
-                name: "按应用排除",
-                subtitle: excludedAppsSubtitle(),
-                control: {
-                    let button = NSButton(title: "编辑排除清单…", target: self,
-                                          action: #selector(prefEditWindowBrowserExclusions))
-                    button.bezelStyle = .rounded
-                    return button
-                }()),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("面板"))
-        stack.addArrangedSubview(preview)
-        preview.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: preview)
-
-        // 外观：跟随系统（可用的系统玻璃 / 原生材质）或明确的不透明背景。
-        let appearanceControl = NSSegmentedControl(
-            labels: WindowBrowserAppearanceStyle.allCases.map(\.displayName),
-            trackingMode: .selectOne, target: self,
-            action: #selector(prefChangeWindowBrowserAppearance(_:)))
-        appearanceControl.selectedSegment =
-            WindowBrowserAppearanceStyle.current == .paper ? 1 : 0
-        let styleControl = NSSegmentedControl(
-            labels: WindowBrowserSettings.PreferredStyle.allCases.map(\.displayName),
-            trackingMode: .selectOne, target: self,
-            action: #selector(prefChangeWindowBrowserStyle(_:)))
-        styleControl.selectedSegment = WindowBrowserSettings.PreferredStyle.allCases
-            .firstIndex(of: WindowBrowserSettings.preferredStyle) ?? 0
-        let appearance = makeUnifiedSettingsCard([
-            makeUnifiedControlRow(
-                name: "面板背景",
-                subtitle: "开启系统的“减少透明度”时，自动使用不透明背景。",
-                control: appearanceControl),
-            makeUnifiedControlRow(
-                name: "默认显示方式",
-                subtitle: "自动：窗口多的时候用列表，少的时候用缩略图。面板里的切换只影响这一次。",
-                control: styleControl),
-            makeUnifiedControlRow(
-                name: "排布与撤销",
-                subtitle: "在窗口右键菜单里选“排布”：左半、右半、四角、居中、铺满屏幕、"
-                    + "移到另一块屏幕。可以先看效果，移好之后还能撤销。",
-                control: NSTextField(labelWithString: "")),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("外观"))
-        stack.addArrangedSubview(appearance)
-        appearance.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        stack.setCustomSpacing(18, after: appearance)
-
-        let permissions = makeUnifiedSettingsCard([
-            makeUnifiedPermissionRow(symbol: "accessibility", name: "辅助功能",
-                subtitle: "识别 Dock 图标，切换、收起、展开和关闭窗口",
-                granted: hasAccessibilityPermission(),
-                action: #selector(openAccessibilitySettingsAction)),
-            makeUnifiedPermissionRow(symbol: "rectangle.inset.filled.and.person.filled", name: "屏幕录制",
-                subtitle: "窗口缩略图与实时预览；缺失时显示图标和文字列表",
-                granted: hasScreenRecordingPermission(),
-                action: #selector(openScreenRecordingSettingsAction)),
-        ])
-        stack.addArrangedSubview(makePrefGroupLabel("权限"))
-        stack.addArrangedSubview(permissions)
-        permissions.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-
-        let note = NSTextField(wrappingLabelWithString:
-            "窗口浏览是临时面板：不会替换系统 Dock，不接管原生 Command-Tab，"
-            + "不跨 Space 搬运窗口。关闭功能或退出时会释放新增的观察器、截图与预览流；"
-            + "原有卷帘、恢复日志与置顶预览不受影响。")
-        note.font = SystemAppearancePolicy.font(relativeToBody: -2)
-        note.textColor = .secondaryLabelColor
-        note.maximumNumberOfLines = 4
-        stack.addArrangedSubview(note)
-        note.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        return root
-    }
-
-    private func excludedAppsSubtitle() -> String {
-        let ids = WindowBrowserSettings.excludedBundleIDs
-        if ids.isEmpty { return "尚未排除任何应用" }
-        return "已排除 \(ids.count) 个应用：\(ids.sorted().prefix(2).joined(separator: "、"))"
-            + (ids.count > 2 ? " 等" : "")
-    }
-
-    @objc func prefToggleWindowBrowserDock(_ sender: NSSwitch) {
-        WindowBrowserSettings.dockEnabled = sender.state == .on
-        notifyWindowBrowserSettingsChanged()
-    }
-
-    @objc func prefSelectArrangeGap(_ sender: NSSegmentedControl) {
-        let value = ArrangeGap.choices[max(0, min(ArrangeGap.choices.count - 1, sender.selectedSegment))]
-        ArrangeGap.points = value
-        UserDefaults.standard.set(Double(value), forKey: ArrangeGap.defaultsKey)
-    }
-
-    @objc func prefToggleDockLock(_ sender: NSSwitch) {
-        DockLock.isEnabled = sender.state == .on
-        MainActor.assumeIsolated { DockLock.isEnabled ? dockLock.relock() : dockLock.apply() }
-    }
-
-    @objc func prefToggleDockSwipe(_ sender: NSSwitch) {
-        DockSwipeController.isEnabled = sender.state == .on
-        MainActor.assumeIsolated { DockSwipeController.shared.apply(owner: self) }
-    }
-
-    @objc func prefToggleMissionControlKeys(_ sender: NSSwitch) {
-        UserDefaults.standard.set(sender.state == .on, forKey: MissionControlKeys.defaultsKey)
-        MainActor.assumeIsolated { missionControlKeys.applySetting() }
-    }
-
-    @objc func prefToggleWindowBrowserKeyboard(_ sender: NSSwitch) {
-        WindowBrowserSettings.keyboardPanelEnabled = sender.state == .on
-        notifyWindowBrowserSettingsChanged()
-    }
-
-    @objc func prefToggleWindowBrowserLive(_ sender: NSSwitch) {
-        WindowBrowserSettings.livePreviewEnabled = sender.state == .on
-        notifyWindowBrowserSettingsChanged()
-    }
-
-    @objc func prefChangeWindowBrowserAppearance(_ sender: NSSegmentedControl) {
-        WindowBrowserAppearanceStyle.current = sender.selectedSegment == 1 ? .paper : .system
-        notifyWindowBrowserSettingsChanged()
-    }
-
-    @objc func prefChangeWindowBrowserStyle(_ sender: NSSegmentedControl) {
-        let styles = WindowBrowserSettings.PreferredStyle.allCases
-        guard sender.selectedSegment >= 0, sender.selectedSegment < styles.count else { return }
-        WindowBrowserSettings.preferredStyle = styles[sender.selectedSegment]
-        notifyWindowBrowserSettingsChanged()
-    }
-
-    @objc func prefEditWindowBrowserExclusions() {
-        let alert = NSAlert()
-        alert.messageText = "按应用排除"
-        alert.informativeText = "一行一个应用标识。这里列出的应用不会出现在窗口浏览面板里。"
-        // 多行编辑必须用 NSTextView：单行 NSTextField 放不下“每行一个 bundle ID”。
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 360, height: 140))
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 340, height: 140))
-        textView.isEditable = true
-        textView.isRichText = false
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        textView.string = WindowBrowserSettings.excludedBundleIDs.sorted().joined(separator: "\n")
-        scroll.documentView = textView
-        alert.accessoryView = scroll
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "取消")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let ids = Set(textView.string
-            .split(whereSeparator: { $0 == "\n" || $0 == "," || $0 == ";" })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty })
-        WindowBrowserSettings.excludedBundleIDs = ids
-        notifyWindowBrowserSettingsChanged()
-        refreshPreferencesWindowIfOpen()
-    }
-
-    private func notifyWindowBrowserSettingsChanged() {
-        NotificationCenter.default.post(name: WindowBrowserNotification.didChangeSettings, object: nil)
-    }
-
 }
 
 /// 快捷键记录器：只在设置页明确聚焦时读取键盘事件，不安装任何全局监听。
 final class HotKeyRecorderView: NSControl {
-    typealias HotKey = WindowBrowserSettings.HotKey
     var onCapture: ((HotKey?) -> Void)?
     /// 录到的组合不能用时返回原因（显示在标签里）；能用返回 nil。
     var validate: ((HotKey) -> String?)?
@@ -1038,7 +692,7 @@ final class HotKeyRecorderView: NSControl {
 
     init(accessibilityName: String) {
         super.init(frame: .zero)
-        label.font = WindowBrowserTypography.monospacedDigits
+        label.font = .monospacedDigitSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
         label.lineBreakMode = .byTruncatingTail
         for button in [recordButton, clearButton] {
             button.bezelStyle = .rounded
@@ -1063,7 +717,7 @@ final class HotKeyRecorderView: NSControl {
     func configure(current: HotKey?) {
         self.current = current
         messageWork?.cancel()
-        showText(current.map { WindowBrowserSettings.displayName(for: $0) } ?? "未设置")
+        showText(current.map { HotKey.displayName(for: $0) } ?? "未设置")
         clearButton.isEnabled = current != nil
     }
 
@@ -1138,11 +792,11 @@ final class HotKeyRecorderView: NSControl {
 
     private func capture(_ event: NSEvent) {
         // 只按修饰键不构成快捷键：保持录制状态，等真正的键。
-        guard !WindowBrowserSettings.isModifierOnlyKeyCode(event.keyCode) else { return }
+        guard !HotKey.isModifierOnlyKeyCode(event.keyCode) else { return }
         recording = false
         let hotKey = HotKey(keyCode: UInt32(event.keyCode),
                             modifiers: Self.carbonModifiers(from: event.modifierFlags))
-        if WindowBrowserSettings.isReserved(hotKey) {
+        if HotKey.isReserved(hotKey) {
             let hasControlOrOption = hotKey.modifiers & UInt32(controlKey | optionKey) != 0
             reject(hasControlOrOption ? "系统在用这个组合" : "组合里要有 ⌃ 或 ⌥")
             return
