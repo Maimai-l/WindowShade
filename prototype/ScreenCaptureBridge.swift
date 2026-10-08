@@ -45,13 +45,16 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
         try await startStream(filter: newFilter)
     }
 
-    func stop() {
+    /// keepingLastFrame：画面停在最后一帧，不清掉（看一眼展开时卡片要留到真窗口回来）。
+    /// completion 在系统真正停下这条流之后、在主线程上调用一次。
+    func stop(keepingLastFrame: Bool = false, completion: (@MainActor () -> Void)? = nil) {
         stateLock.lock()
         _isStopped = true
         let generation = _captureGeneration
         let activeStream = stream
         stream = nil
         stateLock.unlock()
+        let finish: () -> Void = { if let completion { DispatchQueue.main.async { completion() } } }
         if let activeStream {
             Task { [activeStream] in
                 do {
@@ -62,8 +65,12 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
                         wlog("glance: capture stop failed \(error.localizedDescription)")
                     }
                 }
+                finish()
             }
+        } else {
+            finish()
         }
+        guard !keepingLastFrame else { return }
         DispatchQueue.main.async { [weak self, videoLayer] in
             // 若在 flush 执行前已重新开流（generation 递增），旧 flush 不应清掉
             // 新流已经开始显示的画面。

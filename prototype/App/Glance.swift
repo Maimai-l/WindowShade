@@ -121,6 +121,8 @@ private final class GlanceSession {
     var cardScreen: NSRect?
     /// 缩略图：卡片从这里（面板坐标）长出来、缩回这里。
     var growFrom: NSRect?
+    /// 看一眼展开时已经开始把真窗口挪回来了。
+    var restoreStarted = false
 
     init(id: CGWindowID, preparedAt: TimeInterval, stripFrame: NSRect, liveExpected: Bool) {
         self.id = id
@@ -654,7 +656,29 @@ final class GlanceController {
             return false
         }
         wlog("glance: expand id=\(id)")
-        let restored = owner.unshadeReturningElement(id, onVerified: { [weak self, weak session] _ in
+        // 实时流还开着时，真窗口一回来，系统就在它的红绿灯上画录屏胶囊。先停流（卡片留着最后一帧），
+        // 停稳了再把窗口挪回来；停不下来也最多等 0.25 秒。
+        guard let capture = session.capture else {
+            return restoreForExpand(session)
+        }
+        session.capture = nil
+        capture.stop(keepingLastFrame: true) { [weak self, weak session] in
+            guard let self, let session else { return }
+            _ = self.restoreForExpand(session)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak session] in
+            guard let self, let session else { return }
+            _ = self.restoreForExpand(session)
+        }
+        return true
+    }
+
+    /// 展开那扇窗；画面留到它回到原处、确认过之后再撤。同一次展开只做一回。
+    @discardableResult
+    private func restoreForExpand(_ session: GlanceSession) -> Bool {
+        guard !session.restoreStarted, !session.cancelled else { return true }
+        session.restoreStarted = true
+        let restored = owner.unshadeReturningElement(session.id, onVerified: { [weak self, weak session] _ in
             guard let self, let session else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 self.finish(session, reason: "expanded")
@@ -670,6 +694,7 @@ final class GlanceController {
         }
         return true
     }
+
 
     // MARK: 被隐藏的 App：盖住再取消隐藏
 
