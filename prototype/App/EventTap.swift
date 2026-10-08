@@ -134,6 +134,17 @@ extension AppDelegate {
         }
         guard titlebarDoubleClickEnabled else { return false }
         guard AXIsProcessTrusted() else { return false }
+        // 刚收起、卷帘条还在等“已藏好”的确认时是透明的，不接点击：这时在原处双击，是要展开刚收起的这扇，
+        // 不能让双击穿过去，把后面的窗口收起（场景 A36；A05 的诊断里收起了访达）。
+        let cocoaPoint = cocoaMousePoint(fromAXPoint: point)
+        if let pending = shaded.first(where: { _, state in
+            guard let overlay = state.overlay, overlay.isVisible, overlay.alphaValue < 0.05 else { return false }
+            return overlay.frame.contains(cocoaPoint)
+        })?.key {
+            wlog("titlebar-double-click: on a strip that is not shown yet; unfolding id=\(pending)")
+            DispatchQueue.main.async { [weak self] in _ = self?.unshade(pending) }
+            return true
+        }
         // 先用 WindowServer 廉价排除内容区双击（选词等高频操作），
         // 避免在 tap 回调里对目标 app 做同步 AX 命中测试。
         guard pointMayLieInTitlebarBand(point) else { return false }

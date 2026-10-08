@@ -505,6 +505,29 @@ let foldScenarios: [Scenario] = [
         await expectNoStrip(h, within: 4)
         await h.probeFor(1)
     },
+    // 隐藏整个应用程序来收起时，卷帘条要等确认藏好（约 160 毫秒）才显示，之前是透明的、不接点击。
+    // 这时在原处再双击一次，双击会穿过去落到后面的窗口上，把它收起（2026-10-08 A05 的诊断里收起了访达）。
+    Scenario(id: "A36", title: "收起后马上在原处再双击：不作用到后面的窗口", options: []) { probe, h in
+        guard let window = probe.window() else { return }
+        place(window, origin: probeOrigin, size: probeSize)
+        await pause(0.6)
+        guard let frame = axFrame(window) else { return }
+        let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
+        await glide(to: point, duration: 0.3)
+        await doubleClick(at: point)
+        await pause(0.12)
+        await doubleClick(at: point)
+        await glide(to: h.neutral, duration: 0.2)
+        await pause(2)
+        let others = h.logLines().filter { $0.contains(">>> shade") && !$0.contains("app=ProbeApp") }
+        h.expect(others.isEmpty, "A36: the second double click folded a window behind (\(others.first ?? ""))")
+        if !stripFrames().isEmpty {
+            await doubleClick(at: point)
+            await glide(to: h.neutral, duration: 0.2)
+        }
+        await expectRestored(probe, frame, h, within: 4)
+        await expectNoStrip(h, within: 2)
+    },
 ] + [
     ("A33-Calculator", "com.apple.calculator", ["-a", "Calculator"], nil as CGSize?),
     ("A33-Terminal", "com.apple.Terminal", ["-a", "Terminal"], CGSize(width: 700, height: 420)),

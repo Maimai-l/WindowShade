@@ -65,6 +65,7 @@
 | A33 | 计算器、系统设置、终端、预览、备忘录、日历、访达、Safari、Chrome、VS Code、微信 | 收起、展开 | 每个应用程序都通过 I1 至 I10 |
 | A34 | 应用程序正卡住（不响应） | 双击标题栏 | WindowShade 在 1 秒内放弃或完成；系统输入不受影响（I2） |
 | A35 | 收起的过程中应用程序退出 | — | 不留卷帘条，不留恢复记录 |
+| A36 | 刚收起、卷帘条还没显示出来 | 马上在原处再双击 | 不作用到后面的窗口；展开刚收起的窗口 |
 
 ## 3. 展开
 
@@ -242,7 +243,7 @@
 | 文件 | 编号 |
 |---|---|
 | `Scenarios.swift` | X01 至 X05、P01、P02、A22、B16 |
-| `ScenariosFold.swift` | A01 至 A15、A17、A18、A23 至 A25、A28、A29、A31、A33（计算器、终端、系统设置、Safari、备忘录、Chrome）、A34、A35 |
+| `ScenariosFold.swift` | A01 至 A15、A17、A18、A23 至 A25、A28、A29、A31、A33（计算器、终端、系统设置、Safari、备忘录、Chrome）、A34 至 A36 |
 | `ScenariosUnfold.swift` | B03 至 B07、B09、B11、B14、B17 |
 | `ScenariosStrip.swift` | C01 至 C08、C10 至 C16、C18 至 C23 |
 | `ScenariosGlance.swift` | D01 至 D07、D09 至 D12 |
