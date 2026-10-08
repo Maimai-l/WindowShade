@@ -1,10 +1,5 @@
 // 设置“外观”卡片里的两行：收起后的样子（跟原来一样 / 统一标题栏 / 缩略图）、透明度滑块。
 // 滑块这一行的名字跟着“收起后的样子”走：选缩略图时叫“缩略图半透明”，否则仍叫“卷帘条半透明”。
-//
-// Preferences.swift 在别处维护：它在“外观”卡片里用 makeCollapseAppearanceRows() 的两行，换掉原来的
-// “收起后的样子”分段控件和“卷帘条半透明”开关（“浮在其他窗口上面”那一行不动）。换之前原来那两行照常能用：
-// 分段控件走同一个 setAppearanceMode；老开关写的设置照旧生效，拖过滑块以后再拨它也管用（ShadeTranslucency）。
-// 最好还是在同一次改动里接上滑块、删掉老开关：同一件事在设置里只留一个控件。
 
 import Cocoa
 
@@ -44,9 +39,8 @@ extension AppDelegate {
         sliderGroup.spacing = 8
 
         return [
-            makeCollapseSettingsRow(name: "收起后的样子", subtitle: "卷帘条跟原来一样或用统一标题栏，也可以在原处缩成缩略图",
-                                    control: segment),
-            makeCollapseSettingsRow(name: name, subtitle: "让它更透一些，能看到后面的内容", control: sliderGroup),
+            makeCollapseSettingsRow(name: "收起后的样子", control: segment),
+            makeCollapseSettingsRow(name: name, control: sliderGroup),
         ]
     }
 
@@ -72,12 +66,12 @@ extension AppDelegate {
         "\(Int(percent))%"
     }
 
-    /// 和 Preferences.swift 里的设置行同一个样子：左边名字和一句说明，右边控件。
-    private func makeCollapseSettingsRow(name: String, subtitle: String?, control: NSView) -> NSView {
+    /// 和 Preferences.swift 里的设置行同一个样子：左边名字，右边控件。
+    private func makeCollapseSettingsRow(name: String, control: NSView) -> NSView {
         (control as? NSControl)?.sizeToFit()
         control.setContentHuggingPriority(.required, for: .horizontal)
         control.setContentCompressionResistancePriority(.required, for: .horizontal)
-        let labels = SettingsRowContent.content(name: name, subtitle: subtitle, symbol: SettingsRowContent.symbol(for: name)).view
+        let labels = SettingsRowContent.content(name: name, subtitle: nil, symbol: SettingsRowContent.symbol(for: name))
         labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let row = NSStackView(views: [labels, control])
@@ -92,7 +86,7 @@ extension AppDelegate {
         row.alignment = .centerY
         row.spacing = 14
         row.edgeInsets = NSEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
-        row.heightAnchor.constraint(greaterThanOrEqualToConstant: subtitle == nil ? 40 : 48).isActive = true
+        row.heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
         return row
     }
 }

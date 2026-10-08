@@ -102,21 +102,13 @@ extension AppDelegate {
         return (root, stack)
     }
 
-    // 与“高级”页一致：页内不重复大标题，只留一行说明。
-    private func makeSettingsHeader(title: String, subtitle: String, symbolName: String? = nil) -> NSView {
-        _ = title
-        return SettingsRowContent.content(name: nil, subtitle: subtitle, symbol: SettingsRowContent.tableSymbol(symbolName)).view
-    }
-
     func makeShadeSettingsPage() -> NSView {
         let (root, stack) = makeSettingsPageRoot()
-        stack.addArrangedSubview(makeSettingsHeader(
-            title: "卷帘", subtitle: "设置怎么收起窗口、收起后什么样、要不要提示音。", symbolName: "rectangle.compress.vertical"))
 
         let trigger = makeUnifiedSettingsCard([
-            makeUnifiedToggleRow(name: "双击标题栏收起窗口", subtitle: titlebarDoubleClickPreferenceSubtitle(),
+            makeUnifiedToggleRow(name: "双击标题栏收起窗口", subtitle: systemTitlebarTripleClickDescription(),
                                  isOn: titlebarDoubleClickEnabled, action: #selector(prefToggleTitlebarDoubleClick(_:))),
-            makeUnifiedToggleRow(name: "看一眼", subtitle: "指针停在卷帘条上，窗口在原处出现，移开就收回",
+            makeUnifiedToggleRow(name: "看一眼", subtitle: "指针停在卷帘条上时显示窗口",
                                  isOn: GlanceController.isEnabled, action: #selector(prefToggleGlance(_:))),
         ])
         stack.addArrangedSubview(makePrefGroupLabel("触发"))
@@ -128,7 +120,7 @@ extension AppDelegate {
         let collapseRows = makeCollapseAppearanceRows()   // [收起后的样子, 卷帘条/缩略图半透明]
         let appearance = makeUnifiedSettingsCard([
             collapseRows[0],
-            makeUnifiedToggleRow(name: "浮在其他窗口上面", subtitle: "收起的窗口也不会被别的窗口挡住",
+            makeUnifiedToggleRow(name: "卷帘条置顶", subtitle: nil,
                                  isOn: floatingOnTop, action: #selector(prefToggleFloating(_:))),
             collapseRows[1],
         ])
@@ -153,8 +145,6 @@ extension AppDelegate {
     /// 权限与启动：两项系统授权、登录时启动和更新。
     func makePermissionsSettingsPage() -> NSView {
         let (root, stack) = makeSettingsPageRoot()
-        stack.addArrangedSubview(makeSettingsHeader(
-            title: "权限与启动", subtitle: "WindowShade 只在需要时使用系统权限。", symbolName: "lock.shield"))
         stack.addArrangedSubview(makePrefGroupLabel("权限"))
         let permissions = makeUnifiedSettingsCard([
             makeUnifiedPermissionRow(symbol: "accessibility", name: "辅助功能",
@@ -183,7 +173,7 @@ extension AppDelegate {
     }
 
     func makePrefGroupLabel(_ text: String) -> NSView {
-        // 分组标题只有文字，与「效果」「高级」两页保持一致。
+        // 分组标题只有文字，与“高级”页一致。
         let field = NSTextField(labelWithString: text)
         field.font = SystemAppearancePolicy.font(relativeToBody: -1, weight: .semibold)
         field.textColor = .secondaryLabelColor
@@ -233,7 +223,7 @@ extension AppDelegate {
 
 
     private func makeUnifiedLabels(name: String, subtitle: String?, symbol: String? = nil) -> NSStackView {
-        SettingsRowContent.content(name: name, subtitle: subtitle, symbol: symbol ?? SettingsRowContent.symbol(for: name)).view
+        SettingsRowContent.content(name: name, subtitle: subtitle, symbol: symbol ?? SettingsRowContent.symbol(for: name))
     }
 
     private func makeUnifiedToggleRow(name: String, subtitle: String?, isOn: Bool,
@@ -292,14 +282,20 @@ extension AppDelegate {
         labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let chip = NSButton(title: granted ? "✓ 已授权" : "● 去授权", target: self, action: action)
-        chip.isBordered = false
-        chip.font = SystemAppearancePolicy.font(relativeToBody: -1)
-        chip.contentTintColor = granted ? .systemGreen : .systemOrange
-        SystemCornerRadius.apply(to: chip, radius: SystemCornerRadius.control)
-        chip.setAccessibilityLabel("\(name)，\(granted ? "已授权，打开设置" : "去授权")")
-        chip.setContentHuggingPriority(.required, for: .horizontal)
-        let trailing = chip
+        // 已授权只写一句状态；没授权给一个按钮，打开系统设置里对应的那一页。
+        let trailing: NSView
+        if granted {
+            let status = NSTextField(labelWithString: "已授权")
+            status.font = SystemAppearancePolicy.font(relativeToBody: -1)
+            status.textColor = .secondaryLabelColor
+            trailing = status
+        } else {
+            let button = NSButton(title: "去授权", target: self, action: action)
+            button.bezelStyle = .rounded
+            button.setAccessibilityLabel("\(name)，去授权")
+            trailing = button
+        }
+        trailing.setContentHuggingPriority(.required, for: .horizontal)
         let row = NSStackView(views: [labels, trailing])
         NSLayoutConstraint.activate([
             labels.leadingAnchor.constraint(equalTo: row.leadingAnchor),
@@ -327,11 +323,6 @@ extension AppDelegate {
         return popup
     }
 
-    func titlebarDoubleClickPreferenceSubtitle() -> String {
-        // 标题已经说了“双击收起”，说明只补标题里没有的信息。
-        systemTitlebarTripleClickDescription() ?? "在任意窗口的标题栏上双击"
-    }
-
     func launchAtLoginEnabled() -> Bool {
         if #available(macOS 13.0, *) {
             return SMAppService.mainApp.status == .enabled
@@ -339,22 +330,16 @@ extension AppDelegate {
         return false
     }
 
-    func launchAtLoginSubtitle() -> String {
-        if #available(macOS 13.0, *) {
-            switch SMAppService.mainApp.status {
-            case .enabled:
-                return "WindowShade 会在登录后自动运行"
-            case .requiresApproval:
-                return "需要在系统设置中批准登录项"
-            case .notRegistered:
-                return "开机后自动运行 WindowShade"
-            case .notFound:
-                return "当前 app bundle 不支持登录项"
-            @unknown default:
-                return "开机后自动运行 WindowShade"
-            }
+    /// 只在开关本身说明不了的时候写一句。
+    func launchAtLoginSubtitle() -> String? {
+        switch SMAppService.mainApp.status {
+        case .requiresApproval:
+            return "要在系统设置的“登录项”里允许"
+        case .notFound:
+            return "这个版本不能在登录时启动"
+        default:
+            return nil
         }
-        return "当前系统不支持"
     }
 
     @objc func prefToggleTitlebarDoubleClick(_ sender: NSSwitch) {
@@ -399,7 +384,7 @@ extension AppDelegate {
             }
         } catch {
             sender.state = launchAtLoginEnabled() ? .on : .off
-            quietNotice("无法修改开机自启", log: "launch-at-login: failed \(error.localizedDescription)")
+            quietNotice("无法修改登录时自动启动", log: "launch-at-login: failed \(error.localizedDescription)")
         }
         refreshPreferencesWindowIfOpen()
     }
@@ -486,7 +471,6 @@ extension AppDelegate {
         view.onFinish = { [weak self] in self?.dismissOnboarding() }
         view.onLater = { [weak self] in self?.dismissOnboarding() }
         onboardingPermissionStack = view.permissionStack
-        onboardingProgressLabel = view.progressLabel
         onboardingDoneButton = nil
         onboardingCaption = nil
         let window: NSWindow
@@ -560,7 +544,7 @@ extension AppDelegate {
         }
     }
 
-    /// 按现在的授权状态画授权行和进度字；和上次画的一样就什么都不动。返回画没画。
+    /// 按现在的授权状态画授权行；和上次画的一样就什么都不动。返回画没画。
     @MainActor @discardableResult
     func refreshOnboardingState() -> Bool {
         guard let permissionStack = onboardingPermissionStack else { return false }
@@ -585,17 +569,7 @@ extension AppDelegate {
         permissionStack.addArrangedSubview(card)
         card.widthAnchor.constraint(equalToConstant: onboardingContentWidth).isActive = true
 
-        let grantedCount = (ax ? 1 : 0) + (screen ? 1 : 0)
-        let allGranted = grantedCount == 2
-        if let progress = onboardingProgressLabel {
-            if allGranted {
-                progress.stringValue = "权限已就绪"
-                progress.textColor = .systemGreen
-            } else {
-                progress.stringValue = "还差\(2 - grantedCount)步权限 · \(grantedCount) / 2 已完成"
-                progress.textColor = .labelColor
-            }
-        }
+        let allGranted = ax && screen
         onboardingDoneButton?.isEnabled = allGranted
         onboardingCaption?.isHidden = allGranted
         return true
@@ -603,11 +577,6 @@ extension AppDelegate {
 
     func makeShortcutsSettingsPage() -> NSView {
         let (root, stack) = makeSettingsPageRoot()
-        stack.addArrangedSubview(makeSettingsHeader(
-            title: "快捷键",
-            subtitle: "在任何应用里都能用。点“录制…”再按下新的组合；“清除”会关掉这个快捷键。",
-            symbolName: "command"))
-
         func recorderRow(_ shortcut: GlobalShortcut, subtitle: String?) -> NSView {
             let recorder = HotKeyRecorderView(accessibilityName: shortcut.title)
             recorder.configure(current: GlobalShortcutSettings.hotKey(for: shortcut))

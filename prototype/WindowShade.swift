@@ -219,7 +219,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var lastDisplayLayout = DisplayLayout(screens: [])
     private var appNapActivity: NSObjectProtocol?
     weak var onboardingPermissionStack: NSStackView?
-    weak var onboardingProgressLabel: NSTextField?
     weak var onboardingDoneButton: NSButton?
     weak var onboardingCaption: NSTextField?
     var onboardingRefreshTimer: Timer?

@@ -90,6 +90,22 @@ struct SettingsNavigationTests {
         to: directory.appendingPathComponent("\(section)-\(appearance.rawValue).png"))
     }
     }
+    // 设置页只放名字、必要的一句副标题和控件：页顶不写介绍这一页的句子，不放说明气泡，
+    // 不用符号装饰状态，不写进度旁白（docs/copy-guide.md 第 7 条）。
+    for section in WindowShadeSettingsSection.allCases {
+      settings.select(section: section)
+      await drainLayout()
+      guard let page = scroll.documentView else { preconditionFailure("Settings page is missing") }
+      let texts = descendants(page).compactMap { ($0 as? NSTextField)?.stringValue }
+        + descendants(page).compactMap { ($0 as? NSButton)?.title }
+      for text in texts {
+        precondition(!text.hasSuffix("。"), "Settings show no explanatory sentences: \(text)")
+        precondition(!["✓", "●", "还差", "已就绪", "bundle"].contains(where: text.contains),
+                     "Settings show no decorated status or jargon: \(text)")
+      }
+      precondition(!descendants(page).contains { ($0 as? NSButton)?.image?.accessibilityDescription?.hasSuffix("的说明") == true },
+                   "Settings have no info bubbles")
+    }
     // 更新：发布版的 Info.plist 有清单地址和公钥才启动更新器；测试包两样都没有，
     // 设置里的开关和“检查更新”按钮不可用，菜单里的“检查更新…”也不可用。
     precondition(UpdaterController.isConfigured(["SUFeedURL": "https://example.com/appcast.xml",

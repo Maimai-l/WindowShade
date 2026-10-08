@@ -15,9 +15,8 @@ final class WelcomeView: NSView {
     var onPageChange: (() -> Void)?
     /// 两项授权都有了没有：“开始使用”只在都有时能点，没有时旁边给“稍后再说”。
     var permissionsGranted: () -> Bool = { true }
-    /// 授权区：AppDelegate 往里填授权行、进度字（沿用原来的刷新逻辑）。
+    /// 授权区：AppDelegate 往里填授权行（沿用原来的刷新逻辑）。
     let permissionStack = NSStackView()
-    let progressLabel = NSTextField(labelWithString: "")
     /// 授权行现在画的是哪种状态（辅助功能、屏幕录制）；没变就不拆了重画。
     var shownGrants: [Bool]?
 
@@ -40,10 +39,8 @@ final class WelcomeView: NSView {
         permissionBox.orientation = .vertical
         permissionBox.alignment = .centerX
         permissionBox.spacing = 12
-        progressLabel.font = .systemFont(ofSize: 13, weight: .medium)
         permissionStack.orientation = .vertical
         permissionStack.alignment = .centerX
-        permissionBox.addArrangedSubview(progressLabel)
         permissionBox.addArrangedSubview(permissionStack)
         permissionBox.translatesAutoresizingMaskIntoConstraints = false
         addSubview(permissionBox)

@@ -292,7 +292,6 @@ Aaron 2026-10-03：“整个 app 多用 SF Symbols，不要大段大段文字。
 | 调度中心 / 窗口浏览 | `rectangle.3.group` / `rectangle.on.rectangle` |
 | 快捷键 | `command` |
 | 权限与启动 | `lock.shield` |
-| 更多说明 | `info.circle` |
 
 ## 5. 组件
 

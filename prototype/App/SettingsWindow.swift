@@ -341,20 +341,8 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
 
   // 页内不再重复一次大标题：分节名已经在侧边栏和标题栏副标题里出现过两次。
   // 只保留一行说明。符号只使用 §4.11 里有的名字。
-  private func makePageHeader(subtitle: String, symbolName: String?) -> NSView {
-    return SettingsRowContent.content(name: nil, subtitle: subtitle, symbol: SettingsRowContent.tableSymbol(symbolName)).view
-  }
-
-  private func settingsContent(title: String, subtitle: String) -> NSStackView {
-    SettingsRowContent.content(name: title, subtitle: subtitle, symbol: SettingsRowContent.symbol(for: title)).view
-  }
-
-  private func makeSectionLabel(_ title: String) -> NSView {
-    // 分组标题只有文字：图标在这个层级不传递信息，只增加噪声。
-    let label = NSTextField(labelWithString: title)
-    label.font = SystemAppearancePolicy.font(relativeToBody: -1, weight: .semibold)
-    label.textColor = .secondaryLabelColor
-    return label
+  private func settingsContent(title: String) -> NSStackView {
+    SettingsRowContent.content(name: title, subtitle: nil, symbol: SettingsRowContent.symbol(for: title))
   }
 
   private func makeSettingsCard(_ rows: [NSView]) -> NSView {
@@ -389,9 +377,10 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
     return card
   }
 
-  private func makeActionRow(title: String, subtitle: String, button: NSButton) -> NSView {
+  private func makeActionRow(title: String, button: NSButton) -> NSView {
     button.font = SystemAppearancePolicy.font(relativeToBody: -1)
-    let labels = settingsContent(title: title, subtitle: subtitle)
+    button.setAccessibilityLabel("打开\(title)")
+    let labels = settingsContent(title: title)
 
     button.controlSize = .regular
     button.setContentHuggingPriority(.required, for: .horizontal)
@@ -407,7 +396,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
     row.spacing = 14
     labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
     labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    row.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+    row.heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
     return row
   }
 
@@ -426,31 +415,13 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
       stack.topAnchor.constraint(equalTo: root.topAnchor),
       stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor),
     ])
-    let header = makePageHeader(
-      subtitle: "重看欢迎窗口，或打开诊断日志。",
-      symbolName: "slider.horizontal.3")
-    stack.addArrangedSubview(header)
-    stack.setCustomSpacing(16, after: header)
-
-    let actionSection = makeSectionLabel("操作")
-    stack.addArrangedSubview(actionSection)
-    stack.setCustomSpacing(6, after: actionSection)
-    let diagnostics = NSButton(title: "打开诊断日志", target: self, action: #selector(openDiagnostics))
+    let diagnostics = NSButton(title: "打开", target: self, action: #selector(openDiagnostics))
     diagnostics.bezelStyle = .rounded
-    diagnostics.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "诊断日志")
-    diagnostics.imagePosition = .imageLeading
-    let welcome = NSButton(title: "欢迎使用 WindowShade…", target: app,
-                           action: #selector(AppDelegate.showWelcomeGuide))
+    let welcome = NSButton(title: "打开", target: app, action: #selector(AppDelegate.showWelcomeGuide))
     welcome.bezelStyle = .rounded
     let actionCard = makeSettingsCard([
-      makeActionRow(
-        title: "欢迎使用",
-        subtitle: "重新看一遍欢迎窗口和授权说明。",
-        button: welcome),
-      makeActionRow(
-        title: "诊断日志",
-        subtitle: "打开运行记录排查问题。",
-        button: diagnostics),
+      makeActionRow(title: "欢迎窗口", button: welcome),
+      makeActionRow(title: "诊断日志", button: diagnostics),
     ])
     stack.addArrangedSubview(actionCard)
     actionCard.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
