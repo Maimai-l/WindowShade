@@ -59,7 +59,16 @@ final class WindowFoldEffects {
       request(job, folded: true)
       return true
     }
-    guard !suppressedForBulkOperation, enabled else { return false }
+    guard !suppressedForBulkOperation, enabled else {
+      // 开着动画却没播：记下是哪一条挡住的，免得只能猜。
+      if controller?.settings.windowsEnabled == true {
+        wlog("duo-window: fold animation skipped id=\(id) allowsAnimation=\(controller?.allowsAnimation == true) "
+          + "lock=\(EffectEnvironment.lockState) display=\(EffectEnvironment.allowsDisplay) "
+          + "reduceMotion=\(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) "
+          + "desktop=\(controller?.desktopActive == true) bulk=\(suppressedForBulkOperation)")
+      }
+      return false
+    }
     return prepareFold(element, id: id, options: options, tracking: false)
   }
 
