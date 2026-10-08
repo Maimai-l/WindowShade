@@ -152,7 +152,7 @@ struct QuietDefaultsTests {
         // 1.0.15 时关掉过 ⌃⌘1…9、清掉过一个：升级后照旧关着。
         withDefaults({
             $0.set(false, forKey: GlobalShortcutSettings.numberedExpandKey)
-            $0.set([Int](), forKey: "GlobalShortcut.arrange")
+            $0.set([Int](), forKey: "GlobalShortcut.arrangeOrFocus")
         }) { _ in
             expect(!GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.hotKey(for: .arrange) == nil
                     && GlobalShortcutSettings.hotKey(for: .toggleShade) == shipped[.toggleShade],
