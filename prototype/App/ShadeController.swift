@@ -101,13 +101,14 @@ extension AppDelegate {
         wlog("stickies: delegated native shade at (\(Int(p.x)),\(Int(p.y)))")
     }
     /// 读好窗口信息交给 FoldPlanner（Domain/FoldPlanner.swift）决定收不收、怎么收。
-    func makeShadePlan(win: AXUIElement, pos: CGPoint, size: CGSize,
+    func makeShadePlan(pos: CGPoint, size: CGSize,
                                pid: pid_t, profile: WindowChromeProfile,
-                               options: ShadeInvocationOptions) -> ShadePlan? {
+                               options: ShadeInvocationOptions,
+                               fullScreen: Bool, minimized: Bool) -> ShadePlan? {
         let visible = windowIsVisible(pos: pos, size: size)
         let facts = FoldFacts(visibleOnActiveSpace: visible,
-                              fullScreen: visible && axBoolAttribute(win, "AXFullScreen"),
-                              minimized: visible && axBoolAttribute(win, kAXMinimizedAttribute as String),
+                              fullScreen: fullScreen,
+                              minimized: minimized,
                               isQuickLook: profile.isQuickLook,
                               adobeKind: profile.adobeProfile.kind,
                               adobeCanShade: profile.adobeProfile.canShade,
@@ -156,8 +157,6 @@ extension AppDelegate {
             }
         }
         guard admissionCurrent() else { completeFold(success: false); return }
-        MainThreadActivity.push("fold: 折叠窗口")
-        defer { MainThreadActivity.pop() }
         // 折叠没有阶段汇总：这里记一个起点，安装阶段慢的时候补一行
         // `perf: fold install …`（2026-10-01：折叠期间 0.5–1.5s 的主线程卡顿只能靠猜哪一段贵）。
         let foldStartedAt = CFAbsoluteTimeGetCurrent()
@@ -166,11 +165,13 @@ extension AppDelegate {
         // 音频设备闲下来后，第一次播放要在调用线程上花 250–500ms 把设备拉起来（见 ShadeSoundPlayer）。
         // 折叠开始就先在后台预热，等真正播音效时它是热的。
         prewarmFoldSound()
-        let memoScope = beginAppWindowsMemo()
-        defer { endAppWindowsMemo(memoScope) }
-        let win = foldPhase("元素刷新") {
-            refreshedWindowElement(id: id, fallback: win, trustFallback: trustElement)
-        }
+        let win: AXUIElement = {
+            let memoScope = beginAppWindowsMemo()
+            defer { endAppWindowsMemo(memoScope) }
+            return foldPhase("元素刷新") {
+                refreshedWindowElement(id: id, fallback: win, trustFallback: trustElement)
+            }
+        }()
         // 状态机防护：折叠中/已折叠/展开中的窗口再次触发折叠一律忽略，
         // 避免状态损坏（与 shadeOperationIDs 在途去重互为冗余）。
         let operationState = currentOperationState(id)
@@ -185,6 +186,19 @@ extension AppDelegate {
         cancelRestorePin(for: id)
         restoreFocusTokens.removeValue(forKey: id)
         transitionOperationState(id: id, to: .capturing, reason: "shade")
+        // AXUIElementGetPid 只读元素本身，不跨进程。
+        let pid: pid_t = {
+            var value: pid_t = 0
+            AXUIElementGetPid(win, &value)
+            return value
+        }()
+        let localChromeHeight = ChromeProfileCache.localChromeHeight(id: id, pid: pid)
+        let options = options ?? defaultShadeOptions
+
+        // 读完窗口之后的部分：回到主线程执行。
+        func proceed(_ readout: FoldWindowReadout?) {
+        MainThreadActivity.push("fold: 折叠窗口")
+        defer { MainThreadActivity.pop() }
         var handedToAsyncCapture = false
         defer {
             if !handedToAsyncCapture {
@@ -200,39 +214,28 @@ extension AppDelegate {
                 // successful native resize owns the success notification.
             }
         }
-        guard let pos = axPosition(win), let size = axSize(win) else {
+        guard admissionCurrent() else { return }
+        guard let readout else {
             quietNotice("无法读取窗口", log: "shade: 取不到 pos/size")
             return
         }
-        var pid: pid_t = 0
-        let readStartedAt = CFAbsoluteTimeGetCurrent()
-        AXUIElementGetPid(win, &pid)
-        let role = axRole(win)
-        // Adobe AE/Premiere 工作区窗口的 role 是 AXLayoutArea：有 layer-0 真实
-        // CGWindow 背书时按窗口放行（见 isWindowLikeRole），其余非窗口角色照旧拒绝。
-        let adobeLayoutWindow = role != kAXWindowRole as String
-            && isWindowLikeRole(role, pid: pid) && cgWindowLayer(id) == 0
-        guard role == kAXWindowRole as String || adobeLayoutWindow else {
-            quietNotice("这个窗口不能收起", log: "shade: reject non-window role=\(role ?? "?") id=\(id)")
+        let pos = readout.pos
+        let size = readout.size
+        guard readout.isWindow else {
+            quietNotice("这个窗口不能收起", log: "shade: reject non-window role=\(readout.role ?? "?") id=\(id)")
             return
         }
         let bundleID = appBundleID(pid: pid)
         let appName = appDisplayName(pid: pid)
-        let title = axTitle(win)
-        foldPhaseTotals["窗口属性读取", default: 0] += CFAbsoluteTimeGetCurrent() - readStartedAt
-        let options = options ?? defaultShadeOptions
+        let title = readout.title
         if UserDefaults.standard.bool(forKey: shadeDebugWindowDumpDefaultsKey) {
             dumpWindow(win)
         }
-        // 预解析的结果直接用，绕开 ChromeProfileCache 的 2s TTL：分帧折叠十几个
-        // 窗口会跨越好几秒，靠缓存的话后面几帧全部过期、白白重算一遍。
-        let profile = preparedProfile ?? foldPhase("外框解析") {
-            resolveWindowChromeProfile(win: win, id: id, pos: pos, size: size, pid: pid, title: title)
-        }
+        let profile = readout.profile
         // guard 的条件里不能写尾随闭包，先算好再解包。
         let shadePlan = foldPhase("折叠计划") {
-            makeShadePlan(win: win, pos: pos, size: size,
-                          pid: pid, profile: profile, options: options)
+            makeShadePlan(pos: pos, size: size, pid: pid, profile: profile, options: options,
+                          fullScreen: readout.fullScreen, minimized: readout.minimized)
         }
         guard let plan = shadePlan else {
             quietNotice("这个窗口不能收起", log: "shade: plan rejected app=\(appName) id=\(id)")
@@ -240,7 +243,7 @@ extension AppDelegate {
         }
         let policy = plan.policy
         let mode = plan.mode
-        let quickLookReopenURL = profile.isQuickLook ? quickLookReopenURL(for: win) : nil
+        let quickLookReopenURL = readout.quickLookReopenURL
         if profile.isQuickLook, quickLookReopenURL == nil {
             wlog("quicklook: no direct reopen URL; will use Finder Space fallback")
         }
@@ -663,6 +666,16 @@ extension AppDelegate {
                                                 trafficLights: profile.trafficLights)
             let preview = NSImage(cgImage: stripSource, size: size)
             installOverlay(overlay, mode: mode, previewImage: preview)
+        }
+        }
+
+        let readStartedAt = CFAbsoluteTimeGetCurrent()
+        Task { @MainActor in
+            let readout = await readWindowForFoldInBackground(HandOff((win: win, preparedProfile: preparedProfile)),
+                                                              id: id, pid: pid,
+                                                              localChromeHeight: localChromeHeight).value
+            foldPhaseTotals["后台读取窗口", default: 0] += CFAbsoluteTimeGetCurrent() - readStartedAt
+            proceed(readout)
         }
     }
     func captureWindow(id: CGWindowID, axPos: CGPoint, size: CGSize,

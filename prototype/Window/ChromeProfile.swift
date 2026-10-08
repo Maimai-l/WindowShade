@@ -169,10 +169,16 @@ func windowLooksToolbarlessStandardTitleBar(_ win: AXUIElement,
 // 判定的第一下/第二下，都会重复执行同一批昂贵 AX IPC（firstToolbar、交通灯高度、
 // 深度 6 的整棵 AX 子树控件扫描）。以「窗口 ID + AX 元素身份 + 窗口尺寸」为
 // 失效条件：ID 被复用、元素被重建、窗口被拖拽改尺寸都立即重算。
-// 只能在主线程访问（事件 tap 回调、shade、双击判定全部在主线程执行）。
-final class ChromeProfileCache {
-    /// 见上：只在主线程访问。调用方 AppDelegate 迁到 @MainActor 时一起改成 @MainActor。
-    nonisolated(unsafe) static let shared = ChromeProfileCache()
+// entries 只在持有 lock 时读写，可以从任意线程调用；收起时在后台队列解析外框。
+// 自己的窗口要读 AppKit 的几何，调用方先在主线程用 localChromeHeight(id:pid:) 取好再传进来。
+final class ChromeProfileCache: @unchecked Sendable {
+    static let shared = ChromeProfileCache()
+    private let lock = NSLock()
+
+    /// 只在主线程调用：WindowShade 自己的窗口用 AppKit 给出的标题栏高度，其他应用程序返回 nil。
+    static func localChromeHeight(id: CGWindowID, pid: pid_t) -> CGFloat? {
+        localWindowChromeHeight(id: id, pid: pid)
+    }
 
     private struct Entry {
         let element: AXUIElement
@@ -186,17 +192,27 @@ final class ChromeProfileCache {
     private let sizeTolerance: CGFloat = 0.5
     private let maxEntries = 64
 
+    /// 只在主线程调用。
     func profile(id: CGWindowID, win: AXUIElement, pos: CGPoint, size: CGSize,
                  pid: pid_t, title: String) -> WindowChromeProfile {
-        if let entry = entries[id], isFresh(entry, id: id, win: win, size: size) {
-            return entry.profile
+        profile(id: id, win: win, pos: pos, size: size, pid: pid, title: title,
+                localChromeHeight: localWindowChromeHeight(id: id, pid: pid))
+    }
+
+    /// 任意线程：localChromeHeight 由调用方在主线程取好。
+    func profile(id: CGWindowID, win: AXUIElement, pos: CGPoint, size: CGSize,
+                 pid: pid_t, title: String, localChromeHeight: CGFloat?) -> WindowChromeProfile {
+        if let cached = lock.withLock({ entries[id].flatMap { isFresh($0, id: id, win: win, size: size) ? $0.profile : nil } }) {
+            return cached
         }
         let resolved = resolveWindowChromeProfileUncached(win: win, id: id, pos: pos,
                                                           size: size, pid: pid, title: title,
-                                                          localChromeHeight: localWindowChromeHeight(id: id, pid: pid))
-        entries[id] = Entry(element: win, profile: resolved, size: size,
-                            resolvedAt: CFAbsoluteTimeGetCurrent())
-        pruneIfNeeded()
+                                                          localChromeHeight: localChromeHeight)
+        lock.withLock {
+            entries[id] = Entry(element: win, profile: resolved, size: size,
+                                resolvedAt: CFAbsoluteTimeGetCurrent())
+            pruneIfNeeded()
+        }
         return resolved
     }
 
@@ -229,6 +245,8 @@ final class ChromeProfileCache {
         }
         let now = CFAbsoluteTimeGetCurrent()
         var warmed: [CGWindowID: WindowChromeProfile] = [:]
+        lock.lock()
+        defer { lock.unlock() }
         for (index, request) in requests.enumerated() {
             guard let profile = resolved[index] else { continue }
             entries[request.id] = Entry(element: request.win, profile: profile,
@@ -240,8 +258,10 @@ final class ChromeProfileCache {
     }
 
     func cachedHitBarHeight(id: CGWindowID, win: AXUIElement, size: CGSize) -> CGFloat? {
-        guard let entry = entries[id], isFresh(entry, id: id, win: win, size: size) else { return nil }
-        return entry.profile.hitBarHeight
+        lock.withLock {
+            guard let entry = entries[id], isFresh(entry, id: id, win: win, size: size) else { return nil }
+            return entry.profile.hitBarHeight
+        }
     }
 
     private func isFresh(_ entry: Entry, id: CGWindowID, win: AXUIElement, size: CGSize) -> Bool {
@@ -251,6 +271,7 @@ final class ChromeProfileCache {
             && abs(size.height - entry.size.height) <= sizeTolerance
     }
 
+    /// 调用方持有 lock。
     private func pruneIfNeeded() {
         guard entries.count > maxEntries else { return }
         let now = CFAbsoluteTimeGetCurrent()
