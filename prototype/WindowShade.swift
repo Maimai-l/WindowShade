@@ -765,10 +765,26 @@ extension AppDelegate {
     /// 不预热的话这段时间会落在第一次收起上。
     func prewarmFastCapture() {
         guard hasScreenRecordingPermission() else { return }
+        let selfPID = ProcessInfo.processInfo.processIdentifier
         pixelAnalysisQueue.asyncAfter(deadline: .now() + 1) {
-            let startedAt = CFAbsoluteTimeGetCurrent()
+            var startedAt = CFAbsoluteTimeGetCurrent()
             let ok = FastCapture.warmUp()
             wlog("capture: prewarm \(ok ? "ok" : "no image") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
+            // 第一次收起时按窗口截图实测要 0.6–1.7 秒：再按窗口截一次别的应用程序窗口的 1 像素。
+            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] ?? []
+            guard let window = windows.first(where: { info in
+                      (info[kCGWindowLayer as String] as? Int) == 0
+                          && (info[kCGWindowOwnerPID as String] as? pid_t) != selfPID
+                  }),
+                  let number = window[kCGWindowNumber as String] as? NSNumber,
+                  let bounds = cgWindowBounds(window) else {
+                wlog("capture: window prewarm skipped (no window)")
+                return
+            }
+            startedAt = CFAbsoluteTimeGetCurrent()
+            let windowOK = FastCapture.warmUpWindowCapture(CGWindowID(number.uint32Value), origin: bounds.origin)
+            wlog("capture: window prewarm \(windowOK ? "ok" : "no image") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
         }
     }
 

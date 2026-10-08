@@ -43,6 +43,14 @@ enum FastCapture {
                            kCGNullWindowID, [])?.takeRetainedValue() != nil
     }
 
+    /// 按窗口截 1 像素（窗口左上角）：按窗口截图和按屏幕截图走的路径不同，单独热身。
+    /// 图不保存，只取得耗时。
+    static func warmUpWindowCapture(_ id: CGWindowID, origin: CGPoint) -> Bool {
+        guard !disabled, let createImage else { return false }
+        return createImage(CGRect(origin: origin, size: CGSize(width: 1, height: 1)), .optionIncludingWindow,
+                           id, [.boundsIgnoreFraming])?.takeRetainedValue() != nil
+    }
+
     private typealias CreateImageFromArray = @convention(c) (CGRect, CFArray, CGWindowImageOption)
         -> Unmanaged<CGImage>?
 
