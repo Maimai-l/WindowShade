@@ -11,7 +11,7 @@
         target = GlanceTarget(strip: frame, panel: frame, card: frame, picture: frame,
                               backdropArea: nil, cornerRadius: 8, source: .snapshotOnly,
                               snapshot: nil, pid: 123_456, bundleID: "test.lifecycle",
-                              accessibilityTitle: "test", staleText: "test")
+                              accessibilityTitle: "test")
     }
 }
 
@@ -120,7 +120,7 @@ extension GlanceController {
         GlanceTarget(strip: frame, panel: frame, card: frame, picture: frame,
                      backdropArea: nil, cornerRadius: 8, source: source,
                      snapshot: snapshot, pid: 123_456, bundleID: "test.lifecycle",
-                     accessibilityTitle: "test", staleText: "收起时的画面")
+                     accessibilityTitle: "test")
     }
 }
 
@@ -158,6 +158,16 @@ extension GlanceController {
                      "An available snapshot must show without waiting for a live frame")
         precondition(withSnapshot.showDeadline == nil, "Nothing to wait for when a snapshot is ready")
         precondition(withSnapshot.content?.hasSnapshot == true)
+        // G2：卡片上不加任何文字（以前右下角有“收起时的画面”，2026-10-08 删除）。
+        func textFields(_ view: NSView) -> [NSTextField] {
+            var found: [NSTextField] = []
+            for child in view.subviews {
+                if let field = child as? NSTextField { found.append(field) }
+                found += textFields(child)
+            }
+            return found
+        }
+        precondition(withSnapshot.content.map(textFields)?.isEmpty == true, "The glance card shows no text")
         precondition(controller.diagnostics.opens == 1)
         precondition(controller.isShowing)
         controller.finish(withSnapshot, reason: "test-cleanup")

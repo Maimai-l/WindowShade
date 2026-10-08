@@ -59,7 +59,7 @@ Roll up, and a window stays where it was. Glance, and you see it without unrolli
 
 **Roll up.** Double-click a title bar or press `⌃⌘C` and the window rolls up into a thin bar; double-click the bar to unroll it. The bar can keep the window’s own look, or use one consistent title bar. While a bar is in front, `⌘W`, `⌘M`, `⌘H`, `⌘Q` and `⌘N` go to the window and app behind it; `⌘Q` puts the window back down first, so any “save changes?” question is where you can see it.
 
-**Glance.** Rest the pointer on the bar and a card drops down beneath it, showing the window's content at its own size; move away and it rolls back up. Click the card to unroll the window for real. The bar stays put and the card hangs just below it, so it reads as a preview, not the window itself. A glance never switches the app you’re in and never moves a window. A window that was minimized when it rolled up can’t be shown live, so you see how it looked then, and the corner says so. Details are in the [glance notes](docs/glance.md).
+**Glance.** Rest the pointer on the bar and a card drops down beneath it, showing the window's content at its own size; move away and it rolls back up. Click the card to unroll the window for real. The bar stays put and the card hangs just below it, so it reads as a preview, not the window itself. A glance never switches the app you’re in and never moves a window. A window that was minimized when it rolled up can’t be shown live, so you see how it looked then. Details are in the [glance notes](docs/glance.md).
 
 ## Shortcuts
 

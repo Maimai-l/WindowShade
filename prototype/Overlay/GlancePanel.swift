@@ -51,22 +51,14 @@ final class GlanceContentView: NSView {
     private let snapshotLayer = CALayer()
     private weak var videoLayer: AVSampleBufferDisplayLayer?
     private let rollMask = CALayer()
-    private let badge: GlanceBadge
-    private let message = NSTextField(labelWithString: "")
-    /// badge 和 message 装在这一层里。缩略图的卡片长大、缩回时它们不跟着缩放：整层先藏起来，
-    /// 卡片整张铺开再露出来。各自该不该显示仍由 setStaleNoticeVisible / refreshPlaceholder 管，这里不动。
-    private let notices = NSView()
-    /// 每次长大、缩回、停住都加一：过时的“铺开了再露出提示”不再生效。
-    private var noticesGeneration = 0
     private(set) var hasSnapshot = false
     private(set) var isLive = false
 
     init(frame: NSRect, cardFrame: NSRect, pictureFrame: NSRect, cornerRadius: CGFloat,
-         stripJoin: CGFloat = 0, staleText: String, accessibilityTitle: String) {
+         stripJoin: CGFloat = 0, accessibilityTitle: String) {
         self.cardFrame = cardFrame
         self.pictureFrame = pictureFrame
         self.stripJoin = stripJoin
-        badge = GlanceBadge(text: staleText)
         super.init(frame: frame)
         wantsLayer = true
         let root = CALayer()
@@ -105,16 +97,6 @@ final class GlanceContentView: NSView {
         shadowLayer.shadowPath = CGPath(roundedRect: cardFrame, cornerWidth: cornerRadius,
                                         cornerHeight: cornerRadius, transform: nil)
 
-        message.font = SystemAppearancePolicy.font(relativeToBody: 0, weight: .medium)
-        message.textColor = .secondaryLabelColor
-        message.alignment = .center
-        message.isHidden = true
-        notices.addSubview(message)
-        badge.isHidden = true
-        notices.addSubview(badge)
-        notices.frame = bounds
-        notices.autoresizingMask = [.width, .height]
-        addSubview(notices)
         applySystemAppearance()
 
         setAccessibilityElement(true)
@@ -206,14 +188,6 @@ final class GlanceContentView: NSView {
                                      height: rollMask.bounds.height)
             rollMask.position = CGPoint(x: 0, y: bounds.height)
         }
-        notices.frame = bounds
-        message.sizeToFit()
-        message.frame = NSRect(x: cardFrame.minX + 16,
-                               y: floor(cardFrame.midY - message.frame.height / 2),
-                               width: max(0, cardFrame.width - 32), height: message.frame.height)
-        badge.fitToLabel()
-        badge.setFrameOrigin(NSPoint(x: cardFrame.maxX - badge.frame.width - 12,
-                                     y: cardFrame.minY + 12))
         CATransaction.commit()
     }
 
@@ -242,7 +216,7 @@ final class GlanceContentView: NSView {
         needsLayout = true
     }
 
-    /// 实时画面到了：盖住截图，去掉“不是实时画面”的提示。
+    /// 实时画面到了：盖住截图。
     func setLive(_ live: Bool) {
         isLive = live
         CATransaction.begin()
@@ -252,17 +226,7 @@ final class GlanceContentView: NSView {
         refreshPlaceholder()
     }
 
-    /// 实时画面等不到时，照实说这是哪个时候的画面。
-    func setStaleNoticeVisible(_ visible: Bool) {
-        badge.isHidden = !(visible && hasSnapshot && !isLive)
-        needsLayout = true
-    }
-
     private func refreshPlaceholder() {
-        let nothing = !hasSnapshot && !isLive
-        message.stringValue = nothing ? "画面暂时看不到" : ""
-        message.isHidden = !nothing
-        if isLive { badge.isHidden = true }
         applySystemAppearance()
         needsLayout = true
     }
@@ -322,25 +286,9 @@ final class GlanceContentView: NSView {
             grown.transform = CATransform3DIdentity
         }
         CATransaction.commit()
-        // 卡片停在全开：缩回时藏起来的提示照各自的状态露出来。
-        noticesGeneration += 1
-        notices.isHidden = false
     }
 
     // MARK: 从缩略图长回原大小 / 缩回缩略图
-
-    /// 卡片 delay 秒后整张铺开：到时再露出提示（中途又缩回、停住就作废）。
-    private func revealNotices(after delay: CFTimeInterval) {
-        noticesGeneration += 1
-        let generation = noticesGeneration
-        notices.isHidden = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.noticesGeneration == generation else { return }
-                self.notices.isHidden = false
-            }
-        }
-    }
 
     /// 卡片（连同投影）缩在 rect（本视图坐标）里的样子：把卡片外框映到 rect 上的变换。
     private func shrunkTransform(for target: CALayer, into rect: NSRect) -> CATransform3D {
@@ -371,9 +319,7 @@ final class GlanceContentView: NSView {
         }
         CATransaction.commit()
         if reduceMotion {
-            // 整张一起淡入，提示跟着淡入就行。
-            noticesGeneration += 1
-            notices.isHidden = false
+            // 整张一起淡入。
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
@@ -393,8 +339,6 @@ final class GlanceContentView: NSView {
         }
         // 临界阻尼的弹簧到 0.45 秒已差不到 0.1%：千点宽的窗口也露不出一点。
         let covered = min(settle, 0.45)
-        // 右下角“收起时的画面”、正中“画面暂时看不到”不跟着缩放：卡片铺开了再露出来。
-        revealNotices(after: covered)
         return covered
     }
 
@@ -424,10 +368,6 @@ final class GlanceContentView: NSView {
                 shrink.timingFunction = CAMediaTimingFunction(controlPoints: 0.65, 0, 0.35, 1)
                 grown.add(shrink, forKey: "glance-grow")
             }
-            // 画面缩小时右下角“收起时的画面”那块提示不跟着缩：整层先藏起来（各自的状态留着，
-            // 指针中途回来时 cancelRollUp 照原样露出来）。
-            noticesGeneration += 1
-            notices.isHidden = true
         }
         CATransaction.commit()
     }
@@ -455,32 +395,5 @@ final class GlanceContentView: NSView {
             rollMask.add(roll, forKey: "glance-roll")
         }
         CATransaction.commit()
-    }
-}
-
-/// 右下角的小提示：只在画面不是实时的时候出现。
-private final class GlanceBadge: NSView {
-    private let label: NSTextField
-
-    init(text: String) {
-        label = NSTextField(labelWithString: text)
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 9
-        layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = .white
-        addSubview(label)
-        setAccessibilityElement(false)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    func fitToLabel() {
-        label.sizeToFit()
-        let size = NSSize(width: ceil(label.frame.width) + 16, height: 18)
-        setFrameSize(size)
-        label.setFrameOrigin(NSPoint(x: 8, y: floor((size.height - label.frame.height) / 2)))
     }
 }

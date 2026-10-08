@@ -9,7 +9,7 @@
 //   停够时间再显示，多数时候显示那一刻第一帧已经到了。
 // - 盖住再取消隐藏：整个 App 被隐藏时，画面先卷下来盖住原处，再在下面临时取消
 //   隐藏、开流；收回时先藏回去再卷上。
-// - 只有截图：最小化、没有屏幕录制权限等，右下角照实标明不是实时画面。
+// - 只有截图：最小化、没有屏幕录制权限等，显示收起时的截图。
 
 import AVFoundation
 import Cocoa
@@ -39,8 +39,6 @@ struct GlanceTarget {
     let pid: pid_t
     let bundleID: String
     let accessibilityTitle: String
-    /// 画面不是实时的时候，右下角写什么。
-    let staleText: String
     /// 缩略图：卡片从这里（面板坐标）长回原大小、收回时缩回这里。nil = 照卷帘条那样卷下、卷上。
     var growFrom: NSRect? = nil
     /// 卡片直接接在卷帘条下面时大于 0：卷帘条下沿两个圆角外露出的那两小块由卡片用窗口画面补上，
@@ -60,7 +58,6 @@ struct GlanceDiagnostics {
     var lastShownAt: TimeInterval?
     var lastFirstFrameAt: TimeInterval?
     var lastPanelFrame: NSRect = .zero
-    var lastShowedStaleNotice = false
 }
 
 private final class GlanceHoverRelay: NSResponder {
@@ -152,8 +149,6 @@ private final class GlanceSession {
 final class GlanceController {
     /// 实时画面最多等这么久；等不到就先给截图。
     static let firstFrameWait: TimeInterval = 0.25
-    /// 显示后仍没有实时画面，就标明这不是实时画面。
-    static let staleNoticeDelay: TimeInterval = 0.5
 
     /// 被整体隐藏的 App 在画面下面临时取消隐藏以拿到实时画面。
     /// 实测（macOS 27.0）：辅助功能取消隐藏 23ms 回到原处、前台不变；首帧 104ms；藏回 13ms。
@@ -355,7 +350,6 @@ final class GlanceController {
             snapshot: snapshot,
             pid: state.pid, bundleID: state.bundleID,
             accessibilityTitle: descriptiveDisplayTitle(appName: state.appName, windowTitle: state.title),
-            staleText: "收起时的画面",
             stripJoin: join)
     }
 
@@ -404,7 +398,6 @@ final class GlanceController {
             snapshot: snapshot,
             pid: state.pid, bundleID: state.bundleID,
             accessibilityTitle: descriptiveDisplayTitle(appName: state.appName, windowTitle: state.title),
-            staleText: "收起时的画面",
             growFrom: growing ? thumbnail.offsetBy(dx: -panel.minX, dy: -panel.minY) : nil)
     }
 
@@ -528,7 +521,7 @@ final class GlanceController {
             frame: NSRect(origin: .zero, size: target.panel.size),
             cardFrame: target.card, pictureFrame: target.picture,
             cornerRadius: target.cornerRadius, stripJoin: target.stripJoin,
-            staleText: target.staleText, accessibilityTitle: target.accessibilityTitle)
+            accessibilityTitle: target.accessibilityTitle)
         session.cardScreen = target.card.offsetBy(dx: target.panel.minX, dy: target.panel.minY)
         session.growFrom = target.growFrom
         if session.viaUnhide {
@@ -573,7 +566,6 @@ final class GlanceController {
         session.stage = .shown
         session.shownAt = now
         content.setLive(session.hasLiveFrame)
-        content.setStaleNoticeVisible(!session.liveExpected || session.captureFailed)
         panel.orderFrontRegardless()
         let coverDuration: TimeInterval
         if let growFrom = session.growFrom {
@@ -590,7 +582,6 @@ final class GlanceController {
         diagnostics.lastOpenRequestedAt = session.openRequestedAt
         diagnostics.lastShownAt = now
         diagnostics.lastFirstFrameAt = session.firstFrameAt
-        diagnostics.lastShowedStaleNotice = !session.liveExpected || session.captureFailed
         let prepared = Int((now - session.preparedAt) * 1000)
         let asked = Int((now - (session.openRequestedAt ?? now)) * 1000)
         wlog("glance: show id=\(session.id) live=\(session.hasLiveFrame) expected=\(session.liveExpected) sincePointer=\(prepared)ms sinceIntent=\(asked)ms\(session.growFrom == nil ? "" : " grow")")
@@ -839,12 +830,6 @@ final class GlanceController {
                session.hasLiveFrame || session.captureFailed
                 || now >= (session.showDeadline ?? now) {
                 show(session, now: now)
-            }
-            if session.stage == .shown, session.liveExpected, !session.hasLiveFrame,
-               let shownAt = session.shownAt,
-               now - shownAt >= (session.viaUnhide ? 1.0 : Self.staleNoticeDelay) {
-                session.content?.setStaleNoticeVisible(true)
-                diagnostics.lastShowedStaleNotice = true
             }
             if session.stage != .expanding, session.stage != .closing,
                let frame = stripFrame(session.id), !framesAlmostEqual(frame, session.stripFrame) {
