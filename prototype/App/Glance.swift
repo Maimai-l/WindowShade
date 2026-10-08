@@ -680,7 +680,7 @@ final class GlanceController {
         session.restoreStarted = true
         let restored = owner.unshadeReturningElement(session.id, onVerified: { [weak self, weak session] _ in
             guard let self, let session else { return }
-            self.finishWhenSourceInFront(session, deadline: Date().addingTimeInterval(0.4))
+            self.finishWhenSourceInFront(session, deadline: Date().addingTimeInterval(0.6))
         })
         if restored == nil {
             finish(session, reason: "expand-failed")
@@ -694,18 +694,33 @@ final class GlanceController {
     }
 
 
-    /// 位置对了还不够：原窗口要排到别的应用程序窗口前面，画面才能撤，否则撤掉的那一两帧露出盖在它上面的窗口
-    /// （2026-10-08 CI 录像：访达展开时文本编辑的窗口露出 2 帧）。每帧查一次窗口顺序，最多等到 deadline。
-    private func finishWhenSourceInFront(_ session: GlanceSession, deadline: Date) {
-        if Self.sourceIsInFront(session.id) || Date() >= deadline {
-            if Date() >= deadline { wlog("glance: source not in front before deadline id=\(session.id)") }
+    /// 位置对了还不够，画面要等两件事都成了才撤：
+    /// 1. 原窗口排到别的应用程序窗口前面，否则撤掉的那一两帧露出盖在它上面的窗口
+    ///    （2026-10-08 CI 录像：访达展开时文本编辑的窗口露出 2 帧）；
+    /// 2. 它的应用程序已经成为当前应用程序，再多等两帧：窗口从非活跃换成活跃样式时会重画标题栏，
+    ///    重画期间标题栏是空的（同日 CI 录像：文本编辑展开后标题栏黑了 2 帧）。
+    /// 每帧查一次，最多等到 deadline。
+    private func finishWhenSourceInFront(_ session: GlanceSession, deadline: Date, readyFrames: Int = 0) {
+        if Date() >= deadline {
+            wlog("glance: source not in front and active before deadline id=\(session.id)")
+            finish(session, reason: "expanded")
+            return
+        }
+        let ready = Self.sourceIsInFront(session.id) && Self.sourceAppIsActive(session.id)
+        if ready && readyFrames >= 2 {
             finish(session, reason: "expanded")
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self, weak session] in
             guard let self, let session else { return }
-            self.finishWhenSourceInFront(session, deadline: deadline)
+            self.finishWhenSourceInFront(session, deadline: deadline, readyFrames: ready ? readyFrames + 1 : 0)
         }
+    }
+
+    /// 原窗口所属的应用程序是当前应用程序。
+    static func sourceAppIsActive(_ id: CGWindowID) -> Bool {
+        guard let owner = (cgWindowInfo(id)?[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value else { return false }
+        return NSWorkspace.shared.frontmostApplication?.processIdentifier == owner
     }
 
     /// 屏幕上的窗口顺序里，原窗口标题栏那一条之上没有别的应用程序的普通窗口（WindowShade 自己的画面和卷帘条不算）。

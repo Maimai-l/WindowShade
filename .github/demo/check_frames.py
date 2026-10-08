@@ -29,7 +29,13 @@ ROLLED_UP = 20
 # Recording-indicator pixels in the traffic-light area that count as a hit.
 INDICATOR_PIXELS = 40
 # Seconds after a double-click by which the fold or unfold must be finished.
-SETTLE = 1.5
+# On the CI virtual machine one window capture sometimes takes 1.1-1.7 s, so a
+# fold can take up to about 2.3 s there; on a real Mac the same capture took
+# 45-182 ms over 12 folds (2026-10-08). This check judges blank and covered
+# frames, not latency, so it allows for the slow machine. The driver waits
+# 2.0 s after the fold double-click before moving the pointer, and 2.5 s after
+# the unfold double-click before it stops recording.
+SETTLE = 2.4
 
 
 def frame_times(video):
