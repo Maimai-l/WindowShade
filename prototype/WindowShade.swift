@@ -179,9 +179,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var reconcileInvalidCounts: [CGWindowID: Int] = [:]
     var privateAlphaOriginalValues: [CGWindowID: Float] = [:]
     // 本机的跨进程 SkyLight alpha 写入是否已被确认无效（SIP 限制）。
-    var privateAlphaKnownIneffective = false
-    // 跨进程的 SkyLight 挪窗口同理：第一次挪不动以后不再试，每试一次都要向目标 App 读好几次窗口位置。
-    var privateOffscreenKnownIneffective = false
+    // 跨进程的 SkyLight 挪窗口同理：每试一次都要挪好几处、每处向窗口服务器读一次位置，
+    // 第一次收起要多花约 0.26 秒。SIP 开着就一直无效，所以记进偏好，系统升级后才重新试。
+    var privateAlphaKnownIneffective = PrivateSLSMemo.isIneffective("alpha") {
+        didSet { if privateAlphaKnownIneffective { PrivateSLSMemo.markIneffective("alpha") } }
+    }
+    var privateOffscreenKnownIneffective = PrivateSLSMemo.isIneffective("offscreen") {
+        didSet { if privateOffscreenKnownIneffective { PrivateSLSMemo.markIneffective("offscreen") } }
+    }
     var restoreVerificationTokens: [CGWindowID: UUID] = [:]
     var restoreFocusTokens: [CGWindowID: UUID] = [:]
     var recoveryJournalOverride: DurableShadeJournal?
@@ -296,6 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logIfSlow("launch migrateSounds", threshold: 0.1) { migrateDistractingDefaultSounds() }
         logIfSlow("launch pruneJournal", threshold: 0.1) { pruneShadeJournal(reason: "launch") }
         logIfSlow("launch statusItem", threshold: 0.1) { setupStatusItem() }
+        prewarmFastCapture()
         logIfSlow("launch dockEffect", threshold: 0.1) { enableScaleMinimizeEffectForSession() }
         logIfSlow("launch hotKey", threshold: 0.1) { registerHotKey() }
         logIfSlow("launch ensureAX", threshold: 0.1) { _ = ensureAccessibility() }
@@ -824,4 +830,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
+}
+
+/// 记住本机的跨进程 SkyLight 改动无效（SIP 开着）。按系统版本记：升级系统后重新试一次。
+enum PrivateSLSMemo {
+    private static func key(_ kind: String) -> String { "PrivateSLS.ineffective.\(kind)" }
+    private static var systemVersion: String { ProcessInfo.processInfo.operatingSystemVersionString }
+
+    static func isIneffective(_ kind: String) -> Bool {
+        UserDefaults.standard.string(forKey: key(kind)) == systemVersion
+    }
+
+    static func markIneffective(_ kind: String) {
+        UserDefaults.standard.set(systemVersion, forKey: key(kind))
+    }
+}
+
+extension AppDelegate {
+    /// 启动后在后台截一张自己菜单栏图标的图：窗口截图第一次调用要先热身（实测可达 0.7 秒），
+    /// 不预热的话这段时间会落在第一次收起上。
+    func prewarmFastCapture() {
+        guard hasScreenRecordingPermission(),
+              let number = statusItem.button?.window?.windowNumber, number > 0 else { return }
+        let id = CGWindowID(number)
+        pixelAnalysisQueue.async {
+            let startedAt = CFAbsoluteTimeGetCurrent()
+            let image = FastCapture.window(id)
+            wlog("capture: prewarm \(image == nil ? "no image" : "ok") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
+        }
+    }
 }
