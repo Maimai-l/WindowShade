@@ -643,14 +643,15 @@ final class GlanceController {
         }
     }
 
-    /// 单击画面：原地展开那扇窗，画面留到真窗口回到原处再撤。
-    func expand(_ id: CGWindowID) {
-        guard let session = sessions[id] else { return }
+    /// 单击画面或双击卷帘条：原地展开那扇窗，画面留到真窗口回到原处再撤。返回是否展开了。
+    @discardableResult
+    func expand(_ id: CGWindowID) -> Bool {
+        guard let session = sessions[id] else { return false }
         session.stage = .expanding
         _ = intent.forget(id)
         guard owner.shaded[id] != nil else {
             finish(session, reason: "expand-gone")
-            return
+            return false
         }
         wlog("glance: expand id=\(id)")
         let restored = owner.unshadeReturningElement(id, onVerified: { [weak self, weak session] _ in
@@ -661,12 +662,13 @@ final class GlanceController {
         })
         if restored == nil {
             finish(session, reason: "expand-failed")
-            return
+            return false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self, weak session] in
             guard let self, let session else { return }
             self.finish(session, reason: "expand-timeout")
         }
+        return true
     }
 
     // MARK: 被隐藏的 App：盖住再取消隐藏

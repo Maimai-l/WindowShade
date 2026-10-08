@@ -95,6 +95,11 @@ extension AppDelegate {
         defer { MainThreadActivity.pop() }
         let memoScope = beginAppWindowsMemo()
         defer { endAppWindowsMemo(memoScope) }
+        // 看一眼的卡片正盖在原处：由它来展开，卡片留到真窗口回来再撤。
+        // 直接展开会先撤卡片，真窗口回来之前露出后面的窗口。
+        if MainActor.assumeIsolated({ glance.isShown(id) }) {
+            return MainActor.assumeIsolated { glance.expand(id) }
+        }
         return unshadeReturningElement(id) != nil
     }
     func forceCleanup(_ id: CGWindowID, preserveFocusEntry: Bool = false, preserveRecovery: Bool = false) {

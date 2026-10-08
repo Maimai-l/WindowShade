@@ -373,8 +373,13 @@ extension AppDelegate {
             var earlyOverlayID: CGWindowID?
             if revealedBeforeHide {
                 foldPhase("卷帘条 Space 归属") { prepareOverlayWindowForSpaceAssignment(overlay) }
+                if !mayHideApp { holdOverlayAboveFocusHandoff(overlay) }
                 earlyOverlayID = assignOverlaySpace()
-                foldPhase("显示卷帘条") { revealPreparedOverlay(overlay, fade: false) }
+                foldPhase("显示卷帘条") {
+                    revealPreparedOverlay(overlay, fade: false)
+                    // 提交之后窗口服务器下一帧才画出来：等两帧再挪窗口，挪走那一刻卷帘条已经在屏上。
+                    Thread.sleep(forTimeInterval: 2.0 / 60)
+                }
             }
             let hideStartedAt = CFAbsoluteTimeGetCurrent()
             let hide = hideWindow(win, pid: pid, originalPosition: pos, size: size,

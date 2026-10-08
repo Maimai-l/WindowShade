@@ -209,13 +209,34 @@ extension AppDelegate {
         overlay.orderFrontRegardless()
     }
 
+    /// 收起时焦点交给后面那个 App，系统会把它的窗口提到最前，盖住刚亮出来的卷帘条，
+    /// 要等前台切换的通知到了才又摆回上面（访达那一下约 0.2 秒，看起来像整扇窗没了）。
+    /// 交接这一阵卷帘条先浮一层，交接落定后回到平常的层级，仍在最上面。
+    func holdOverlayAboveFocusHandoff(_ overlay: NSWindow) {
+        guard overlay.level < .floating else { return }
+        overlay.level = .floating
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self, weak overlay] in
+            guard let self, let overlay, overlay.isVisible, overlay.level == .floating,
+                  self.shadedEntry(for: overlay) != nil else { return }
+            overlay.level = self.overlayLevel(for: overlay)
+            overlay.orderFrontRegardless()
+        }
+    }
+
     /// fade 为 false 时直接亮出：窗口当场就藏好了，卷帘条又正好盖在原来的标题栏上，
     /// 再淡入一下，中间那 0.12 秒会露出后面的桌面。
+    /// 直接亮出时当场画好、提交给窗口服务器：不然要等这一轮主线程跑完才上屏，
+    /// 而真窗口是别的 App 自己挪走的，马上就没了，中间会空一下（访达那一下约 0.2 秒）。
     func revealPreparedOverlay(_ overlay: NSWindow, fade: Bool = true) {
         // 缩略图第一次亮出来：截图从窗口原处缩进去，落定前缩略图自己不露面。
         playThumbnailEntranceIfNeeded(overlay)
         let alpha = overlayAlpha(for: overlay)
-        guard fade else { overlay.alphaValue = alpha; return }
+        guard fade else {
+            overlay.displayIfNeeded()
+            overlay.alphaValue = alpha
+            CATransaction.flush()
+            return
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)

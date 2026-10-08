@@ -602,7 +602,7 @@ extension AppDelegate {
         guard !view.isLaunching, !view.isArriving, currentOperationState(id) == .folded else { return }
         let glancing = MainActor.assumeIsolated { glance.isShown(id) }
         if glancing {
-            MainActor.assumeIsolated { glance.expand(id) }
+            MainActor.assumeIsolated { _ = glance.expand(id) }
             return
         }
         // 飞的这一会儿指针还停在原处：别让看一眼这时候打开。
