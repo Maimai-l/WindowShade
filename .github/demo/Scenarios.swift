@@ -152,9 +152,12 @@ final class Probe {
     func events() -> [[String: Any]] { Self.readEvents(eventsPath) }
     func count(_ event: String) -> Int { events().filter { $0["event"] as? String == event }.count }
 
+    /// 命令只发给这一个 ProbeApp：通知是广播的，不带进程号时同时运行的 ProbeApp 都会执行
+    /// （2026-10-08 P07 让一个卡住，结果两个都卡住了）。
     func send(_ command: String) {
         DistributedNotificationCenter.default().postNotificationName(
-            Notification.Name("com.windowshade.probe.command"), object: command, userInfo: nil, deliverImmediately: true)
+            Notification.Name("com.windowshade.probe.command"), object: command,
+            userInfo: ["pid": String(pid)], deliverImmediately: true)
     }
 
     func window(_ title: String = "Probe 1") -> AXUIElement? {

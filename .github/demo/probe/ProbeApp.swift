@@ -139,6 +139,9 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
 
     @objc private func command(_ notification: Notification) {
         guard let command = notification.object as? String else { return }
+        // 发给别的 ProbeApp 的命令不执行。
+        if let target = notification.userInfo?["pid"] as? String,
+           target != String(ProcessInfo.processInfo.processIdentifier) { return }
         record("command", ["command": command])
         let first = windows.first { $0.isVisible || $0.isMiniaturized } ?? windows.first
         if command.hasPrefix("freeze:"), let seconds = Double(command.dropFirst(7)) {

@@ -76,7 +76,17 @@ func realAppRoundTrip(_ bundleID: String, launch: [String], size: CGSize?, barY:
     else { place(window, origin: CGPoint(x: 160, y: 120), size: axFrame(window)?.size ?? CGSize(width: 600, height: 400)) }
     await pause(0.6)
     guard let frame = axFrame(window) else { return }
-    let titleBar = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + barY)
+    // 双击点要落在标题栏的空白处：备忘录、Safari 的标题栏上有按钮、地址栏，落在上面按规则不收起（A33-Notes、A33-Safari）。
+    let controls: Set<String> = ["AXButton", "AXTextField", "AXSearchField", "AXPopUpButton", "AXMenuButton",
+                                 "AXRadioButton", "AXCheckBox", "AXTabGroup", "AXComboBox", "AXSegmentedControl"]
+    let candidates = [0.72, 0.6, 0.5, 0.4, 0.82, 0.3].map { CGPoint(x: frame.minX + frame.width * $0, y: frame.minY + barY) }
+    let titleBar = candidates.first { point in
+        var element: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &element) == .success,
+              let element else { return false }
+        return !controls.contains(axString(element, kAXRoleAttribute as String))
+    } ?? candidates[0]
+    harness.result.notes["titleBarPoint"] = "\(Int(titleBar.x)),\(Int(titleBar.y))"
     let before = stripFrames().count
     await glide(to: titleBar, duration: 0.3)
     await pause(0.2)
