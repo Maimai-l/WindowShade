@@ -66,7 +66,7 @@ final class SettingsGroupBox: NSBox {
 }
 
 final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSToolbarDelegate {
-  private weak var owner: AppDelegate?
+  private weak var app: AppDelegate?
   /// 关掉时不记窗口位置和上次看的分页（测试用）。
   private let remembersState: Bool
   private var pageHost: NSView!
@@ -78,7 +78,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
   private var currentSection: WindowShadeSettingsSection?
 
   init(owner: AppDelegate, remembersState: Bool = true) {
-    self.owner = owner
+    self.app = owner
     self.remembersState = remembersState
     let window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
@@ -169,9 +169,9 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
     splitController.splitView.setPosition(214, ofDividerAt: 0)
 
     pages[.advanced] = makeAdvancedPage()
-    pages[.shade] = owner?.makeShadeSettingsPage()
-    pages[.shortcuts] = owner?.makeShortcutsSettingsPage()
-    pages[.permissions] = owner?.makePermissionsSettingsPage()
+    pages[.shade] = app?.makeShadeSettingsPage()
+    pages[.shortcuts] = app?.makeShortcutsSettingsPage()
+    pages[.permissions] = app?.makePermissionsSettingsPage()
     select(section: .lastViewed())
   }
 
@@ -326,10 +326,10 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
   }
 
   func refreshSettings() {
-    guard let owner, let currentSection else { return }
-    pages[.shade] = owner.makeShadeSettingsPage()
-    pages[.shortcuts] = owner.makeShortcutsSettingsPage()
-    pages[.permissions] = owner.makePermissionsSettingsPage()
+    guard let app, let currentSection else { return }
+    pages[.shade] = app.makeShadeSettingsPage()
+    pages[.shortcuts] = app.makeShortcutsSettingsPage()
+    pages[.permissions] = app.makePermissionsSettingsPage()
     self.currentSection = nil
     select(section: currentSection)
   }
@@ -439,7 +439,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
     diagnostics.bezelStyle = .rounded
     diagnostics.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "诊断日志")
     diagnostics.imagePosition = .imageLeading
-    let welcome = NSButton(title: "欢迎使用 WindowShade…", target: owner,
+    let welcome = NSButton(title: "欢迎使用 WindowShade…", target: app,
                            action: #selector(AppDelegate.showWelcomeGuide))
     welcome.bezelStyle = .rounded
     let actionCard = makeSettingsCard([
@@ -468,7 +468,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate, NSTableViewDat
   }
 
   func windowWillClose(_ notification: Notification) {
-    owner?.settingsWindow = nil
+    app?.settingsWindow = nil
   }
 }
 

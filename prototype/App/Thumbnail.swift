@@ -579,7 +579,7 @@ extension AppDelegate {
             view.discardEntrance()
             return
         }
-        guard let (id, _) = shadedEntry(for: overlay) else {
+        guard shadedEntry(for: overlay) != nil else {
             view.discardEntrance()
             return
         }

@@ -27,7 +27,7 @@ enum StandardMenuTests {
         }
     }
 
-    static func standardMainMenu() {
+    @MainActor static func standardMainMenu() {
         _ = NSApplication.shared
         let menu = StandardMenu.make(appName: "WindowShade", settingsTarget: nil,
                                      settingsAction: nil)
