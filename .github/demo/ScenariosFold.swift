@@ -57,14 +57,28 @@ func realAppRoundTrip(_ bundleID: String, launch: [String], size: CGSize?, barY:
     // 备忘录第一次打开时在窗口上挂着“新功能”对话框；带对话框的窗口按规则不收起（A13），先把它关掉。
     for _ in 0..<3 {
         guard let sheet = axChildren(window).first(where: { axString($0, kAXRoleAttribute as String) == "AXSheet" }) else { break }
+        // 先按“以后”“取消”这类按钮：备忘录的这个对话框是 iCloud 登录提示，默认按钮“系统设置”会打开系统设置的窗口，
+        // 正好盖住备忘录的标题栏（2026-10-08 e1adeac 的 A33-Notes）。找不到才按默认按钮。
+        var buttons: [AXUIElement] = []
+        func collect(_ element: AXUIElement, _ depth: Int) {
+            guard depth < 6 else { return }
+            for child in axChildren(element) {
+                if axString(child, kAXRoleAttribute as String) == "AXButton" { buttons.append(child) }
+                collect(child, depth + 1)
+            }
+        }
+        collect(sheet, 0)
+        let dismissive = ["Not Now", "Later", "Cancel", "Continue", "以后", "稍后", "取消", "继续", "好"]
         var value: CFTypeRef?
         var defaultButton: AXUIElement?
         if AXUIElementCopyAttributeValue(sheet, kAXDefaultButtonAttribute as CFString, &value) == .success,
            let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
             defaultButton = unsafeDowncast(value, to: AXUIElement.self)
         }
-        guard let button = defaultButton
-                ?? findElement(sheet, maxDepth: 6, { axString($0, kAXRoleAttribute as String) == "AXButton" }) else {
+        let preferred = dismissive.lazy.compactMap { title in
+            buttons.first { axString($0, kAXTitleAttribute as String) == title }
+        }.first
+        guard let button = preferred ?? defaultButton ?? buttons.first else {
             harness.result.notes["sheet"] = "\(bundleID) shows a sheet without a button"
             break
         }
