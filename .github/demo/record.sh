@@ -19,6 +19,8 @@ cp "$OUT/bin/WindowShade" "$APP/Contents/MacOS/WindowShade"
 cp assets/app-icon/WindowShade.icns "$APP/Contents/Resources/" 2>/dev/null || true
 ditto prototype/Vendor/Sparkle.framework "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --deep -s - "$APP"
+# 给人下载试用：ditto 打包保留框架里的符号链接和可执行权限（GitHub 自己打包会丢掉这两样）。
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/WindowShade-app.zip"
 
 DRIVER="$OUT/DemoDriver.app"
 rm -rf "$DRIVER"

@@ -37,3 +37,10 @@ jobs:
             .build/demo/*.log
             .build/demo/*.ips
             .build/demo/*.json
+      - name: Upload the app for manual testing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WindowShade-app
+          path: .build/demo/WindowShade-app.zip
+          if-no-files-found: ignore
