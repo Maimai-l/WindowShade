@@ -54,7 +54,7 @@ func proxyTrafficLightConfiguration(of win: AXUIElement, pid: pid_t) -> ProxyTra
         minimizeEnabled: isAXButtonEnabled(win, kAXMinimizeButtonAttribute as String),
         zoomEnabled: isAXButtonEnabled(win, kAXZoomButtonAttribute as String)
     )
-    if windowPolicy(for: pid).kind == .finder,
+    if appProfile(for: pid).id == .finder,
        configuration.visibleActions.count == 2,
        firstToolbar(win) == nil {
         configuration.style = .quickLook

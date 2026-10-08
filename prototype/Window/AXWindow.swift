@@ -97,7 +97,7 @@ func isAXAttributeSettable(_ e: AXUIElement, _ attr: String) -> Bool {
 }
 
 func allowsProxyHorizontalResize(_ win: AXUIElement, pid: pid_t) -> Bool {
-    guard windowPolicy(for: pid).allowsProxyHorizontalResize else { return false }
+    guard appProfile(for: pid).stripResizable else { return false }
     return isAXSizeSettable(win)
 }
 
@@ -672,7 +672,6 @@ func measuredTitlebarHitHeight(of win: AXUIElement, winTop: CGFloat, winSize: CG
         let profile = adobeChromeProfile(for: win, pid: pid, size: winSize)
         return min(max(visualHeight, profile.hitChromeHeight), min(winSize.height, 300))
     }
-    guard extendsTitlebarHitToApplicationFrame(pid: pid) else { return visualHeight }
     return visualHeight
 }
 

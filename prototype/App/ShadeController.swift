@@ -100,58 +100,31 @@ extension AppDelegate {
         }
         wlog("stickies: delegated native shade at (\(Int(p.x)),\(Int(p.y)))")
     }
+    /// 读好窗口信息交给 FoldPlanner（Domain/FoldPlanner.swift）决定收不收、怎么收。
     func makeShadePlan(win: AXUIElement, pos: CGPoint, size: CGSize,
                                pid: pid_t, profile: WindowChromeProfile,
                                options: ShadeInvocationOptions) -> ShadePlan? {
-        guard windowIsVisible(pos: pos, size: size) else {
-            wlog("plan: reject invisible/off-space window pid=\(pid)")
+        let visible = windowIsVisible(pos: pos, size: size)
+        let facts = FoldFacts(visibleOnActiveSpace: visible,
+                              fullScreen: visible && axBoolAttribute(win, "AXFullScreen"),
+                              minimized: visible && axBoolAttribute(win, kAXMinimizedAttribute as String),
+                              isQuickLook: profile.isQuickLook,
+                              adobeKind: profile.adobeProfile.kind,
+                              adobeCanShade: profile.adobeProfile.canShade,
+                              adobeReason: profile.adobeProfile.reason)
+        var screenCaptureKitAvailable = false
+        if #available(macOS 14.0, *) { screenCaptureKitAvailable = true }
+        let settings = FoldSettings(appearance: appearanceMode,
+                                    forcedAppearance: options.forcedAppearanceMode,
+                                    screenRecordingGranted: hasScreenRecordingPermission(),
+                                    screenCaptureKitAvailable: screenCaptureKitAvailable)
+        switch FoldPlanner.decide(facts: facts, profile: appProfile(for: pid), settings: settings) {
+        case .reject(let reason):
+            wlog("plan: reject \(reason) pid=\(pid)")
             return nil
+        case .fold(let plan):
+            return plan
         }
-        if axBoolAttribute(win, "AXFullScreen") {
-            wlog("plan: reject fullscreen window pid=\(pid)")
-            return nil
-        }
-        if axBoolAttribute(win, kAXMinimizedAttribute as String) {
-            wlog("plan: reject minimized window pid=\(pid)")
-            return nil
-        }
-        let adobeProfile = profile.adobeProfile
-        if adobeProfile.kind == .floatingPanel || !adobeProfile.canShade {
-            wlog("plan: reject adobe panel pid=\(pid) kind=\(adobeProfile.kind.rawValue) reason=\(adobeProfile.reason)")
-            return nil
-        }
-
-        let policy: ShadePolicy = profile.isQuickLook
-            ? .closeQuickLookPreview
-            : shadePolicy(for: pid)
-        var mode = options.forcedAppearanceMode ?? appearanceMode
-        var reason = options.forcedAppearanceMode == nil ? "user-mode" : "forced-\(mode.rawValue)"
-        if profile.isQuickLook {
-            reason += "-quicklook"
-        }
-
-        // 缩略图要收起那一刻的截图：截不了的时候和“跟原来一样”一样，退回统一标题栏。
-        let needsScreenshot = mode == .nativeScreenshot || mode == .thumbnail
-        if options.forcedAppearanceMode == nil && needsScreenshot && !hasScreenRecordingPermission() {
-            mode = .proxyTitleBar
-            reason = "screen-recording-missing"
-        }
-        if options.forcedAppearanceMode == nil && needsScreenshot {
-            if #unavailable(macOS 14.0) {
-                mode = .proxyTitleBar
-                reason = "screencapturekit-unavailable"
-            }
-        }
-        if options.forcedAppearanceMode == nil,
-           adobeProfile.kind != .none,
-           mode == .proxyTitleBar,
-           hasScreenRecordingPermission() {
-            if #available(macOS 14.0, *) {
-                mode = .nativeScreenshot
-                reason = "adobe-\(adobeProfile.kind.rawValue)-native-chrome"
-            }
-        }
-        return ShadePlan(mode: mode, policy: policy, reason: reason)
     }
     func resolvedSourceSpaceID(windowID id: CGWindowID,
                                        sourceDisplayID: CGDirectDisplayID?,

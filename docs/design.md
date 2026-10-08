@@ -258,7 +258,7 @@ prototype/
 | 步骤 | 内容 | 替换的现有代码 |
 |---|---|---|
 | 0 | 建立测试设施：把录像检查程序提交到仓库并接入 CI，使检查失败时 CI 失败；把空帧判断改为 `testing.md` 第 6.1 节的比较方法；驱动程序记录收起前的窗口位置和标题栏区域；建立 `tests/support/Fakes/` | — |
-| 1 | 建立 `Domain/`：`ShadeRecord`、`ShadeStore`、`FoldPlanner`、`AppProfiles`，编写单元测试 | `Core/ShadeModels.swift`、`Compatibility/`、其他文件中的应用程序判断 |
+| 1 | 建立 `Domain/`：`AppProfiles`、`FoldPlanner`，编写单元测试（`run-domain-tests.sh`）。`ShadeRecord`、`ShadeStore` 与第 6 步一起做，那时状态才移入 | `Compatibility/`、`ShadeController.makeShadePlan` 中的判断 |
 | 2 | 建立 `Platform/`：把辅助功能调用、截图、SkyLight 调用、屏幕角落停放集中到平台层，全部改为异步调用 | `Window/AXWindow.swift`、`Capture/FastCapture.swift`、`Private/SkyLightBridge.swift` 等 |
 | 3 | 按第 5.4 节编写 `FoldEngine` | `ShadeController.shade()`、`App/FoldTransaction.swift` 的大部分 |
 | 4 | 按第 5.5 节编写 `UnfoldEngine` | `App/FoldExit.swift` |

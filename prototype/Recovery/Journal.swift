@@ -98,7 +98,7 @@ extension AppDelegate {
             "appName": appName,
             "hide": hide.rawValue,
             "mode": mode.rawValue,
-            "policy": shadePolicyDescription(policy),
+            "policy": policy.logDescription,
             "planReason": planReason,
             "stage": stage.rawValue,
             "state": stage.rawValue,

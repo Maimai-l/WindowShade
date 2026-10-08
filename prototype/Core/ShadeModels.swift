@@ -1,4 +1,4 @@
-// 折叠相关的值类型：隐藏方式、生命周期、外观模式、策略、外框画像与 ShadeState。
+// 折叠相关的值类型：隐藏方式、生命周期、外框画像与 ShadeState。外观模式、隐藏策略和收起计划在 Domain/。
 
 import Cocoa
 
@@ -10,44 +10,6 @@ enum ShadeLifecycleStage: String {
     case cleaned
     case forwarded
 }
-enum ShadeAppearanceMode: String {
-    case nativeScreenshot
-    case proxyTitleBar
-    /// 收起后窗口在原处缩成一张缩略图（设置里“收起后的样子”的第三项，见 App/Thumbnail.swift）。
-    case thumbnail
-}
-
-// Product semantic: shading is a per-window temporary state in macOS's
-// app/window/document model. These policies describe how to keep the real
-// window out of sight; they must not leak into user-facing language as
-// "hide this app" or "close this document".
-enum ShadePolicy {
-    case offscreenThenFallback(allowAppHide: Bool)
-    case offscreenForLivePreview
-    case hiddenIfSingleWindowElseMinimized(allowAppHide: Bool)
-    case closeQuickLookPreview
-
-    /// 这种藏法会不会走到“隐藏整个 App”（只在那扇窗是 App 唯一一扇时才会）。
-    var mayHideApp: Bool {
-        switch self {
-        case .offscreenThenFallback(let allowAppHide), .hiddenIfSingleWindowElseMinimized(let allowAppHide):
-            return allowAppHide
-        case .offscreenForLivePreview:
-            return true
-        case .closeQuickLookPreview:
-            return false
-        }
-    }
-}
-
-enum AdobeChromeKind: String {
-    case none
-    case applicationFrame
-    case tabbedDocumentFrame
-    case floatingDocumentWindow
-    case floatingPanel
-}
-
 struct AdobeChromeProfile {
     let kind: AdobeChromeKind
     let preservedChromeHeight: CGFloat
@@ -87,19 +49,6 @@ struct WindowChromeProfile {
     }
 }
 
-func shadePolicyDescription(_ policy: ShadePolicy) -> String {
-    switch policy {
-    case .offscreenThenFallback(let allowAppHide):
-        return "offscreenThenFallback(allowAppHide:\(allowAppHide))"
-    case .offscreenForLivePreview:
-        return "offscreenForLivePreview"
-    case .hiddenIfSingleWindowElseMinimized(let allowAppHide):
-        return "hiddenIfSingleWindowElseMinimized(allowAppHide:\(allowAppHide))"
-    case .closeQuickLookPreview:
-        return "closeQuickLookPreview"
-    }
-}
-
 // MARK: - 折叠状态
 
 // ShadeState follows one real window, not one app. The stored CGWindowID and
@@ -126,12 +75,6 @@ struct ShadeState {
     let quickLookReopenURL: URL?
     let ignoreAppRevealUntil: Date
     var observer: AXObserver?    // 监听窗口被外部唤回（折叠后下一轮 runloop 才注册）
-}
-
-struct ShadePlan {
-    let mode: ShadeAppearanceMode
-    let policy: ShadePolicy
-    let reason: String
 }
 
 struct ShadeInvocationOptions {
