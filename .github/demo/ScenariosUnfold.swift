@@ -136,4 +136,25 @@ let unfoldScenarios: [Scenario] = [
         await expectAllRestored(probe, frames, h, within: 5)
         h.result.notes["unfoldAllSeconds"] = Date().timeIntervalSince(start)
     },
+    // B09 的时序变体（2026-10-08 3b99ecb 上 B09 这样失败过）：收起后 1 秒内应用程序就显示了，
+    // 这时的“已显示”通知按收起过程自己引起的处理、被忽略，卷帘条要等 5 秒一次的定期检查才撤。
+    Scenario(id: "B18", title: "收起后 1 秒内在应用程序的“窗口”菜单里选这扇窗口", options: []) { probe, h in
+        guard let window = probe.window() else { h.result.violations.append("setup: no Probe window"); return }
+        place(window, origin: probeOrigin, size: probeSize)
+        await probe.bringToFront()
+        await pause(0.6)
+        guard let frame = axFrame(window) else { return }
+        let titleBar = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
+        await glide(to: titleBar, duration: 0.3)
+        await pause(0.2)
+        await doubleClick(at: titleBar)
+        guard await eventually(3, { stripFrames().count == 1 }) else {
+            h.result.violations.append("setup: the window did not fold")
+            return
+        }
+        await glide(to: h.neutral, duration: 0.2)
+        h.expect(await pressAppMenu(probe.pid, menu: "Window", item: "Probe 1"), "B18: no Probe 1 in the Window menu")
+        await expectRestored(probe, frame, h, within: 3)
+        await expectNoStrip(h, within: 2)
+    },
 ]

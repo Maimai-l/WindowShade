@@ -89,6 +89,7 @@
 | B15 | 应用程序卡住 | 双击卷帘条 | 1 秒内有结果；卷帘条保留到窗口真的回来；系统输入不受影响 |
 | B16 | 同一扇窗口 | 连续双击卷帘条 5 次 | 最终状态稳定，没有残留，没有空帧 |
 | B17 | 收起了 20 扇窗口 | 全部展开 | 全部回到原位置；耗时在 5 秒以内 |
+| B18 | 刚收起不到 1 秒（应用程序被隐藏） | 在应用程序的“窗口”菜单里选这扇窗口 | 窗口回到原处，卷帘条 2 秒内撤掉 |
 
 ## 4. 卷帘条上的操作
 
@@ -252,7 +253,7 @@
 |---|---|
 | `Scenarios.swift` | X01 至 X05、P01、P02、A22、B16 |
 | `ScenariosFold.swift` | A01 至 A15、A17、A18、A23 至 A25、A28、A29、A31、A33（计算器、终端、系统设置、Safari、备忘录、Chrome）、A34 至 A37 |
-| `ScenariosUnfold.swift` | B03 至 B07、B09、B11、B14、B17 |
+| `ScenariosUnfold.swift` | B03 至 B07、B09、B11、B14、B17、B18 |
 | `ScenariosStrip.swift` | C01 至 C08、C10 至 C16、C18 至 C23 |
 | `ScenariosGlance.swift` | D01 至 D07、D09 至 D12 |
 | `ScenariosSystem.swift` | E05 至 E07、L01 至 L03、L07、P03 至 P07、X08 至 X10、H01、H02、H10、A21、A32 |

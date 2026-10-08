@@ -651,7 +651,15 @@ extension AppDelegate {
             return
         }
         if Date() < state.ignoreAppRevealUntil {
-            wlog("ignore early app reveal notification=\(source) id=\(id) app=\(state.appName)")
+            // 收起刚完成时的显示可能是收起过程自己引起的，先不算；但用户也可能就在这时把它叫回来
+            // （场景 B18：收起后 1 秒内在“窗口”菜单里选它）。忽略期一过再看一次：应用程序仍然显示着，就展开。
+            wlog("ignore early app reveal notification=\(source) id=\(id) app=\(state.appName); checking again after the window")
+            let wait = max(0, state.ignoreAppRevealUntil.timeIntervalSinceNow) + 0.05
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self, self.foldCallbackIsCurrent(expected), let current = self.shaded[id], current.hide == .hidden,
+                      !MainActor.assumeIsolated({ glance.holdsReveal(id) }) else { return }
+                self.unshadeAfterAppShown(id, expected: expected, attemptsLeft: 10)
+            }
             return
         }
         if state.hide == .hidden {

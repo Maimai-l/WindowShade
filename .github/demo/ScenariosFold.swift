@@ -370,8 +370,13 @@ let foldScenarios: [Scenario] = [
         place(windows[1], origin: CGPoint(x: 700, y: 480), size: CGSize(width: 520, height: 300))
         await pause(0.8)
         guard let a = axFrame(windows[0]), let b = axFrame(windows[1]) else { return }
+        // 第二扇窗口伸出屏幕右边：双击点取标题栏在屏幕内的那一段（伸出去的部分点不到）。
+        let screenRight = CGDisplayBounds(CGMainDisplayID()).maxX
+        func titlePoint(_ frame: CGRect) -> CGPoint {
+            CGPoint(x: min(frame.minX + frame.width * 0.72, screenRight - 60), y: frame.minY + 14)
+        }
         for frame in [a, b] {
-            let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
+            let point = titlePoint(frame)
             await glide(to: point, duration: 0.2)
             await doubleClick(at: point)
             await pause(0.15)
@@ -379,7 +384,7 @@ let foldScenarios: [Scenario] = [
         await glide(to: h.neutral, duration: 0.2)
         h.expect(await eventually(4) { stripFrames().count == 2 }, "A24: expected 2 strips, saw \(stripFrames().count)")
         for frame in [a, b] {
-            await doubleClick(at: CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14))
+            await doubleClick(at: titlePoint(frame))
             await pause(0.8)
         }
         await glide(to: h.neutral, duration: 0.2)
