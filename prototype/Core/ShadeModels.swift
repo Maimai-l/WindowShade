@@ -12,7 +12,6 @@ enum ShadeLifecycleStage: String {
     case forwarded
 }
 enum ShadeAppearanceMode: String {
-    case interactiveNative
     case nativeScreenshot
     case classicSemantic
     case proxyTitleBar
