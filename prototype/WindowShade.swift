@@ -782,8 +782,19 @@ extension AppDelegate {
                 return
             }
             startedAt = CFAbsoluteTimeGetCurrent()
-            let windowOK = FastCapture.warmUpWindowCapture(CGWindowID(number.uint32Value), origin: bounds.origin)
-            wlog("capture: window prewarm \(windowOK ? "ok" : "no image") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
+            let windowID = CGWindowID(number.uint32Value)
+            let windowOK = FastCapture.warmUpWindowCapture(windowID, origin: bounds.origin)
+            let owner = window[kCGWindowOwnerName as String] as? String ?? "?"
+            wlog("capture: window prewarm \(windowOK ? "ok" : "no image") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms window=\(windowID) owner=\(owner)")
+            // 诊断（只在 CI 录像时打开）：同一窗口再整窗截一次，看第一次整窗截图慢是在启动时也慢，
+            // 还是只在双击收起那一刻慢（docs/testing.md 第 5 节）。
+            if UserDefaults.standard.bool(forKey: "WindowShadeDiagnoseCapture") {
+                for attempt in 1...2 {
+                    startedAt = CFAbsoluteTimeGetCurrent()
+                    let full = FastCapture.window(windowID)
+                    wlog("capture: diagnose full window=\(windowID) attempt=\(attempt) \(full == nil ? "empty" : "ok") \(Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000))ms")
+                }
+            }
         }
     }
 
