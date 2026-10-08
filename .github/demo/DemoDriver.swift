@@ -1,4 +1,4 @@
-// CI 演示录屏的驱动：把文本编辑的窗口摆好，录下整块屏幕，
+// CI 演示录屏的驱动：把指定 App（默认文本编辑）的窗口摆好，录下整块屏幕，
 // 用合成的鼠标事件双击标题栏收起、停在卷帘条上看一眼、再双击展开。
 // 只在 GitHub Actions 的 macOS 机器上跑，不进 App。
 
@@ -46,14 +46,18 @@ func doubleClick(at point: CGPoint) async {
     post(.leftMouseUp, at: point, clicks: 2)
 }
 
-func textEditWindow() -> AXUIElement? {
-    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit").first
+func firstWindow(of bundleID: String) -> AXUIElement? {
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
     else { return nil }
     let element = AXUIElementCreateApplication(app.processIdentifier)
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value) == .success,
           let windows = value as? [AXUIElement] else { return nil }
-    return windows.first
+    return windows.first { window in
+        var subrole: CFTypeRef?
+        AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subrole)
+        return (subrole as? String) == (kAXStandardWindowSubrole as String)
+    }
 }
 
 func place(_ window: AXUIElement, origin: CGPoint, size: CGSize) {
@@ -115,18 +119,23 @@ final class Recorder: NSObject, SCRecordingOutputDelegate, SCStreamDelegate {
 @main
 struct DemoDriver {
     static func main() async {
-        let video = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/tmp/demo.mp4")
+        // 参数：视频路径 [App 的 bundle id] [窗口宽] [窗口高] [双击点离窗口上沿的距离]
+        let args = Array(CommandLine.arguments.dropFirst())
+        let video = URL(fileURLWithPath: args.first ?? "/tmp/demo.mp4")
+        let bundleID = args.count > 1 ? args[1] : "com.apple.TextEdit"
+        let size = CGSize(width: args.count > 2 ? Double(args[2]) ?? 700 : 700,
+                          height: args.count > 3 ? Double(args[3]) ?? 460 : 460)
+        let barY = args.count > 4 ? Double(args[4]) ?? 14 : 14
         log("accessibility trusted: \(AXIsProcessTrusted()), screen capture: \(CGPreflightScreenCaptureAccess())")
 
         var window: AXUIElement?
         for _ in 0..<40 {
-            window = textEditWindow()
+            window = firstWindow(of: bundleID)
             if window != nil { break }
             await pause(0.25)
         }
-        guard let window else { log("no TextEdit window"); exit(2) }
+        guard let window else { log("no \(bundleID) window"); exit(2) }
         let origin = CGPoint(x: 160, y: 120)
-        let size = CGSize(width: 700, height: 460)
         place(window, origin: origin, size: size)
         await pause(1)
 
@@ -134,8 +143,8 @@ struct DemoDriver {
         do { try await recorder.start(to: video) } catch { log("cannot record: \(error)"); exit(3) }
         await pause(1.5)
 
-        // 标题栏上靠右的一点：避开中间的标题文字和左边的红绿灯。
-        let titleBar = CGPoint(x: origin.x + size.width * 0.72, y: origin.y + 14)
+        // 标题栏上靠右的一点：避开中间的标题文字和左边的红绿灯；有工具栏的窗口点在按钮上面的空白。
+        let titleBar = CGPoint(x: origin.x + size.width * 0.72, y: origin.y + barY)
         log("double-click title bar at \(titleBar)")
         await glide(to: titleBar)
         await pause(0.3)

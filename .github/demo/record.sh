@@ -1,5 +1,5 @@
 #!/bin/bash
-# 在 CI 的 macOS 机器上编出 WindowShade、授权、录一段收起 / 看一眼 / 展开的视频。
+# 在 CI 的 macOS 机器上编出 WindowShade、授权，录收起 / 看一眼 / 展开的视频：文本编辑和访达各一段。
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 OUT="$PWD/.build/demo"
@@ -71,12 +71,20 @@ sleep 3
 open "$APP"
 sleep 6
 
-echo "==> record"
+echo "==> record TextEdit"
 open -W --stderr "$OUT/driver.log" "$DRIVER" --args "$OUT/demo.mp4"
 cat "$OUT/driver.log" || true
+
+# 访达：工具栏比普通标题栏高一倍多，窗口也更宽；双击点放在工具栏按钮上面的空白。
+echo "==> record Finder"
+open /Applications
+sleep 3
+open -W --stderr "$OUT/driver-finder.log" "$DRIVER" --args "$OUT/demo-finder.mp4" com.apple.finder 900 500 8
+cat "$OUT/driver-finder.log" || true
+
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
-grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|space:|screen:" "$OUT/windowshade.log" | tail -60 || true
+grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|space:|screen:|capture full|titlebar" "$OUT/windowshade.log" | tail -80 || true
 
 screencapture -x "$OUT/end.png" 2>/dev/null || true
 ls -la "$OUT"
-test -s "$OUT/demo.mp4"
+test -s "$OUT/demo.mp4" && test -s "$OUT/demo-finder.mp4"
