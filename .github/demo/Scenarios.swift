@@ -316,9 +316,16 @@ final class Harness {
     }
 
     /// 场景结束时都要成立的不变式：I3、I5、I6、I9。
+    /// 场景让 WindowShade 停住过（X11）：到此为止日志里的主线程停顿不是 WindowShade 自己卡住，I6 不看这一段；I5 照看。
+    private var excusedStallLines = 0
+    func excuseStallsBeforeNow() { excusedStallLines = log.lines().count }
+
     func finish() -> ScenarioResult {
         result.violations += Self.inputViolations(audit.takeSynthetic())
-        result.violations += Self.logViolations(log.lines())
+        let lines = log.lines()
+        let excused = min(excusedStallLines, lines.count)
+        result.violations += Self.logViolations(lines.prefix(excused).filter { !$0.contains("main-thread stall") })
+        result.violations += Self.logViolations(Array(lines.dropFirst(excused)))
         if windowShadePID() == nil { result.violations.append("I9: WindowShade is not running") }
         result.notes["probeLatencies"] = latencies
         result.notes["probeWorstLatency"] = latencies.max() ?? 0

@@ -282,6 +282,23 @@ let systemScenarios: [Scenario] = [
         await expectNoStrip(h, within: 4)
         await expectRestored(probe, folded.frame, h, within: 3)
     },
+    // 预防卡死（2026-10-08 用户遇到全系统不响应输入）：WindowShade 的鼠标钩子是主动钩子，排在最前；
+    // 它整个进程停住时（调试器挂起、正在崩溃、内存紧张被换出），系统要等钩子超时才放行点击。
+    // 量这段时间：停住 3 秒，期间不断发探测单击、双击，每一次都要在 1 秒内穿过钩子（I2）；恢复后双击照常收起。
+    Scenario(id: "X11", title: "WindowShade 整个进程停住 3 秒：点击不被挡住超过 1 秒，恢复后照常收起", options: []) { probe, h in
+        guard let pid = windowShadePID() else { h.result.violations.append("setup: WindowShade is not running"); return }
+        let stopped = Date()
+        kill(pid, SIGSTOP)
+        await h.probeFor(3)
+        kill(pid, SIGCONT)
+        h.result.notes["stoppedFor"] = Date().timeIntervalSince(stopped)
+        // 停住期间主线程当然没动：恢复后它记下的那次“停顿”不是 WindowShade 自己卡住，不算 I6。
+        await pause(1.5)
+        h.excuseStallsBeforeNow()
+        await h.probeFor(1)
+        guard let folded = await foldProbe(probe, h) else { return }
+        await unfold(folded, probe, h)
+    },
 
     // MARK: 设置窗口（第 6 节）
     Scenario(id: "H01", title: "在设置窗口里改开关：立即写入设置", options: [], changesSettings: true) { _, h in
