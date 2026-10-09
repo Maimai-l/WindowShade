@@ -417,6 +417,7 @@ let systemScenarios: [Scenario] = [
         await pressKey(49)   // 空格
         let opened = await eventually(6) { qlWindow() != nil }
         h.result.notes["preview"] = describe(newWindows())
+        h.result.notes["finderWindows"] = finderWindowFacts(finderPID)
         guard opened, let frame = qlWindow() else {
             h.result.violations.append("setup: Quick Look did not open from Finder")
             h.result.notes["onScreen"] = describe(onScreen())
@@ -486,6 +487,33 @@ let systemScenarios: [Scenario] = [
         h.expect(granted, "H09: the welcome window did not show the new permission within 4 s")
     },
 ]
+
+@_silgen_name("_AXUIElementGetWindow")
+private func axGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
+
+/// 访达的全部窗口（A32）：窗口列表里每一扇（含不在屏幕上的）和辅助功能里每一扇，各自的编号、外框。
+/// 快速查看面板在辅助功能里的窗口不在屏幕上，画出预览的是别的窗口（a228492），要据此找出两者的对应关系。
+func finderWindowFacts(_ pid: pid_t?) -> [String] {
+    guard let pid else { return [] }
+    var lines: [String] = []
+    for info in (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? [])
+    where (info[kCGWindowOwnerPID as String] as? Int).map({ pid_t($0) }) == pid {
+        let rect = (info[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } ?? .zero
+        lines.append("cg id=\(info[kCGWindowNumber as String] as? Int ?? 0) layer=\(info[kCGWindowLayer as String] as? Int ?? 0) "
+            + "alpha=\(info[kCGWindowAlpha as String] as? Double ?? -1) onscreen=\(info[kCGWindowIsOnscreen as String] as? Bool ?? false) "
+            + "\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)) \"\(info[kCGWindowName as String] as? String ?? "")\"")
+    }
+    var value: CFTypeRef?
+    AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value)
+    for window in value as? [AXUIElement] ?? [] {
+        var id: CGWindowID = 0
+        _ = axGetWindow(window, &id)
+        let rect = axFrame(window) ?? .zero
+        lines.append("ax id=\(id) role=\(axString(window, kAXRoleAttribute as String)) subrole=\(axString(window, kAXSubroleAttribute as String)) "
+            + "\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)) \"\(axString(window, kAXTitleAttribute as String))\"")
+    }
+    return lines
+}
 
 func axBool(_ element: AXUIElement, _ attribute: String) -> Bool {
     var value: CFTypeRef?

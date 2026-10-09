@@ -372,6 +372,8 @@ extension AppDelegate {
         guard titlebarDoubleClickEnabled, systemTitlebarDoubleClickAction() != .none,
               windowID(of: win) == id else { return }
         cancelRestorePin(for: id)
+        // 三击先展开再做系统动作：展开安排的 80、250 毫秒“带到最前”会升起窗口，把刚最小化的窗口又拉回来（场景 A08）。
+        restoreFocusTokens.removeValue(forKey: id)
         let beforePos = axPosition(win)
         let beforeSize = axSize(win)
         switch systemTitlebarDoubleClickAction() {
