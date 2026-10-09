@@ -380,11 +380,44 @@ func closeUnsavedScenario(video: URL) async {
     exit(failures.isEmpty ? (recorder.failed ? 4 : 0) : 5)
 }
 
+/// 在自己的 Mac 上跑之前的检查（.github/demo/run-on-this-mac.sh）：驱动程序的权限、是否登录在桌面、
+/// 屏幕是否锁着、有没有显示器。缺的权限请求一次，系统就把驱动程序列进系统设置的名单，用户只需打开开关。
+func preflight() -> Never {
+    var missing: [String] = []
+    if !AXIsProcessTrusted() {
+        missing.append("辅助功能")
+        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+    }
+    if !CGPreflightScreenCaptureAccess() {
+        missing.append("录屏与系统录音")
+        _ = CGRequestScreenCaptureAccess()
+    }
+    if !CGPreflightListenEventAccess() {
+        missing.append("输入监控")
+        _ = CGRequestListenEventAccess()
+    }
+    if !CGPreflightPostEventAccess() {
+        if !missing.contains("辅助功能") { missing.append("辅助功能") }
+        _ = CGRequestPostEventAccess()
+    }
+    let session = CGSessionCopyCurrentDictionary() as? [String: Any] ?? [:]
+    let onConsole = session["kCGSSessionOnConsoleKey"] as? Bool ?? false
+    let locked = session["CGSSessionScreenIsLocked"] as? Bool ?? false
+    let screens = NSScreen.screens.count
+    print("preflight driver-missing=\(missing.joined(separator: ",")) on-console=\(onConsole) locked=\(locked) screens=\(screens)")
+    exit(missing.isEmpty && onConsole && !locked && screens > 0 ? 0 : 1)
+}
+
 @main
 struct DemoDriver {
     static func main() async {
         // 参数：视频路径 [App 的 bundle id] [窗口宽] [窗口高] [双击点离窗口上沿的距离]
         let args = Array(CommandLine.arguments.dropFirst())
+        if args.first == "preflight" { preflight() }
+        // 跑完以后把外观改回用户原来的深色或浅色（场景 E05 最后停在浅色）。
+        if args.count == 2, args[0] == "appearance" {
+            exit(setDarkMode(args[1] == "dark") ? 0 : 1)
+        }
         let video = URL(fileURLWithPath: args.first ?? "/tmp/demo.mp4")
         if args.count > 1, args[1] == "close-unsaved" {
             await closeUnsavedScenario(video: video)

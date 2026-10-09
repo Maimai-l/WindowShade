@@ -4,6 +4,13 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 OUT="$PWD/.build/demo"
 mkdir -p "$OUT"
+# WINDOWSHADE_LOCAL=1：在自己的 Mac 上跑（.github/demo/run-on-this-mac.sh），不是 GitHub 的临时虚拟机。
+# 那里系统完整性保护开着，不能直接写权限数据库：权限由用户在系统设置里给一次，这里只检查；
+# 用固定的证书签名（WINDOWSHADE_TEST_SIGN_IDENTITY），重新编译后系统仍认得，权限不用再给。
+LOCAL="${WINDOWSHADE_LOCAL:-0}"
+SIGN_ID="${WINDOWSHADE_TEST_SIGN_IDENTITY:--}"
+# 证书放在单独的钥匙串里时（run-on-this-mac.sh），只在那里找。
+sign() { codesign --force ${WINDOWSHADE_TEST_KEYCHAIN:+--keychain "$WINDOWSHADE_TEST_KEYCHAIN"} -s "$SIGN_ID" "$@"; }
 csrutil status || true
 sw_vers
 system_profiler SPDisplaysDataType | grep -E "Resolution|Display Type" || true
@@ -18,7 +25,7 @@ if [ "${RECORD_PART:-all}" = "reproduce-e13" ]; then
   git worktree add --detach "$SRC" f183ee4^ || exit 1
 fi
 
-echo "==> build ($(git -C "$SRC" log -1 --format='%h %s'))"
+echo "==> build ($(git -C "$SRC" log -1 --format='%h %s' 2>/dev/null || cat "$SRC/KIT_VERSION" 2>/dev/null))"
 WINDOWSHADE_CHECK_OUTPUT="$OUT/bin" "$SRC/prototype/build.sh" --check || exit 1
 
 APP="$OUT/WindowShade.app"
@@ -30,11 +37,11 @@ cp "$OUT/bin/WindowShade" "$APP/Contents/MacOS/WindowShade"
 rm -f "$APP/Contents/MacOS/WindowShadeTapHelper"
 if [ -f "$OUT/bin/WindowShadeTapHelper" ] && [ "$SRC" = "$PWD" ]; then
   cp "$OUT/bin/WindowShadeTapHelper" "$APP/Contents/MacOS/WindowShadeTapHelper"
-  codesign --force -s - "$APP/Contents/MacOS/WindowShadeTapHelper"
+  sign "$APP/Contents/MacOS/WindowShadeTapHelper"
 fi
 cp assets/app-icon/WindowShade.icns "$APP/Contents/Resources/" 2>/dev/null || true
 ditto "$SRC/prototype/Vendor/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
-codesign --force --deep -s - "$APP"
+sign --deep "$APP"
 # 给人下载试用：ditto 打包保留框架里的符号链接和可执行权限（GitHub 自己打包会丢掉这两样）。
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/WindowShade-app.zip"
 
@@ -54,7 +61,7 @@ cat > "$DRIVER/Contents/Info.plist" <<'PLIST'
 <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
-codesign --force -s - "$DRIVER"
+sign "$DRIVER"
 
 # 故障注入用的测试应用程序（docs/test-catalog.md 第 10 节）：行为由启动参数控制，结果确定。
 PROBE="$OUT/ProbeApp.app"
@@ -71,12 +78,14 @@ cat > "$PROBE/Contents/Info.plist" <<'PLIST'
 <key>CFBundlePackageType</key><string>APPL</string>
 </dict></plist>
 PLIST
-codesign --force -s - "$PROBE"
+sign "$PROBE"
 
+if [ "$LOCAL" != "1" ]; then
 echo "==> grant permissions"
 sudo python3 .github/demo/grant-tcc.py \
   "com.windowshade.prototype=$APP" "com.windowshade.demo-driver=$DRIVER"
 sudo killall tccd 2>/dev/null || true
+fi
 # macOS 15 起，屏幕录制另有一层“要不要绕过系统窗口选择器”的确认框；预先批准，免得挡住画面。
 python3 - "$APP/Contents/MacOS/WindowShade" "$DRIVER/Contents/MacOS/DemoDriver" <<'PY'
 import datetime, os, plistlib, sys
@@ -131,6 +140,21 @@ if ! pgrep -x WindowShade >/dev/null; then
   echo "WindowShade is not running after launch"
   collect_crashes
   exit 1
+fi
+
+# 本机运行：开跑前确认两个程序都有权限、用户登录在桌面、屏幕没锁、有显示器。缺什么就说出来并停下（退出码 3）。
+if [ "$LOCAL" = "1" ]; then
+  echo "==> preflight"
+  open -W --stdout "$OUT/preflight.txt" --stderr "$OUT/preflight.log" "$DRIVER" --args preflight
+  driver_ok=$?
+  cat "$OUT/preflight.txt" 2>/dev/null || true
+  shade_line=$(grep "permissions: accessibility=" ~/Library/Logs/WindowShade/windowshade.log 2>/dev/null | tail -1)
+  echo "WindowShade: ${shade_line:-no permissions line in its log}"
+  if ! grep -q "driver-missing= " "$OUT/preflight.txt" 2>/dev/null || [ "$driver_ok" != 0 ] \
+     || ! echo "$shade_line" | grep -q "accessibility=true screenRecording=true"; then
+    echo "PREFLIGHT FAILED"
+    exit 3
+  fi
 fi
 
 # 录一段。ReplayKit 偶尔在第一帧报 -5822，录像文件不完整，App 本身没有问题：
@@ -279,7 +303,10 @@ run_group() {
   fi
   grant_all
 }
-if $RECORDINGS; then
+if $RECORDINGS && [ "$LOCAL" = "1" ]; then
+  # 收回、再给权限要直接改权限数据库，本机上做不到（系统完整性保护开着）。
+  echo "SKIP A26, D08, A27, H09: they take a permission away and give it back, which needs the CI machine"
+elif $RECORDINGS; then
 run_group scenarios-noscreen ScreenCapture "A26,D08"
 # H09 在场景中途要求授予辅助功能：驱动程序建 /tmp/windowshade-e2e-grant-accessibility，这里授权后回一个 .done。
 rm -f /tmp/windowshade-e2e-grant-accessibility /tmp/windowshade-e2e-grant-accessibility.done
@@ -316,12 +343,16 @@ if $RECORDINGS; then
 test -s "$OUT/demo.mp4" && test -s "$OUT/demo-finder.mp4"
 
 # 逐帧检查（docs/testing.md 第 6 节）：空帧、被别的窗口盖住、录屏指示器、展开后的位置和大小。
+if command -v ffmpeg >/dev/null; then
 echo "==> check the frame check (K05)"
 bash tests/run-frame-check-selftest.sh || status=1
 echo "==> check frames"
 for name in demo demo-finder; do
   python3 .github/demo/check_frames.py "$OUT/$name.mp4" "$OUT/$name.json" "$OUT/windowshade.log" || status=1
 done
+else
+  echo "SKIP K05 and the frame check: ffmpeg is not installed"
+fi
 echo "==> check scenario E13"
 python3 - "$OUT/close-unsaved.json" <<'PY' || status=1
 import json, sys
