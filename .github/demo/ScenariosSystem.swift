@@ -353,9 +353,14 @@ let systemScenarios: [Scenario] = [
     },
     // 用户打开快速查看的方式：在访达里选中一项，按空格。以前用 `qlmanage -p` 代替，但那是命令行调试工具，
     // 它的预览窗口不回答辅助功能查询（命中测试很快返回 -25204），WindowShade 动不了它（docs/testing.md 第 5 节）。
-    // 选中的方式是在“应用程序”文件夹里键入名字（`open -R` 定位临时目录里的文件在 CI 上没有反应，5b53a02）。
+    // 选中的方式：打开只放一个文件的文件夹，按 ⌘A。`open -R` 定位临时目录里的文件在 CI 上没有反应（5b53a02）；
+    // 在“应用程序”文件夹里键入名字选中也不可靠，紧跟着的空格被当成名字的一部分，快速查看没有打开（7158a9e、17f75fa）。
     Scenario(id: "A32", title: "快速查看窗口收起、展开：展开时重新打开同一个文件", options: []) { _, h in
-        let item = "Chess"
+        let item = "A32 preview"
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("WindowShade-A32")
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? "WindowShade A32\n".write(to: folder.appendingPathComponent(item + ".txt"), atomically: true, encoding: .utf8)
         let finderPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.processIdentifier
         func finderWindows() -> [AXUIElement] {
             guard let finderPID else { return [] }
@@ -372,25 +377,25 @@ let systemScenarios: [Scenario] = [
                 _ = pressCloseButton(window)
             }
             run("/usr/bin/killall", ["qlmanage"], timeout: 5)
+            try? FileManager.default.removeItem(at: folder)
         }
-        /// 预览窗口：标题是选中项的名字、不属于那个应用程序本身（访达的快速查看），或者属于 qlmanage（展开时重新打开的）。
+        /// 预览窗口：标题是那个文件的名字（访达的快速查看；文件夹窗口的标题是文件夹名，不会混淆），或者属于 qlmanage（展开时重新打开的）。
         func qlWindow() -> CGRect? {
             (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { info -> CGRect? in
                 let owner = info[kCGWindowOwnerName as String] as? String ?? ""
                 let title = info[kCGWindowName as String] as? String ?? ""
-                guard (title.hasPrefix(item) && owner != item && owner != "Finder") || owner.contains("qlmanage") || owner.contains("Quick Look"),
+                guard title.hasPrefix(item) || owner.contains("qlmanage") || owner.contains("Quick Look"),
                       let bounds = info[kCGWindowBounds as String] as? NSDictionary,
                       let rect = CGRect(dictionaryRepresentation: bounds), rect.height > 100 else { return nil }
                 return rect
             }.first
         }
-        run("/usr/bin/open", ["/Applications"])
+        run("/usr/bin/open", [folder.path])
         await pause(2)
         _ = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
         await pause(0.6)
-        // 按实际的键位打字：只换字符、键位都记成 A 的事件，访达按名字选中时会选错（选中了 Clock）。
-        for key: CGKeyCode in [8, 4, 14, 1, 1] { await pressKey(key) }   // c h e s s
-        await pause(0.6)
+        await pressKey(0, .maskCommand)   // ⌘A：文件夹里只有这一个文件
+        await pause(1.5)
         await pressKey(49)   // 空格
         guard await eventually(6, { qlWindow() != nil }), let frame = qlWindow() else {
             h.result.violations.append("setup: Quick Look did not open from Finder")
