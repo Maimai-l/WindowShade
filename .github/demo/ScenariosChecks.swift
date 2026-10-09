@@ -213,6 +213,13 @@ let checkScenarios: [Scenario] = [
         // 同时是一次测量：系统会不会切断一个收下了事件、迟迟不返回的钩子，键盘是否也排在它后面。
         // 2026-10-08 用户那次：指针能动、触控板手势有效，点击和快捷键都没有反应，只能强制重启。
         let stuckTag: Int64 = 0x6B06_0001, clickTag: Int64 = 0x6B06_0002, keyTag: Int64 = 0x6B06_0003
+        // 对照：没有卡住的钩子时，带标记的按键能不能被排在最后的监听钩子看到。看不到，按键的结果就不能用。
+        let controlKeyTag: Int64 = 0x6B06_0004
+        let controlSent = Date()
+        postTaggedKey(80, tag: controlKeyTag)
+        _ = await eventually(2) { h.audit.arrival(controlKeyTag) != nil }
+        h.result.notes["controlKeyMs"] = h.audit.arrival(controlKeyTag)
+            .map { Int($0.timeIntervalSince(controlSent) * 1000) as Any } ?? "never"
         let stuck = StuckTap(tag: stuckTag, hold: 8)
         guard stuck.start() else {
             h.result.violations.append("setup: cannot install the stuck event tap")
@@ -244,7 +251,11 @@ let checkScenarios: [Scenario] = [
         h.result.notes["probeKeyMs"] = milliseconds(h.audit.arrival(keyTag), from: sent)
         h.result.notes["tapDisabledByTimeoutMs"] = milliseconds(facts.disabled, from: start)
         h.result.notes["callbackReturnedMs"] = milliseconds(facts.returned, from: start)
-        h.result.notes["keysWaited"] = keyLatency.map { $0 > 1 } ?? true
+        if h.audit.arrival(controlKeyTag) != nil {
+            h.result.notes["keysWaited"] = keyLatency.map { $0 > 1 } ?? true
+        } else {
+            h.result.notes["keysWaited"] = "unknown: the control key was not seen either"
+        }
         h.result.notes["reported"] = reported
         // I2 的结论要和实测一致：点击晚于 1 秒（或没到）就必须报出来，按时到了就不能报。
         if clickLatency.map({ $0 > 1 }) ?? true {
