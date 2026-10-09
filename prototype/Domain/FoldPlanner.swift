@@ -6,7 +6,7 @@ import Foundation
 enum ShadeAppearanceMode: String, Sendable {
     case nativeScreenshot
     case proxyTitleBar
-    /// 收起后窗口在原处缩成一张缩略图（设置里“收起后的样子”的第三项，见 App/Thumbnail.swift）。
+    /// 收起后窗口在原处缩成一张缩略图（设置里“收起后显示”的第三项，见 App/Thumbnail.swift）。
     case thumbnail
 }
 
@@ -75,7 +75,7 @@ enum FoldPlanner {
         if facts.isQuickLook { reason += "-quicklook" }
 
         guard settings.forcedAppearance == nil else { return .fold(ShadePlan(mode: mode, policy: policy, reason: reason)) }
-        // 缩略图要收起那一刻的截图：截不了的时候和“跟原来一样”一样，退回统一标题栏。
+        // 缩略图要收起那一刻的截图：截不了的时候和“原标题栏”一样，退回简化标题栏。
         let needsScreenshot = mode == .nativeScreenshot || mode == .thumbnail
         if needsScreenshot && !settings.screenRecordingGranted {
             mode = .proxyTitleBar

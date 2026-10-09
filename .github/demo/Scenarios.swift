@@ -743,7 +743,7 @@ func fold(_ window: AXUIElement, at origin: CGPoint, size: CGSize, _ harness: Ha
     return Folded(window: window, frame: frame, titleBar: titleBar, close: close)
 }
 
-/// 卷帘条上标准按钮的位置：截图样式和原窗口的按钮对齐；没取到时按统一标题栏的排法。
+/// 卷帘条上标准按钮的位置：截图样式和原窗口的按钮对齐；没取到时按简化标题栏的排法。
 func stripButton(_ folded: Folded, _ index: Int) -> CGPoint {
     if index == 0, let close = folded.close { return close }
     let base = folded.close ?? CGPoint(x: folded.frame.minX + 23, y: folded.frame.minY + 14)

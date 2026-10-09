@@ -54,7 +54,7 @@ let stripScenarios: [Scenario] = [
         guard let strip = stripFrames().first else { h.result.violations.append("C02: the strip disappeared"); return }
         h.expect(strip.maxY <= screen.maxY + 1 && strip.minY >= screen.minY, "C02: the strip is out of reach at \(strip)")
     },
-    Scenario(id: "C03", title: "统一标题栏样式下拖右边缘加宽卷帘条，展开后窗口跟着变宽", options: [],
+    Scenario(id: "C03", title: "简化标题栏样式下拖右边缘加宽卷帘条，展开后窗口跟着变宽", options: [],
              changesSettings: true) { probe, h in
         _ = await relaunchWindowShade([["ShadeAppearanceMode", "-string", "proxyTitleBar"]])
         NSRunningApplication(processIdentifier: probe.pid)?.activate()

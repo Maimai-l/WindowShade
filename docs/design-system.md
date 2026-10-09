@@ -303,7 +303,7 @@ Aaron 2026-10-03：“整个 app 多用 SF Symbols，不要大段大段文字。
 
 - **看一眼的卡片**（Overlay/GlancePanel.swift）：内容层，不加材质；圆角 = 源窗口实测圆角（App/Glance.swift）；阴影沿卡片路径画。有画面时不加底和边，代码注释写明原因：窗口画面自带边缘，多一层会在角上露出月牙；只有拿不到画面时才有底色和细边（GlancePanel.swift）。
 - **卷帘条**：`SystemCornerRadius.surfaceRadius(forHeight:)`，不超过高度的一半。
-- **价值观**：V1 收起窗口是 WindowShade 的来历，用的是 Mac 标题栏的样子（“跟原来一样 / 统一标题栏”）。V2 看一眼移开就收回。V5 看一眼拿不到实时画面时显示收起时的截图，卡片上不加文字说明。
+- **价值观**：V1 收起窗口是 WindowShade 的来历，用的是 Mac 标题栏的样子（“原标题栏 / 简化标题栏”）。V2 看一眼移开就收回。V5 看一眼拿不到实时画面时显示收起时的截图，卡片上不加文字说明。
 
 ### 5.4 欢迎窗口（App/Welcome.swift）
 

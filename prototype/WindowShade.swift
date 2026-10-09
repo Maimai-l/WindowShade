@@ -286,7 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sessionFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         sessionFormatter.locale = Locale(identifier: "en_US_POSIX")
         wlog("=== session start pid=\(getpid()) at \(sessionFormatter.string(from: Date())) ===")
-        // 权限状态写进日志：没有权限时的表现（欢迎窗口、统一标题栏）要能和权限对上。
+        // 权限状态写进日志：没有权限时的表现（欢迎窗口、简化标题栏）要能和权限对上。
         wlog("permissions: accessibility=\(AXIsProcessTrusted()) screenRecording=\(hasScreenRecordingPermission())")
         // 永久退出 App Nap：本进程持有全局 CGEventTap（回调在主 RunLoop 执行），
         // 被 nap 后每次双击都会拖慢全系统鼠标事件直到 tap 被系统超时禁用；

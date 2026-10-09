@@ -11,7 +11,7 @@ struct MenuState {
 
 extension AppDelegate {
   func setupStatusItem() {
-    // 启动时补上“收起后的样子”选的缩略图（WindowShade.swift 只认得前两项）。
+    // 启动时补上“收起后显示”选的缩略图（WindowShade.swift 只认得前两项）。
     adoptPersistedCollapseAppearance()
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     statusItem.isVisible = true
@@ -148,7 +148,7 @@ extension AppDelegate {
       rebuildMenu()
     }
   }
-  /// 设置里“收起后的样子”：跟原来一样 / 统一标题栏 / 缩略图。只影响之后收起的窗口。
+  /// 设置里“收起后显示”：原标题栏 / 简化标题栏 / 缩略图。只影响之后收起的窗口。
   func setAppearanceMode(_ mode: ShadeAppearanceMode) {
     switch mode {
     case .proxyTitleBar, .thumbnail: appearanceMode = mode

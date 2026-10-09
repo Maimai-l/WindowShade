@@ -1,4 +1,4 @@
-// 缩略图：设置里“收起后的样子”选“缩略图”时，收起窗口在原处留下的那张小图（小样做法 A，docs/direction.md）。
+// 缩略图：设置里“收起后显示”选“缩略图”时，收起窗口在原处留下的那张小图（小样做法 A，docs/direction.md）。
 //
 // - 平时只是收起那一刻的截图：不取画面、不开流，和卷帘条一样省电。
 // - 收起那一下，截图先盖在窗口原处（真窗口藏好要等确认，这段时间原处不空），确认后从那里缩进缩略图
@@ -529,7 +529,7 @@ func downsampledThumbnailPicture(_ image: CGImage, size: CGSize, scale: CGFloat)
 // MARK: - 收起、单击、整理
 
 extension AppDelegate {
-    /// “收起后的样子”存在 shadeAppearanceModeDefaultsKey 里。WindowShade.swift 启动时只认得前两项，
+    /// “收起后显示”存在 shadeAppearanceModeDefaultsKey 里。WindowShade.swift 启动时只认得前两项，
     /// 缩略图在这里补上（setupStatusItem 一开始就调用，早于任何一次收起）。
     func adoptPersistedCollapseAppearance() {
         let raw = UserDefaults.standard.string(forKey: shadeAppearanceModeDefaultsKey)

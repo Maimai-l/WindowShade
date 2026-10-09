@@ -184,7 +184,7 @@ AX API 可在任意线程调用。各 App / 各窗口之间没有依赖的只读
 改动后的真机数字还没有，看日志里 `duo-window: prepare fold` 到 `presented cover` 的间隔。
 
 **12. 收起截图先用 `CGWindowListCreateImage`，ScreenCaptureKit 兜底。**
-卷帘条（“跟原来一样”外观）原来用 `SCScreenshotManager` 截整窗：单独测 82ms，
+卷帘条（“原标题栏”外观）原来用 `SCScreenshotManager` 截整窗：单独测 82ms，
 放在收起途中（焦点刚停靠、窗口在重绘成非活跃态）变成 229ms，超过 450ms 还会退回
 代理标题栏。现在先在后台队列用 `CGWindowListCreateImage`（`Capture/FastCapture.swift`，
 按符号动态取，单独测 48–57ms），拿不到或整张全透明才走 ScreenCaptureKit。收起动画的

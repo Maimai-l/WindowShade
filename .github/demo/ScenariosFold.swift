@@ -419,7 +419,7 @@ let foldScenarios: [Scenario] = [
         await glide(to: h.neutral, duration: 0.2)
         await expectRestored(probe, folded.frame, h, within: 4)
     },
-    Scenario(id: "A28-proxy", title: "统一标题栏样式收起、展开", options: [], changesSettings: true) { probe, h in
+    Scenario(id: "A28-proxy", title: "简化标题栏样式收起、展开", options: [], changesSettings: true) { probe, h in
         _ = await relaunchWindowShade([["ShadeAppearanceMode", "-string", "proxyTitleBar"]])
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
         guard let folded = await foldProbe(probe, h) else { return }

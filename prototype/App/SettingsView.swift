@@ -12,9 +12,9 @@ enum SettingsCopy {
     static let glanceNote = "指针停在卷帘条上时显示窗口"
 
     static let appearance = "外观"
-    static let appearanceMode = "收起后的样子"
+    static let appearanceMode = "收起后显示"
     static let appearanceChoices: [(mode: ShadeAppearanceMode, title: String)] = [
-        (.nativeScreenshot, "跟原来一样"), (.proxyTitleBar, "统一标题栏"), (.thumbnail, "缩略图"),
+        (.nativeScreenshot, "原标题栏"), (.proxyTitleBar, "简化标题栏"), (.thumbnail, "缩略图"),
     ]
     static let floating = "卷帘条置顶"
     static let stripTranslucency = "卷帘条半透明"

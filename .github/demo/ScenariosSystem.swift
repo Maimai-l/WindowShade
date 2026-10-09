@@ -335,15 +335,15 @@ let systemScenarios: [Scenario] = [
             let after = readDefault(key)
             h.expect(after != before, "H01: \(name) did not change \(key) (\(before) → \(after))")
         }
-        if let proxy = control(settings, "统一标题栏") {
+        if let proxy = control(settings, "简化标题栏") {
             AXUIElementPerformAction(proxy, kAXPressAction as CFString)
             await pause(0.6)
             h.expect(readDefault("ShadeAppearanceMode") == "proxyTitleBar", "H01: the appearance choice was not saved")
         } else {
-            h.result.violations.append("H01: no appearance choice named 统一标题栏")
+            h.result.violations.append("H01: no appearance choice named 简化标题栏")
         }
     },
-    Scenario(id: "H02", title: "有窗口收起着时改“收起后的样子”：已收起的窗口照常展开", options: [], changesSettings: true) { probe, h in
+    Scenario(id: "H02", title: "有窗口收起着时改“收起后显示”：已收起的窗口照常展开", options: [], changesSettings: true) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
         _ = await pressWindowShadeMenu("设置")
         await pause(1.5)
@@ -489,7 +489,7 @@ let systemScenarios: [Scenario] = [
     },
 
     // MARK: 权限（record.sh 收回权限后单独运行）
-    Scenario(id: "A26", title: "没有屏幕录制权限时收起：改用统一标题栏", options: [], group: "no-screen-recording") { probe, h in
+    Scenario(id: "A26", title: "没有屏幕录制权限时收起：改用简化标题栏", options: [], group: "no-screen-recording") { probe, h in
         guard permissionRevoked("screenRecording", h) else { return }
         guard let folded = await foldProbe(probe, h) else { return }
         h.expect(h.logLines().contains { $0.contains(">>> shade") && $0.contains("mode=proxyTitleBar") },
