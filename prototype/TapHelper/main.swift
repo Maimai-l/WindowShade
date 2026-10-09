@@ -82,7 +82,8 @@ enum TapHelper {
     }
 
     static func run() -> Never {
-        let arguments = CommandLine.arguments
+        // 不用 CommandLine.arguments：Swift 6.0 把它算作共享的可变状态，编不过。
+        let arguments = ProcessInfo.processInfo.arguments
         guard arguments.count == 3, let parentPID = pid_t(arguments[1]) else {
             FileHandle.standardError.write(Data("usage: WindowShadeTapHelper <pid> <port>\n".utf8))
             exit(64)
