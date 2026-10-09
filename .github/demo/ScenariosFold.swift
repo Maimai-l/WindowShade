@@ -153,6 +153,8 @@ let foldScenarios: [Scenario] = [
         }
         NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
         place(window, origin: CGPoint(x: 160, y: 120), size: CGSize(width: 900, height: 500))
+        // 激活访达不一定把这扇窗口带到最上面：A01 留下的文本编辑窗口在同一位置，双击落到了它上面（2026-10-09 本机运行）
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         await pause(0.8)
         func toolbarButton(_ element: AXUIElement, _ depth: Int) -> AXUIElement? {
             guard depth < 5 else { return nil }
@@ -610,8 +612,12 @@ let foldScenarios: [Scenario] = [
     ("A33-Chrome", "com.google.Chrome", ["-a", "Google Chrome", "--args", "--no-first-run"], CGSize(width: 900, height: 600)),
 ].map { entry -> Scenario in
     let (id, bundleID, launch, size) = entry
-    return Scenario(id: id, title: "\(bundleID)：收起、展开", options: []) { _, h in
+    return Scenario(id: id, title: "\(bundleID)：收起、展开", options: []) { probe, h in
         await realAppRoundTrip(bundleID, launch: launch, size: size, barY: bundleID == "com.apple.Safari" ? 10 : 14,
                                quitAfter: true, h)
+        // 应用程序的窗口开在别的桌面上时，系统跟着切过去，结束它之后仍停在那个（空）桌面上，后面的场景都在那里跑
+        // （2026-10-09 本机运行：系统设置开在 5 号桌面，B03、B06、B09、B11 的窗口没有别处可交焦点，停到了角落）。
+        // 测试窗口开在原来的桌面上：把它带到前面，系统切回去。
+        if probe.isRunning { await probe.bringToFront() }
     }
 }

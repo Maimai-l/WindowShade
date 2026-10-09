@@ -276,6 +276,48 @@ func axChildren(_ element: AXUIElement) -> [AXUIElement] {
     return value as? [AXUIElement] ?? []
 }
 
+/// 把同一应用程序的其他窗口缩进程序坞，返回缩进去的那些（录完调用方放回）。
+func minimizeOtherWindows(of bundleID: String, except window: AXUIElement) -> [AXUIElement] {
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { return [] }
+    var value: CFTypeRef?
+    AXUIElementCopyAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXWindowsAttribute as CFString, &value)
+    var minimized: [AXUIElement] = []
+    for other in value as? [AXUIElement] ?? [] where !CFEqual(other, window) {
+        var isMinimized: CFTypeRef?
+        AXUIElementCopyAttributeValue(other, kAXMinimizedAttribute as CFString, &isMinimized)
+        guard (isMinimized as? Bool) != true,
+              axString(other, kAXSubroleAttribute as String) == (kAXStandardWindowSubrole as String) else { continue }
+        if AXUIElementSetAttributeValue(other, kAXMinimizedAttribute as CFString, kCFBooleanTrue) == .success {
+            minimized.append(other)
+        }
+    }
+    return minimized
+}
+
+/// 标题栏上没有控件的一点：从 preferred 起左右交替找，跳过 WindowShade 不收起的控件（AXWindow.swift 的
+/// isChromeControlRole）。用户的 macOS 14.5 上访达工具栏的这个位置是一个菜单按钮，双击被拒绝，没有收起
+/// （2026-10-09 本机运行）。
+func emptyTitleBarPoint(_ preferred: CGPoint, minX: CGFloat, maxX: CGFloat) -> CGPoint {
+    let controls: Set<String> = ["AXButton", "AXPopUpButton", "AXMenuButton", "AXTextField", "AXSearchField",
+                                 "AXComboBox", "AXCheckBox", "AXRadioButton", "AXSlider", "AXSegmentedControl",
+                                 "AXTabGroup", "AXRadioGroup", "AXDisclosureTriangle", "AXImage", "AXLink"]
+    let system = AXUIElementCreateSystemWide()
+    for step in 0..<40 {
+        let offset = CGFloat((step + 1) / 2) * 12 * (step % 2 == 0 ? 1 : -1)
+        let point = CGPoint(x: preferred.x + offset, y: preferred.y)
+        guard point.x >= minX, point.x <= maxX else { continue }
+        var element: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success,
+              let element else { continue }
+        let role = axString(element, kAXRoleAttribute as String)
+        if !controls.contains(role) {
+            if step > 0 { log("title bar point moved \(Int(offset)) pt off a control") }
+            return point
+        }
+    }
+    return preferred
+}
+
 func axString(_ element: AXUIElement, _ attribute: String) -> String {
     var value: CFTypeRef?
     AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
@@ -549,6 +591,14 @@ struct DemoDriver {
         guard let window else { log("no \(bundleID) window"); exit(2) }
         let origin = CGPoint(x: 160, y: 120)
         place(window, origin: origin, size: size)
+        // 同一应用程序的其他窗口先缩进程序坞，录完放回：用户的 Mac 上文本编辑还开着别的文档，收起后露出来的
+        // 也是白底的文档，逐帧检查看不出窗口变了（2026-10-09 本机运行）。CI 上没有别的窗口，这一步什么也不做。
+        let setAside = minimizeOtherWindows(of: bundleID, except: window)
+        if !setAside.isEmpty {
+            log("minimized \(setAside.count) other \(bundleID) windows for the recording")
+            await pause(1)
+        }
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         await pause(1)
 
         let recorder = Recorder()
@@ -564,7 +614,8 @@ struct DemoDriver {
         await pause(1.5)
 
         // 标题栏上靠右的一点：避开中间的标题文字和左边的红绿灯；有工具栏的窗口点在按钮上面的空白。
-        let titleBar = CGPoint(x: origin.x + size.width * 0.72, y: origin.y + barY)
+        let titleBar = emptyTitleBarPoint(CGPoint(x: origin.x + size.width * 0.72, y: origin.y + barY),
+                                          minX: origin.x + 80, maxX: origin.x + size.width - 20)
         log("double-click title bar at \(titleBar)")
         await glide(to: titleBar)
         await pause(0.3)
@@ -599,6 +650,9 @@ struct DemoDriver {
             }
             events["firstFrameOffset"] = offset
             log("first frame \(Int(offset * 1000))ms after the recording started")
+        }
+        for other in setAside {
+            AXUIElementSetAttributeValue(other, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         }
         let eventsURL = video.deletingPathExtension().appendingPathExtension("json")
         if let data = try? JSONSerialization.data(withJSONObject: events, options: [.prettyPrinted, .sortedKeys]) {

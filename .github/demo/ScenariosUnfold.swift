@@ -96,6 +96,24 @@ let unfoldScenarios: [Scenario] = [
         await expectRestored(probe, folded.frame, h, within: 4)
         await expectNoStrip(h, within: 3)
     },
+    // 当前桌面上没有别的窗口：收起时焦点无处可交，原窗口停到屏幕角落，应用程序不隐藏。点程序坞图标只激活它，
+    // 没有“取消隐藏”可等，卷帘条留着，窗口留在角落（2026-10-09 本机运行：测试跑到了一个空桌面上，B06、B09 失败）。
+    Scenario(id: "B06-alone", title: "当前桌面上只有这扇窗口：收起后点程序坞里的应用程序图标", options: []) { probe, h in
+        let others = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular && !$0.isHidden && $0.processIdentifier != probe.pid
+                && $0.processIdentifier != getpid() && $0.bundleIdentifier != "com.windowshade.prototype"
+        }
+        others.forEach { $0.hide() }
+        await pause(1.5)
+        defer { others.forEach { $0.unhide() } }
+        guard let folded = await foldProbe(probe, h) else { return }
+        h.expect(h.logLines().contains { $0.contains("handoff strategy=stay-minimize") },
+                 "B06-alone: setup: the focus went to another window, so this is plain B06")
+        guard let item = dockItem("ProbeApp") else { h.result.notes["skipped"] = "no Dock item"; return }
+        AXUIElementPerformAction(item, kAXPressAction as CFString)
+        await expectRestored(probe, folded.frame, h, within: 4)
+        await expectNoStrip(h, within: 3)
+    },
     Scenario(id: "B07", title: "切换到这个应用程序（与 Command-Tab 同效）", options: ["--windows=2"]) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
         NSRunningApplication(processIdentifier: probe.pid)?.activate()

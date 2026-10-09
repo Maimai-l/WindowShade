@@ -494,9 +494,21 @@ func clearSystemPopups() {
         AXUIElementPerformAction(cancel, kAXPressAction as CFString)
         Thread.sleep(forTimeInterval: 0.5)
     }
+    // “某某意外退出”的对话框（场景 P02 故意让测试应用程序崩溃）：DialogType=none 在用户的 macOS 14.5 上没有挡住它，
+    // 它停在屏幕中间，盖住后面场景的卷帘条（2026-10-09 本机运行 B11、B17、C03）。按“忽略”。
+    if onScreenOwners.contains("UserNotificationCenter"),
+       let center = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.UserNotificationCenter").first,
+       let ignore = findElement(AXUIElementCreateApplication(center.processIdentifier), maxDepth: 8, {
+           axString($0, kAXRoleAttribute as String) == "AXButton"
+               && ["忽略", "Ignore"].contains(axString($0, kAXTitleAttribute as String))
+       }) {
+        log("pressing Ignore on UserNotificationCenter's dialog")
+        AXUIElementPerformAction(ignore, kAXPressAction as CFString)
+        Thread.sleep(forTimeInterval: 0.5)
+    }
     let stillOnScreen = Set((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
         .compactMap { $0[kCGWindowOwnerName as String] as? String })
-    for name in ["CoreServicesUIAgent", "Tips"] where onScreenOwners.contains(name) && stillOnScreen.contains(name) {
+    for name in ["CoreServicesUIAgent", "Tips", "UserNotificationCenter"] where onScreenOwners.contains(name) && stillOnScreen.contains(name) {
         log("closing \(name), which has a window on screen")
         run("/usr/bin/killall", [name], timeout: 5)
     }
