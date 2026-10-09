@@ -117,7 +117,7 @@ extension AppDelegate {
             updateReconcileTimer()
             return
         }
-        if ownsGlobalInput, eventTap == nil, setupEventTap() {
+        if ownsGlobalInput, !hasGlobalTap, setupEventTap() {
             wlog("reconcile: event tap restored")
         }
 

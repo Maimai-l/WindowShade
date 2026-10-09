@@ -69,7 +69,7 @@ FRAMEWORKS=(
 
 # 自动收集源文件：只扫 prototype/ 与它的模块子目录，顺序稳定（按路径排序）。
 # 用 -prune 排除 app bundle、dist、.build，避免把构建产物或其它仓库内容扫进来。
-# Vendor/ 是第三方框架，不进源文件清单。
+# Vendor/ 是第三方框架，不进源文件清单。TapHelper/ 是另一个程序（鼠标钩子进程），单独编译。
 # macOS 自带 Bash 3.2 可运行（只用 find + sort + grep）。
 collect_sources() {
   find . \
@@ -77,6 +77,7 @@ collect_sources() {
     -path ./dist -prune -o \
     -path ./.build -prune -o \
     -path ./Vendor -prune -o \
+    -path ./TapHelper -prune -o \
     -name '*.swift' -print \
     | sed 's|^\./||' \
     | sort
@@ -116,6 +117,17 @@ for source in $SOURCES; do
   cp "$source" "$WORK/$source"
   COMPILE_SOURCES+=("$WORK/$source")
 done
+# 鼠标钩子进程（docs/design.md 第 5.9 节）：只有 TapHelper/main.swift 和两边共用的 Core/TapProtocol.swift，
+# 只链接 Foundation 和 CoreGraphics。编译参数和主程序相同。
+HELPER_NAME="WindowShadeTapHelper"
+compile_tap_helper() {
+  mkdir -p "$WORK/TapHelper" "$WORK/helper-tmp"
+  cp TapHelper/main.swift "$WORK/TapHelper/main.swift"
+  env TMPDIR="$WORK/helper-tmp" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
+    swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" \
+      -O -whole-module-optimization -o "$1" \
+      "$WORK/TapHelper/main.swift" "$WORK/Core/TapProtocol.swift" -framework CoreGraphics
+}
 if [ "$check_only" = "1" ]; then
   # 和发布构建用同一套编译参数（-O -whole-module-optimization），只把产物写到临时目录、不签名、
   # 不碰 app bundle。只做 -typecheck 看不到整模块优化下才报的隔离/所有性问题。
@@ -125,11 +137,13 @@ if [ "$check_only" = "1" ]; then
     swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -whole-module-optimization ${GLASS_DEFINE} -o "$WORK/windowshade-check" \
       "${COMPILE_SOURCES[@]}" "${FRAMEWORKS[@]}" \
       "${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"}" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
+  compile_tap_helper "$WORK/$HELPER_NAME-check"
   echo "==> 编译验证通过"
   # CI 的演示录屏要用这次编出来的程序：设了 WINDOWSHADE_CHECK_OUTPUT 就把它留下来。
   if [ -n "${WINDOWSHADE_CHECK_OUTPUT:-}" ]; then
     mkdir -p "$WINDOWSHADE_CHECK_OUTPUT"
     cp "$WORK/windowshade-check" "$WINDOWSHADE_CHECK_OUTPUT/WindowShade"
+    cp "$WORK/$HELPER_NAME-check" "$WINDOWSHADE_CHECK_OUTPUT/$HELPER_NAME"
   fi
   exit 0
 fi
@@ -172,6 +186,7 @@ env TMPDIR="$WORK/compiler-tmp" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
   swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" "${OPTIMIZATION_FLAGS[@]}" ${GLASS_DEFINE} -o "$TMP_BIN" \
     "${COMPILE_SOURCES[@]}" "${FRAMEWORKS[@]}" \
     "${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"}" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
+compile_tap_helper "$WORK/$HELPER_NAME"
 
 if [ "$stage_only" != "1" ]; then
   echo "==> 停止这个 bundle 的 WindowShade（编译通过后才替换）"
@@ -182,6 +197,7 @@ if [ "$stage_only" != "1" ]; then
 fi
 echo "==> 替换 Mach-O（保留 bundle、Info.plist、Resources）"
 cp "$TMP_BIN" "$BIN"
+cp "$WORK/$HELPER_NAME" "$APP/Contents/MacOS/$HELPER_NAME"
 rm -f "$APP/Contents/Resources/Duo.metallib"
 rm -f "$APP/Contents/Resources/LockOverlay-LICENSE.txt"
 rm -rf "$APP/Contents/Resources/ThirdParty"
@@ -250,6 +266,8 @@ codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW"
 # 以前的版本在这里放过更新看护；原地替换的开发包里可能还留着，删掉。
 rm -rf "$APP/Contents/Helpers/WindowShadeUpdateGuard.app"
 rmdir "$APP/Contents/Helpers" 2>/dev/null || true
+# 鼠标钩子进程和主程序一样不加 hardened runtime：它由 WindowShade 启动，辅助功能授权算在 WindowShade 身上。
+codesign --force -s "$IDENTITY" "$APP/Contents/MacOS/$HELPER_NAME"
 codesign --force -s "$IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"
 
@@ -261,7 +279,8 @@ if [ "$stage_only" = "1" ]; then
   fi
   team_of() { codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p'; }
   MAIN_TEAM="$(team_of "$APP")"
-  for nested in "$EMBED_FW/Versions/B/Autoupdate" "$EMBED_FW/Versions/B/Updater.app" "$EMBED_FW"; do
+  for nested in "$EMBED_FW/Versions/B/Autoupdate" "$EMBED_FW/Versions/B/Updater.app" "$EMBED_FW" \
+    "$APP/Contents/MacOS/$HELPER_NAME"; do
     if [ -z "$MAIN_TEAM" ] || [ "$(team_of "$nested")" != "$MAIN_TEAM" ]; then
       echo "ERROR: ${nested#"$APP"/} 的 Team 和主程序不同（${MAIN_TEAM:-无}）。" >&2
       exit 1

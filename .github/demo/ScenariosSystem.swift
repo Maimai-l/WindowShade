@@ -287,6 +287,8 @@ let systemScenarios: [Scenario] = [
     // 量这段时间：停住 3 秒，期间不断发探测单击、双击，每一次都要在 1 秒内穿过钩子（I2）；恢复后双击照常收起。
     Scenario(id: "X11", title: "WindowShade 整个进程停住 3 秒：点击不被挡住超过 1 秒，恢复后照常收起", options: []) { probe, h in
         guard let pid = windowShadePID() else { h.result.violations.append("setup: WindowShade is not running"); return }
+        // 钩子在钩子进程里（docs/design.md 第 5.9 节）时，WindowShade 停住不挡点击。
+        h.result.notes["tapHelper"] = tapHelperPID().map { Int($0) } ?? "none"
         let stopped = Date()
         kill(pid, SIGSTOP)
         await h.probeFor(3)
@@ -296,6 +298,20 @@ let systemScenarios: [Scenario] = [
         await pause(1.5)
         h.excuseStallsBeforeNow()
         await h.probeFor(1)
+        guard let folded = await foldProbe(probe, h) else { return }
+        await unfold(folded, probe, h)
+    },
+    Scenario(id: "X12", title: "鼠标钩子进程被强制结束：点击照常穿过，WindowShade 重新启动它，之后照常收起", options: []) { probe, h in
+        guard let first = tapHelperPID() else {
+            h.result.violations.append("X12: no tap helper is running (WindowShade fell back to its own event tap)")
+            return
+        }
+        kill(first, SIGKILL)
+        await h.probeFor(1)
+        let relaunched = await eventually(4) { tapHelperPID().map { $0 != first } ?? false }
+        h.expect(relaunched, "X12: WindowShade did not launch the tap helper again after it was killed")
+        h.result.notes["helpers"] = [Int(first), tapHelperPID().map { Int($0) } ?? 0]
+        await pause(0.5)
         guard let folded = await foldProbe(probe, h) else { return }
         await unfold(folded, probe, h)
     },

@@ -19,7 +19,8 @@ prototype/
 │   ├── MenuBarController.swift       # 状态栏图标、菜单重建与菜单代理回调
 │   ├── Reconcile.swift               # 折叠会话监控（reconcile 定时核对/并行快照）
 │   ├── EventTap.swift                # 全局快捷键、事件 tap、标题栏双击/三击
-│   ├── EventTapCallback.swift        # CGEventTap 的 C 回调与标题栏带预过滤
+│   ├── EventTapCallback.swift        # 进程内钩子的 C 回调（钩子进程用不了时）与标题栏带预过滤
+│   ├── TapHelperLink.swift           # 启动鼠标钩子进程、回答它的询问、它退出后重新启动
 │   ├── Permissions.swift             # 权限检测与隐私设置跳转
 │   ├── StatusBarIcon.swift           # 状态栏模板图标
 │   ├── SettingsWindow.swift          # 设置窗口（侧边栏与分页）
@@ -48,6 +49,7 @@ prototype/
 │   ├── FocusHandoff.swift            # 收起时把焦点交给哪个窗口；FocusControl 协议
 │   └── WindowControlSystem.swift     # WindowControl、FocusControl 的真实实现（辅助功能、SkyLight）
 ├── Core/
+│   ├── TapProtocol.swift             # 钩子进程和 WindowShade 之间的询问与时限（两边都编进去）
 │   ├── WindowState.swift             # 折叠操作状态机（非法转换拒绝）
 │   └── ShadeModels.swift             # 折叠相关值类型（ShadeState、策略、外框画像）
 ├── Capture/
@@ -73,12 +75,16 @@ prototype/
 │   ├── Journal.swift                 # 恢复日志数据层（持久化/匹配/生命周期标记）
 │   ├── RestoreVerifier.swift         # 展开后确认窗口真的回来了，没回来就留着恢复记录
 │   └── Rescue.swift                  # 离屏窗口救援编排（后台扫描 + 主线程写回）
+├── TapHelper/
+│   └── main.swift                    # 鼠标钩子进程 WindowShadeTapHelper（docs/design.md 第 5.9 节），单独编译
 └── Vendor/
     └── Sparkle.framework             # Sparkle 2.10.0，已删 XPCServices，符号链接保留（ditto 放入）
 ```
 
 `build.sh` 会自动收集上述目录里的 `.swift` 文件（排序稳定，排除 `WindowShade.app`、
-`dist`、`.build`、`Vendor`），新增源文件无需手工维护编译列表。
+`dist`、`.build`、`Vendor`、`TapHelper`），新增源文件无需手工维护编译列表。
+`TapHelper/main.swift` 和 `Core/TapProtocol.swift` 另外编成 `Contents/MacOS/WindowShadeTapHelper`，
+用同一个身份先于主程序签名；`--check` 也编它。
 
 ## 构建
 

@@ -52,6 +52,18 @@ else
   failed=$((failed + 1))
 fi
 
+# 6. 钩子放在单独的钩子进程里（docs/design.md 第 5.9 节）：WindowShade 停住、卡住不挡全系统的点击。
+#    钩子进程问 WindowShade 只经过 CFMessagePortSendRequest，送出和等回话都有时限；回调里不做会久等的事。
+HELPER=prototype/TapHelper/main.swift
+if grep -q 'TapHelperLink.start()' prototype/WindowShade.swift \
+   && grep -q 'TapProtocol.sendTimeout, TapProtocol.replyTimeout' "$HELPER" \
+   && ! grep -qE 'AXUIElement|DispatchSemaphore|Thread\.sleep|usleep|\.wait\(|NSApplication|import (AppKit|Cocoa)' "$HELPER"; then
+  echo "ok   the mouse tap lives in the tap helper and asks WindowShade with time limits"
+else
+  echo "FAIL the mouse tap lives in the tap helper and asks WindowShade with time limits"
+  failed=$((failed + 1))
+fi
+
 if [ "$failed" -gt 0 ]; then
   echo "FAIL input-safety-lint: $failed check(s) failed"
   exit 1

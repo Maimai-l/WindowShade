@@ -26,6 +26,12 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$SRC/prototype/Info.plist" "$APP/Contents/Info.plist"
 cp "$OUT/bin/WindowShade" "$APP/Contents/MacOS/WindowShade"
+# 鼠标钩子进程（docs/design.md 第 5.9 节）。修复之前的版本没有它。
+rm -f "$APP/Contents/MacOS/WindowShadeTapHelper"
+if [ -f "$OUT/bin/WindowShadeTapHelper" ] && [ "$SRC" = "$PWD" ]; then
+  cp "$OUT/bin/WindowShadeTapHelper" "$APP/Contents/MacOS/WindowShadeTapHelper"
+  codesign --force -s - "$APP/Contents/MacOS/WindowShadeTapHelper"
+fi
 cp assets/app-icon/WindowShade.icns "$APP/Contents/Resources/" 2>/dev/null || true
 ditto "$SRC/prototype/Vendor/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --deep -s - "$APP"
@@ -180,8 +186,8 @@ cat "$OUT/driver-close-unsaved.log" || true
 
 # 检查的检查（docs/test-catalog.md 第 12 节）：故意制造违反，确认 I2、I3、I4、I5、I6 的检查报出来。
 # K05（录像逐帧检查，I7）在下面和录像检查一起跑。
-echo "==> checks of the checks: K01-K04"
-open -W --stderr "$OUT/driver-checks.log" "$DRIVER" --args "$OUT/checks.json" scenarios "$PROBE" "$APP" "K01,K02,K03,K04"
+echo "==> checks of the checks: K01-K04, K06"
+open -W --stderr "$OUT/driver-checks.log" "$DRIVER" --args "$OUT/checks.json" scenarios "$PROBE" "$APP" "K01,K02,K03,K04,K06"
 cat "$OUT/driver-checks.log" || true
 SCENARIO_RESULTS+=("$OUT/checks.json")
 fi

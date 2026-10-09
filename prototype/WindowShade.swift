@@ -686,6 +686,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         eventTapReenableWorkItem?.cancel()
         eventTapReenableWorkItem = nil
+        TapHelperLink.stop()
         // 退出前还原 Dock 偏好：同步等在途子进程排空，再按持久化 session 键
         // 恢复（session 键在改动前写入，异步启用/恢复交错下也正确）。
         dockWorkQueue.sync {
@@ -750,9 +751,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // tap 因输入洪泛被系统禁用时退避重启用，避免反复禁用/启用和系统打架。
 
+    /// 全系统的鼠标钩子装好了：在钩子进程里，或者在 WindowShade 自己这里。
+    var hasGlobalTap: Bool { eventTap != nil || TapHelperLink.isRunning }
+
+    /// 先用钩子进程（App/TapHelperLink.swift）：WindowShade 停住、卡住时不挡全系统的点击。
+    /// 钩子进程用不了才在自己这里装钩子。
     @discardableResult
     func setupEventTap() -> Bool {
-        guard eventTap == nil, AXIsProcessTrusted() else { return eventTap != nil }
+        guard !hasGlobalTap, AXIsProcessTrusted() else { return hasGlobalTap }
+        if TapHelperLink.start() { return true }
+        return setupInProcessEventTap()
+    }
+
+    private func setupInProcessEventTap() -> Bool {
+        guard eventTap == nil else { return true }
         let mask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
             | CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,

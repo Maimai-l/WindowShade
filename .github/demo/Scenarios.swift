@@ -91,6 +91,20 @@ func windowShadePID() -> pid_t? {
     NSRunningApplication.runningApplications(withBundleIdentifier: windowShadeBundleID).first?.processIdentifier
 }
 
+/// WindowShade 的鼠标钩子进程（docs/design.md 第 5.9 节）；没有时 WindowShade 用的是自己的钩子。
+func tapHelperPID() -> pid_t? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+    process.arguments = ["-x", "WindowShadeTapHelper"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    guard (try? process.run()) != nil else { return nil }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { pid_t($0) }.first
+}
+
 /// 屏幕上 WindowShade 的卷帘条（高度不超过 60 点、宽于 100 点的 WindowShade 窗口）。
 func stripFrames() -> [CGRect] {
     guard let pid = windowShadePID(),
