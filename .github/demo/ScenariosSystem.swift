@@ -504,7 +504,7 @@ let systemScenarios: [Scenario] = [
         await pause(1)
         await unfold(folded, probe, h)
     },
-    Scenario(id: "A27", title: "没有辅助功能权限时按快捷键：不收起，欢迎窗口出现，辅助功能一行是“去授权”（H08）",
+    Scenario(id: "A27", title: "没有辅助功能权限时按快捷键：不收起，欢迎窗口出现，辅助功能一行是“打开系统设置”（H08）",
              options: [], group: "no-accessibility") { probe, h in
         guard permissionRevoked("accessibility", h) else { return }
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
@@ -514,7 +514,7 @@ let systemScenarios: [Scenario] = [
         guard await eventually(4, { windowShadeWindow("欢迎") != nil }), let welcome = windowShadeWindow("欢迎") else {
             h.result.violations.append("A27: the welcome window did not appear"); return
         }
-        h.expect(control(welcome, "去授权") != nil, "H08: no Grant button for Accessibility")
+        h.expect(control(welcome, "打开系统设置") != nil, "H08: no Grant button for Accessibility")
         if let start = control(welcome, "开始使用") {
             h.expect(!isEnabled(start), "H08: Start is enabled without Accessibility")
         } else {
@@ -532,7 +532,7 @@ let systemScenarios: [Scenario] = [
         guard await requestGrant("accessibility") else { h.result.violations.append("setup: the grant was not done"); return }
         let granted = await eventually(4) {
             guard let welcome = windowShadeWindow("欢迎") else { return false }
-            return control(welcome, "去授权") == nil && (control(welcome, "开始使用").map(isEnabled) ?? false)
+            return control(welcome, "打开系统设置") == nil && (control(welcome, "开始使用").map(isEnabled) ?? false)
         }
         h.expect(granted, "H09: the welcome window did not show the new permission within 4 s")
     },

@@ -6,7 +6,6 @@ import AppKit
 import SwiftUI
 
 enum SettingsCopy {
-    static let trigger = "触发"
     static let doubleClick = "双击标题栏收起窗口"
     static let glance = "看一眼"
     static let glanceNote = "指针停在卷帘条上时显示窗口"
@@ -29,29 +28,27 @@ enum SettingsCopy {
     static let accessibility = "辅助功能"
     static let accessibilityNote = "找到、移动和恢复窗口"
     static let screenRecording = "屏幕录制"
-    static let screenRecordingNote = "截取窗口画面做预览"
+    static let screenRecordingNote = "原标题栏和看一眼要用窗口画面"
     static let granted = "已授权"
-    static let grant = "去授权"
+    static let grant = "打开系统设置"
 
-    static let launch = "启动"
     static let launchAtLogin = "登录时自动启动"
     static let launchNeedsApproval = "要在系统设置的“登录项”里允许"
     static let launchUnavailable = "这个版本不能在登录时启动"
     static let launchFailed = "无法修改登录时自动启动"
 
-    static let currentWindow = "当前窗口"
     static let shadedWindows = "已收起的窗口"
-    static let arrangeNote = "把卷帘条排到屏幕一侧，再按放回原位"
-    static let numbered = "按编号展开已收起的窗口"
+    static let arrangeNote = "把卷帘条排到屏幕一侧，再按一次放回原位"
+    static let numbered = "按编号展开"
     static let numberedNote = "加数字 1 至 9，展开菜单里对应的窗口"
     static let resetShortcuts = "恢复默认"
     static let notSet = "未设置"
     static let record = "录制"
-    static let recording = "请按快捷键"
+    static let recording = "按下快捷键"
     static let cancel = "取消"
     static let clear = "清除"
     static let needsControlOrOption = "组合里要有 Control 或 Option"
-    static let reservedBySystem = "系统在用这个组合"
+    static let reservedBySystem = "系统已占用这个组合"
     static func usedBy(_ name: String) -> String { "已用于：\(name)" }
 
     static let welcomeWindow = "欢迎窗口"
@@ -60,11 +57,11 @@ enum SettingsCopy {
 
     /// 测试用：设置窗口里出现的全部固定文案。
     static var all: [String] {
-        [trigger, doubleClick, glance, glanceNote, appearance, appearanceMode, floating,
+        [doubleClick, glance, glanceNote, appearance, appearanceMode, floating,
          stripTranslucency, thumbnailTranslucency, sound, playSound, foldSound, unfoldSound,
          permissions, accessibility, accessibilityNote, screenRecording, screenRecordingNote, granted, grant,
-         launch, launchAtLogin, launchNeedsApproval, launchUnavailable, launchFailed,
-         currentWindow, shadedWindows, arrangeNote, numbered, numberedNote, resetShortcuts,
+         launchAtLogin, launchNeedsApproval, launchUnavailable, launchFailed,
+         shadedWindows, arrangeNote, numbered, numberedNote, resetShortcuts,
          notSet, record, recording, cancel, clear, needsControlOrOption, reservedBySystem, usedBy(""),
          welcomeWindow, diagnostics, open]
             + appearanceChoices.map { $0.title }
@@ -200,7 +197,7 @@ private struct ShadeSettings: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        Section(SettingsCopy.trigger) {
+        Section {
             Toggle(isOn: $model.doubleClick) {
                 Text(SettingsCopy.doubleClick)
                 if let note = model.tripleClickNote { Text(note) }
@@ -253,7 +250,7 @@ private struct ShortcutSettings: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        Section(SettingsCopy.currentWindow) {
+        Section {
             ShortcutRow(model: model, shortcut: .toggleShade, note: nil)
         }
         Section {
@@ -283,7 +280,7 @@ private struct PermissionSettings: View {
         Section(SettingsCopy.permissions) {
             PermissionRows(status: model.permissions)
         }
-        Section(SettingsCopy.launch) {
+        Section {
             Toggle(isOn: $model.launchAtLogin) {
                 Text(SettingsCopy.launchAtLogin)
                 if let note = model.launchNote { Text(note) }
@@ -323,7 +320,7 @@ private struct AdvancedSettings: View {
 
 // MARK: - 零件
 
-/// 两行授权：已授权时一个系统的对勾符号和“已授权”，没授权时一个“去授权”按钮，打开系统设置里对应的那一页。
+/// 两行授权：已授权时一个系统的对勾符号和“已授权”，没授权时一个“打开系统设置”按钮，打开系统设置里对应的那一页。
 @MainActor
 struct PermissionRows: View {
     @ObservedObject var status: PermissionStatus
