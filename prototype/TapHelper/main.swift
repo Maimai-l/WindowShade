@@ -29,7 +29,7 @@ enum TapHelper {
         }
     }
 
-    /// 问 WindowShade：这次双击（三击）要不要吞掉。送出加等回话最多 TapProtocol.deadline；没回话、出错一律放行。
+    /// 问 WindowShade：这次双击（三击）要不要吞掉。送出最多 0.1 秒，等回话最多 0.4 秒；没回话、出错一律放行。
     static func ask(_ request: TapRequest) -> Bool {
         if remotePort.map({ !CFMessagePortIsValid($0) }) ?? true {
             remotePort = CFMessagePortCreateRemote(nil, portName)

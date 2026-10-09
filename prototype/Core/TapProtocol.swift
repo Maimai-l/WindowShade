@@ -11,9 +11,11 @@ import Foundation
 enum TapProtocol {
     /// 钩子进程等 WindowShade 回话的时限。系统在钩子约 2 秒不回话时才停用它，这里要远小于那个值。
     static let deadline: TimeInterval = 0.4
-    /// 询问送进 WindowShade 的端口最多等多久（端口排满时才会等）；剩下的时间等回话，两段加起来不超过 deadline。
+    /// 询问送进 WindowShade 的端口最多等多久：端口排满（WindowShade 停住、积了很多询问）时才会等。
     static let sendTimeout: TimeInterval = 0.1
-    static let replyTimeout: TimeInterval = deadline - sendTimeout
+    /// 送进去以后等回话最多多久。WindowShade 判断询问是否过时（isFresh）按的就是这个时限，
+    /// 所以钩子放行之后 WindowShade 不会再按它收起。两段加起来最多 0.5 秒。
+    static let replyTimeout: TimeInterval = deadline
     /// 钩子进程等回话时只跑这个运行循环模式：等的时候不处理钩子自己的事件。
     static let replyMode = "com.windowshade.prototype.tap.reply"
     /// 问的是“这次双击（三击）要不要吞掉”。

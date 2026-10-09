@@ -237,7 +237,7 @@ struct AppProfile {
 | 项目 | 规定 |
 |---|---|
 | 单击 | 直接放行，不问 WindowShade |
-| 双击、三击 | 经 `CFMessagePort` 问 WindowShade 要不要吞掉；送出最多等 0.1 秒，等回话最多 0.3 秒（`Core/TapProtocol.swift`）；没有回话、出错一律放行 |
+| 双击、三击 | 经 `CFMessagePort` 问 WindowShade 要不要吞掉；送出最多等 0.1 秒（只在 WindowShade 积了很多询问时才会等），等回话最多 0.4 秒（`Core/TapProtocol.swift`）；没有回话、出错一律放行 |
 | 吞掉一次按下 | 同时吞掉与它配对的松开（macOS 26 起系统在第二次松开时执行双击缩放） |
 | 不做的事 | 不显示界面，不调用辅助功能接口，不读写文件，回调里不等待任何没有时限的东西 |
 | 生命周期 | WindowShade 有辅助功能权限后启动它；WindowShade 退出（包括崩溃、被强制结束）时它随即退出 |

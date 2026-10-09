@@ -25,10 +25,13 @@ struct TapProtocolTests {
         t.section("T3", "过了钩子的时限的询问不处理")
         t.expect(TapProtocol.isFresh(sentAt: 100, now: 100), "刚发出")
         t.expect(TapProtocol.isFresh(sentAt: 100, now: 100.3), "0.3 秒后还算数")
-        t.expect(!TapProtocol.isFresh(sentAt: 100, now: 100.35), "0.35 秒后不算：钩子 0.4 秒就放行，回话路上还要时间")
+        t.expect(TapProtocol.isFresh(sentAt: 100, now: 100.34), "0.34 秒后还算数")
+        t.expect(!TapProtocol.isFresh(sentAt: 100, now: 100.36), "0.36 秒后不算：钩子 0.4 秒就放行，回话路上还要时间")
+        t.expect(!TapProtocol.isFresh(sentAt: 100, now: 100 + TapProtocol.replyTimeout),
+                 "钩子不再等回话时，WindowShade 已经不处理这次询问")
         t.expect(!TapProtocol.isFresh(sentAt: 100, now: 102), "WindowShade 停住 2 秒后才收到")
         t.expect(!TapProtocol.isFresh(sentAt: 100, now: 99), "时刻在未来：不认")
-        t.expect(TapProtocol.deadline < 1, "钩子的时限远小于系统停用钩子的约 2 秒")
+        t.expect(TapProtocol.sendTimeout + TapProtocol.replyTimeout <= 0.5, "钩子的时限远小于系统停用钩子的约 2 秒")
 
         t.section("T4", "回话只认“吞掉”这一种")
         t.expect(TapReply.swallow(TapReply.encoded(swallow: true)), "吞掉")
