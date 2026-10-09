@@ -95,7 +95,7 @@ if [ -f "$KEYCHAIN" ]; then
   fi
 fi
 if [ "$SIGN_ID" != "-" ]; then
-  echo "用测试证书签名（$SIGN_ID）"
+  echo "用测试证书签名（${SIGN_ID}）"
 fi
 if [ "$SIGN_ID" = "-" ]; then
   echo "测试证书用不了，改用临时签名：每换一个测试包，都要在系统设置里重新给一次权限。"
@@ -136,7 +136,7 @@ restore() {
   while IFS=$'\t' read -r domain key type value; do
     if [ "$value" = ABSENT ]; then
       defaults delete "$domain" "$key" 2>/dev/null || true
-      echo "  删除 $domain $key（原来没有）"
+      echo "  删除 ${domain} ${key}（原来没有）"
     elif [ -n "$value" ]; then
       defaults write "$domain" "$key" "-$type" "$value"
       echo "  $domain $key = $value"

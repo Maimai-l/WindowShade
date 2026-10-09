@@ -1,10 +1,11 @@
 // CI 演示录屏的驱动：把指定 App（默认文本编辑）的窗口摆好，录下整块屏幕，
 // 用合成的鼠标事件双击标题栏收起、停在卷帘条上看一眼、再双击展开。
 // 第二个参数是 close-unsaved 时跑场景 E13：关闭一个收起的、有未保存内容的窗口，检查系统输入不被挡住。
-// 只在 GitHub Actions 的 macOS 机器上跑，不进 App。
+// 在 GitHub Actions 的 macOS 机器上跑，也可以用测试包在自己的 Mac 上跑（run-on-this-mac.sh）；不进 App。
 
 import AppKit
 import ApplicationServices
+import AVFoundation
 import ScreenCaptureKit
 
 private let logClock: DateFormatter = {
@@ -82,11 +83,21 @@ func place(_ window: AXUIElement, origin: CGPoint, size: CGSize) {
     }
 }
 
-final class Recorder: NSObject, SCRecordingOutputDelegate, SCStreamDelegate {
+/// 录下整块屏幕。macOS 15 起用系统的录像输出（SCRecordingOutput）；macOS 14 没有它，
+/// 自己把屏幕帧写进 AVAssetWriter（用户的 macOS 14.5 机器上 2026-10-09 编不过，见 docs/testing.md 第 5 节）。
+/// SDK 里有没有 SCRecordingOutput 由 record.sh 查头文件决定（DEMO_SDK_HAS_RECORDING_OUTPUT），
+/// 和 prototype/build.sh 判断玻璃接口的办法一样：旧 SDK 里连这个类型名都没有，只靠 #available 编不过。
+final class Recorder: NSObject, SCStreamDelegate, SCStreamOutput {
     private var stream: SCStream?
     private var finished: CheckedContinuation<Void, Never>?
     /// ReplayKit 报错时录像文件不完整（没有 moov），record.sh 据此重录一次。
     private(set) var failed = false
+    private var recordingDelegate: AnyObject?
+    // macOS 14 的写法：屏幕帧在 writerQueue 上逐帧写入。
+    private var writer: AVAssetWriter?
+    private var writerInput: AVAssetWriterInput?
+    private var sessionStarted = false
+    private let writerQueue = DispatchQueue(label: "demo.recorder.writer")
 
     func start(to url: URL) async throws {
         let content = try await SCShareableContent.current
@@ -98,37 +109,117 @@ final class Recorder: NSObject, SCRecordingOutputDelegate, SCStreamDelegate {
         configuration.showsCursor = true
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
-        let output = SCRecordingOutputConfiguration()
-        output.outputURL = url
-        output.outputFileType = .mp4
-        output.videoCodecType = .h264
-        try stream.addRecordingOutput(SCRecordingOutput(configuration: output, delegate: self))
+        var usesRecordingOutput = false
+        #if DEMO_SDK_HAS_RECORDING_OUTPUT
+        if #available(macOS 15.0, *) {
+            let output = SCRecordingOutputConfiguration()
+            output.outputURL = url
+            output.outputFileType = .mp4
+            output.videoCodecType = .h264
+            let delegate = RecordingOutputDelegate(recorder: self)
+            recordingDelegate = delegate
+            try stream.addRecordingOutput(SCRecordingOutput(configuration: output, delegate: delegate))
+            usesRecordingOutput = true
+        }
+        #endif
+        if !usesRecordingOutput {
+            try? FileManager.default.removeItem(at: url)
+            let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: configuration.width,
+                AVVideoHeightKey: configuration.height,
+            ])
+            input.expectsMediaDataInRealTime = true
+            guard writer.canAdd(input) else { throw NSError(domain: "demo", code: 2) }
+            writer.add(input)
+            guard writer.startWriting() else { throw writer.error ?? NSError(domain: "demo", code: 3) }
+            self.writer = writer
+            writerInput = input
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: writerQueue)
+        }
         try await stream.startCapture()
         self.stream = stream
-        log("recording \(display.width)x\(display.height) to \(url.path)")
+        log("recording \(display.width)x\(display.height) to \(url.path)"
+            + (usesRecordingOutput ? "" : " (AVAssetWriter, macOS 14)"))
     }
 
     func stop() async {
         guard let stream else { return }
-        await withCheckedContinuation { continuation in
-            finished = continuation
-            Task { try? await stream.stopCapture() }
+        guard let writer else {
+            await withCheckedContinuation { continuation in
+                finished = continuation
+                Task { try? await stream.stopCapture() }
+            }
+            return
+        }
+        try? await stream.stopCapture()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // 排在已经送来的帧后面：写完这些帧再收尾。
+            writerQueue.async {
+                guard self.sessionStarted, writer.status == .writing else {
+                    log("recording failed: no frames were written (status \(writer.status.rawValue))")
+                    self.failed = true
+                    writer.cancelWriting()
+                    continuation.resume()
+                    return
+                }
+                self.writerInput?.markAsFinished()
+                writer.finishWriting {
+                    if writer.status == .completed {
+                        log("recording finished")
+                    } else {
+                        log("recording failed: \(writer.error.map { "\($0)" } ?? "status \(writer.status.rawValue)")")
+                        self.failed = true
+                    }
+                    continuation.resume()
+                }
+            }
         }
     }
 
-    func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
-        log("recording finished")
-        finished?.resume()
-        finished = nil
+    /// macOS 14：每一帧写进录像。画面没变时系统送来的是没有图像的空闲帧，跳过。
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .screen, sampleBuffer.isValid, let writer, let input = writerInput,
+              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+                as? [[SCStreamFrameInfo: Any]],
+              let rawStatus = attachments.first?[.status] as? Int,
+              SCFrameStatus(rawValue: rawStatus) == .complete else { return }
+        if !sessionStarted {
+            writer.startSession(atSourceTime: sampleBuffer.presentationTimeStamp)
+            sessionStarted = true
+        }
+        if input.isReadyForMoreMediaData { input.append(sampleBuffer) }
     }
 
-    func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: any Error) {
-        log("recording failed: \(error)")
-        failed = true
+    fileprivate func recordingFinished(error: Error?) {
+        if let error {
+            log("recording failed: \(error)")
+            failed = true
+        } else {
+            log("recording finished")
+        }
         finished?.resume()
         finished = nil
     }
 }
+
+#if DEMO_SDK_HAS_RECORDING_OUTPUT
+@available(macOS 15.0, *)
+private final class RecordingOutputDelegate: NSObject, SCRecordingOutputDelegate {
+    private weak var recorder: Recorder?
+
+    init(recorder: Recorder) { self.recorder = recorder }
+
+    func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        recorder?.recordingFinished(error: nil)
+    }
+
+    func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: any Error) {
+        recorder?.recordingFinished(error: error)
+    }
+}
+#endif
 
 // MARK: - 场景 E13：关闭一个收起的、有未保存内容的窗口（docs/testing.md 第 4 节）
 

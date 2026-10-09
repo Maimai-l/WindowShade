@@ -48,8 +48,16 @@ ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/WindowShade-app.zip"
 DRIVER="$OUT/DemoDriver.app"
 rm -rf "$DRIVER"
 mkdir -p "$DRIVER/Contents/MacOS"
-swiftc -swift-version 5 -parse-as-library -O .github/demo/*.swift \
-  -o "$DRIVER/Contents/MacOS/DemoDriver" -framework AppKit -framework ScreenCaptureKit || exit 1
+# 录像：SDK 里有 SCRecordingOutput（macOS 15 SDK 起）才编那条路，否则驱动程序用 AVAssetWriter 自己写
+# （DemoDriver.swift 的 Recorder；用户的 macOS 14.5 机器上，只靠 #available 编不过）。
+REC_DEFINE=()
+SDK_PATH="${SDKROOT:-$(xcrun --show-sdk-path --sdk macosx)}"
+if grep -qs "SCRecordingOutputConfiguration" "$SDK_PATH"/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/*.h; then
+  REC_DEFINE=(-D DEMO_SDK_HAS_RECORDING_OUTPUT)
+fi
+echo "==> test driver (SDK $SDK_PATH${REC_DEFINE[0]+, with SCRecordingOutput})"
+swiftc -swift-version 5 -parse-as-library -O ${REC_DEFINE[@]+"${REC_DEFINE[@]}"} .github/demo/*.swift \
+  -o "$DRIVER/Contents/MacOS/DemoDriver" -framework AppKit -framework ScreenCaptureKit -framework AVFoundation || exit 1
 cat > "$DRIVER/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
