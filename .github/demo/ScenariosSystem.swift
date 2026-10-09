@@ -531,6 +531,11 @@ func finderWindowFacts(_ pid: pid_t?) -> [String] {
         if axString(window, kAXSubroleAttribute as String) == "Quick Look" {
             lines += axTreeFacts(window, depth: 0, budget: 60)
         }
+        // 面板只给文件名（3064c36：AXStaticText “A32 preview.txt”），访达窗口不给 AXDocument。
+        // 看文件夹窗口里有没有带网址的元素（选中的那一项、路径栏），由此得到完整路径。
+        if axString(window, kAXTitleAttribute as String) == "WindowShade-A32" {
+            lines += axURLFacts(window, budget: 30)
+        }
     }
     return lines
 }
@@ -539,6 +544,32 @@ func axDescribe(_ element: AXUIElement, _ attribute: String) -> String {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success, let value else { return "-" }
     return String(String(describing: value).prefix(160))
+}
+
+/// 一棵辅助功能子树里带网址类属性、或被选中的元素（最多 budget 行、10 层、看 2000 个元素）。
+func axURLFacts(_ root: AXUIElement, budget: Int) -> [String] {
+    var lines: [String] = []
+    var visited = 0
+    func walk(_ element: AXUIElement, _ depth: Int) {
+        guard lines.count < budget, depth <= 10, visited < 2000 else { return }
+        visited += 1
+        var fields: [String] = []
+        for attribute in ["AXURL", "AXDocument", "AXFilename"] {
+            let text = axDescribe(element, attribute)
+            if text != "-" && !text.isEmpty { fields.append("\(attribute)=\(text)") }
+        }
+        let selected = axDescribe(element, "AXSelected") == "1"
+        if !fields.isEmpty || selected {
+            lines.append("url d=\(depth) \(axString(element, kAXRoleAttribute as String)) selected=\(selected) "
+                + "title=\(axDescribe(element, "AXTitle")) " + fields.joined(separator: " "))
+        }
+        var children: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+        for child in children as? [AXUIElement] ?? [] { walk(child, depth + 1) }
+    }
+    walk(root, 0)
+    lines.append("url visited=\(visited)")
+    return lines
 }
 
 /// 一棵辅助功能子树里每个元素的角色和文字、网址类属性（最多 budget 行、6 层）。
