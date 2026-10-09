@@ -54,9 +54,7 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
         let activeStream = stream
         stream = nil
         stateLock.unlock()
-        // completion 只在主线程上调用（DispatchQueue.main）。交给停流的后台任务时，Swift 6.0 要求闭包能跨线程传，
-        // 而主线程闭包的类型在 6.0 里还不算可以跨线程传：用 nonisolated(unsafe) 说明这里只在主线程上用它。
-        nonisolated(unsafe) let completion = completion
+        // finish 要交给停流的后台任务，写明 @Sendable；不写时 Swift 6.0（macOS 14 上的最高版本）报错。
         let finish: @Sendable () -> Void = { if let completion { DispatchQueue.main.async { completion() } } }
         if let activeStream {
             Task { [activeStream] in
