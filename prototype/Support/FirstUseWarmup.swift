@@ -4,6 +4,8 @@
 // SwiftUI 第一次排文字时 Foundation 按需加载属性范围（dlopen）；NSWindowController.showWindow 第一次加载
 // QuickLookUI（已改为直接放到最前面，见 SettingsWindow.swift）；系统字体的字形第一次画（libhvf、FontParser）。
 // 第一段和第三段跟窗口无关，在后台线程上做一遍，主线程第一次用到时就是现成的。
+// e4e3c42 上 H01 的采样又停在 libhvf 第一次读 SF Symbols 的矢量数据（HVF::LoaderHVGL::loadPartAtIndex）：
+// 设置窗口的分页图标、按键符号、“已授权”的勾，也在后台先画一遍。
 
 import AppKit
 import CoreText
@@ -18,7 +20,26 @@ enum FirstUseWarmup {
             // 和 SwiftUI 排文字时走同一条路：NSAttributedString 转 AttributedString 时加载默认的属性范围。
             _ = AttributedString(NSAttributedString(string: sample))
             drawGlyphs()
-            wlog("warmup: text and glyphs ready in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms")
+            drawSymbols()
+            wlog("warmup: text, glyphs and symbols ready in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms")
+        }
+    }
+
+    /// 设置窗口里出现的 SF Symbols（SettingsWindow.swift 的分页、HotKey.swift 的按键、SettingsView.swift 的勾）。
+    private static let symbols = [
+        "rectangle.compress.vertical", "command", "lock.shield", "gearshape.2", "checkmark.circle.fill",
+        "control", "option", "shift", "arrow.left", "arrow.right", "arrow.up", "arrow.down",
+        "return", "delete.left", "delete.right", "escape", "arrow.right.to.line", "space",
+    ]
+
+    /// 每个符号按设置窗口里的字号栅格化一次，矢量数据就加载好了。
+    private static func drawSymbols() {
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.systemFontSize, weight: .regular)
+        for name in symbols {
+            guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(configuration) else { continue }
+            var rect = NSRect(origin: .zero, size: image.size)
+            _ = image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
         }
     }
 
