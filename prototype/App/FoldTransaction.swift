@@ -334,7 +334,7 @@ extension AppDelegate {
     /// delay：开始移开之前等多久（卷帘条刚亮出来时等两帧，让它先上屏）。
     func hideWindowInBackground(_ win: AXUIElement, pid: pid_t, originalPosition pos: CGPoint,
                                 size: CGSize, policy: ShadePolicy, appHideSafe: Bool,
-                                delay: TimeInterval = 0, handOffFocusAfter: Bool = false,
+                                delay: TimeInterval = 0, handOffFocusAfter: Bool = false, noFocusHeir: Bool = false,
                                 completion: @escaping (HideMethod, FoldVerifier.Observation) -> Void) {
         let id = windowID(of: win)
         if let hide = orderOutOwnWindowIfNeeded(id: id, pid: pid, reason: "shade") {
@@ -344,7 +344,8 @@ extension AppDelegate {
         }
         let request = HideRequest(window: WindowHandle(ax: win), id: id, pid: pid, position: pos, size: size,
                                   policy: policy, appHideSafe: appHideSafe, layout: .current(),
-                                  otherFoldedWindows: shaded.filter { $0.key != id && $0.value.pid == pid }.count)
+                                  otherFoldedWindows: shaded.filter { $0.key != id && $0.value.pid == pid }.count,
+                                  noFocusHeir: noFocusHeir)
         // 窗口藏好之后，键盘输入不能再发给它：交出焦点和移开窗口放在同一个后台任务里，主线程不等。
         let focusRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
         let hider = windowHider

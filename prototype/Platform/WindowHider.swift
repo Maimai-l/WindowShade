@@ -45,6 +45,8 @@ struct HideRequest: Sendable {
     /// 同一应用程序里已被 WindowShade 收起的其他窗口数。不为 0 时不隐藏整个应用程序：
     /// 之后展开其中任何一扇，应用程序都会重新显示，这一扇会被当成用户唤回而跟着展开（场景 A37）。
     var otherFoldedWindows = 0
+    /// 交出焦点时当前桌面上没有可以接手的窗口（FocusHandoff 返回 .nowhere）。
+    var noFocusHeir = false
 }
 
 /// 移到屏幕外时第一个试的位置（其余几个见 offscreenSpots）。
@@ -127,6 +129,15 @@ final class WindowHider: @unchecked Sendable {
                 return .hidden
             }
             control.log("    fallback hidden rejected（pid=\(pid), currentWindows=\(counts.visible), windows=\(counts.total)）")
+        }
+        // 当前桌面上没有窗口能接手焦点，而这是应用程序唯一的窗口：直接最小化。移到屏幕外或停到角落时，
+        // 应用程序仍在前台、窗口仍算“开着”，点程序坞图标、选“窗口”菜单都不会让它回来；最小化之后，
+        // 这两种操作都会取消最小化，WindowShade 跟着展开（场景 B06-alone）。应用程序有别的窗口时不这样做：
+        // 最小化当前窗口，系统会让同一应用程序的另一扇窗口接手，那扇在别的桌面上就会切换桌面。
+        if request.noFocusHeir && counts.total <= 1 {
+            control.setMinimized(request.window, true)
+            control.log("    no window on this desktop takes focus → minimized（pid=\(pid), windows=\(counts.total)）")
+            return .minimized
         }
         if let id = request.id, let hide = skyLightOffscreenHide(request, id: id) { return hide }
         if let id = request.id, let hide = skyLightAlphaHide(id: id, pid: pid) { return hide }

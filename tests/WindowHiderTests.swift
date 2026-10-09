@@ -16,9 +16,11 @@ struct WindowHiderTests {
     /// 完全不限制（窗口可以移到屏幕外很远的地方）。
     static let anywhere = CGRect(x: -40000, y: -40000, width: 80000, height: 80000)
 
-    static func request(_ policy: ShadePolicy, appHideSafe: Bool = true, otherFolded: Int = 0) -> HideRequest {
+    static func request(_ policy: ShadePolicy, appHideSafe: Bool = true, otherFolded: Int = 0,
+                        noFocusHeir: Bool = false) -> HideRequest {
         HideRequest(window: WindowHandle(element: NSObject()), id: 42, pid: 7, position: start, size: size,
-                    policy: policy, appHideSafe: appHideSafe, layout: layout, otherFoldedWindows: otherFolded)
+                    policy: policy, appHideSafe: appHideSafe, layout: layout, otherFoldedWindows: otherFolded,
+                    noFocusHeir: noFocusHeir)
     }
 
     static func main() {
@@ -145,6 +147,24 @@ struct WindowHiderTests {
             t.expect(hider.hide(request(.hiddenIfSingleWindowElseMinimized(allowAppHide: true))) == .privateAlpha, "结果为 privateAlpha")
             t.expect(hider.originalAlpha(id: 42) == 1, "记下原透明度 1")
             t.expect(hider.takeOriginalAlpha(id: 42) == 1 && hider.originalAlpha(id: 42) == nil, "取回后删除")
+        }
+
+        t.section("F2", "当前桌面上没有窗口能接手焦点、这是应用程序唯一的窗口：最小化（点程序坞图标能取消最小化，场景 B06-alone）")
+        do {
+            let control = FakeWindowControl(position: start, size: size, allowedOrigins: anywhere)
+            let hider = WindowHider(control: control)
+            let hide = hider.hide(request(.hiddenIfSingleWindowElseMinimized(allowAppHide: true), appHideSafe: false,
+                                          noFocusHeir: true))
+            t.expect(hide == .minimized, "结果为 minimized，不移到屏幕外、不停到角落（实际 \(hide)）")
+            t.expect(control.calls == ["minimize"], "只调用了最小化（实际 \(control.calls)）")
+        }
+        do {
+            let control = FakeWindowControl(position: start, size: size, allowedOrigins: cornerOnly)
+            control.totalWindows = 2
+            let hider = WindowHider(control: control)
+            let hide = hider.hide(request(.hiddenIfSingleWindowElseMinimized(allowAppHide: true), appHideSafe: false,
+                                          noFocusHeir: true))
+            t.expect(hide != .minimized, "应用程序在别处还有窗口：不最小化，免得系统让那扇窗口接手、切换桌面（实际 \(hide)）")
         }
 
         t.finish()

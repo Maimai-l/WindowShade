@@ -282,7 +282,7 @@ extension AppDelegate {
             // （hideMethodCanTriggerSpaceJump 只包括隐藏应用程序和最小化）。
             // 窗口数在后台读窗口时已经数好（readout.visibleWindowCount）；交出焦点放到后台做，主线程不等。
             let mayHideApp = policy.mayHideApp && readout.visibleWindowCount <= 1
-            func continueInstall(appHideSafe: Bool) {
+            func continueInstall(appHideSafe: Bool, noFocusHeir: Bool = false) {
             // 崩溃一致性：先把恢复意图写入磁盘，再做任何可能让窗口长时间看不见的动作。
             // 进程在 hideWindowInBackground 中途被结束时，下次启动仍能按这条记录找回窗口；
             // 隐藏验证通过后，recordShadeJournal 把同一条记录改为已收起（或按最终的隐藏方式清掉）。
@@ -347,7 +347,7 @@ extension AppDelegate {
             hideWindowInBackground(win, pid: pid, originalPosition: pos, size: size,
                                    policy: policy, appHideSafe: appHideSafe,
                                    delay: revealedBeforeHide ? 2.0 / 60 : 0,
-                                   handOffFocusAfter: !mayHideApp) { [self] hide, observation in
+                                   handOffFocusAfter: !mayHideApp, noFocusHeir: noFocusHeir) { [self] hide, observation in
             foldPhaseTotals["后台移开、交接与验证", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
             // 交接已在后台做完：撤掉截图期的焦点停靠。
             if !mayHideApp { focusParkingWindow?.orderOut(nil) }
@@ -450,15 +450,15 @@ extension AppDelegate {
             }
             let focusRequest = focusHandoffRequest(win: win, pid: pid, id: id)
             let handOffStartedAt = CFAbsoluteTimeGetCurrent()
-            let resume = HandOff { (safe: Bool) in
+            let resume = HandOff { (safe: Bool, nowhere: Bool) in
                 foldPhaseTotals["焦点交接（后台）", default: 0] += CFAbsoluteTimeGetCurrent() - handOffStartedAt
                 // 交接后撤掉截图期的焦点停靠。
                 self.focusParkingWindow?.orderOut(nil)
-                continueInstall(appHideSafe: safe)
+                continueInstall(appHideSafe: safe, noFocusHeir: nowhere)
             }
             windowHideQueue.async {
-                let safe = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest).appHideSafe
-                DispatchQueue.main.async { resume.value(safe) }
+                let result = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest)
+                DispatchQueue.main.async { resume.value(result.appHideSafe, result == .nowhere) }
             }
         }
 
