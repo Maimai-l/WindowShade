@@ -144,7 +144,7 @@ record() {
 #   recordings   录像（文本编辑、访达）、E13、检查的检查（K01 至 K05）、两个权限场景组
 #   shard:i/n    主场景组里序号除以 n 余 i 的那些场景
 #   random       随机操作 Q01（300 步，十几分钟，单独一个任务）
-#   reproduce-e13  用修复之前的版本跑 E13 和 X01 至 X05，至少一条要报出输入被挡住（测试测得出这类缺陷）
+#   reproduce-e13  用修复之前的版本跑 E13、A34、X01 至 X05，至少一条要报出输入被挡住（测试测得出这类缺陷）
 #   all（默认）  全部，本地运行用
 PART="${RECORD_PART:-all}"
 RECORDINGS=false
@@ -204,19 +204,21 @@ if $REPRODUCE; then
   kill "$watchdog" 2>/dev/null
   cat "$OUT/driver-close-unsaved.log" || true
   # E13 在修复之前的版本上也通过了（7b36047）：旧版本只合成了一次点击，没有凑出卡死的条件。
-  # 再跑应用程序卡住时操作卷帘条的几条（X01 至 X05）：旧版本的钩子一旦交给主线程就不限时地等，
-  # 主线程又在等卡住的应用程序回答，期间的探测点击应当被挡住。
+  # 4b7e042 上 X01 至 X05 在旧版本上只报出合成输入（I3）和主线程停顿（I6），探测点击最慢 0.5 秒：
+  # 旧代码合成点击时点击次数写死为 1，凑不成双击；主线程忙时钩子等 0.5 秒就放行。
+  # 不限时等待的那条路是：主线程已经开始处理一次真的双击，又去问一个卡住的应用程序（旧版本每次最多等 6 秒）。
+  # A34 正是这样：应用程序卡住 3 秒，双击它的标题栏，随后的探测点击应当被挡住。
   pgrep -x WindowShade >/dev/null || { open "$APP"; sleep 5; }
   ( sleep 420
     if pgrep -x DemoDriver >/dev/null; then
-      echo "watchdog: X01-X05 still running after 420 s; killing WindowShade"
+      echo "watchdog: A34, X01-X05 still running after 420 s; killing WindowShade"
       touch "$OUT/watchdog-fired"
       pkill -9 -x WindowShade
       sleep 30
       pkill -9 -x DemoDriver
     fi ) &
   watchdog=$!
-  open -W --stderr "$OUT/driver-before-fix.log" "$DRIVER" --args "$OUT/before-fix.json" scenarios "$PROBE" "$APP" "X01,X02,X03,X04,X05"
+  open -W --stderr "$OUT/driver-before-fix.log" "$DRIVER" --args "$OUT/before-fix.json" scenarios "$PROBE" "$APP" "A34,X01,X02,X03,X04,X05"
   kill "$watchdog" 2>/dev/null
   cat "$OUT/driver-before-fix.log" || true
 fi
@@ -355,7 +357,7 @@ try:
             print("     " + v)
         caught += [s["id"] + ": " + v for v in s["violations"] if v.startswith("I2:")]
 except (OSError, ValueError, KeyError) as error:
-    print(f"X01-X05: no result ({error})")
+    print(f"A34, X01-X05: no result ({error})")
 if caught:
     print("PASS before-fix: the tests catch blocked input in the build before the fix:")
     for c in caught:
