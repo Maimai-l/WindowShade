@@ -33,7 +33,7 @@ jobs:
             name: scenarios-3
           - part: random
             name: random
-          # 用修复之前的版本跑 E13：E13 必须报出输入被挡住，证明它测得出用户遇到的全系统卡死。
+          # 用修复之前的版本跑 E13 和 X01 至 X05：至少一条要报出输入被挡住，证明这些测试测得出全系统卡死这一类问题。
           - part: reproduce-e13
             name: e13-before-fix
     name: record (${{ matrix.name }})

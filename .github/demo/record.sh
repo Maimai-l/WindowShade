@@ -144,7 +144,7 @@ record() {
 #   recordings   录像（文本编辑、访达）、E13、检查的检查（K01 至 K05）、两个权限场景组
 #   shard:i/n    主场景组里序号除以 n 余 i 的那些场景
 #   random       随机操作 Q01（300 步，十几分钟，单独一个任务）
-#   reproduce-e13  用修复之前的版本跑 E13，E13 必须报出输入被挡住（测试测得出这个缺陷）
+#   reproduce-e13  用修复之前的版本跑 E13 和 X01 至 X05，至少一条要报出输入被挡住（测试测得出这类缺陷）
 #   all（默认）  全部，本地运行用
 PART="${RECORD_PART:-all}"
 RECORDINGS=false
@@ -203,6 +203,22 @@ if $REPRODUCE; then
   open -W --stderr "$OUT/driver-close-unsaved.log" "$DRIVER" --args "$OUT/close-unsaved.mp4" close-unsaved
   kill "$watchdog" 2>/dev/null
   cat "$OUT/driver-close-unsaved.log" || true
+  # E13 在修复之前的版本上也通过了（7b36047）：旧版本只合成了一次点击，没有凑出卡死的条件。
+  # 再跑应用程序卡住时操作卷帘条的几条（X01 至 X05）：旧版本的钩子一旦交给主线程就不限时地等，
+  # 主线程又在等卡住的应用程序回答，期间的探测点击应当被挡住。
+  pgrep -x WindowShade >/dev/null || { open "$APP"; sleep 5; }
+  ( sleep 420
+    if pgrep -x DemoDriver >/dev/null; then
+      echo "watchdog: X01-X05 still running after 420 s; killing WindowShade"
+      touch "$OUT/watchdog-fired"
+      pkill -9 -x WindowShade
+      sleep 30
+      pkill -9 -x DemoDriver
+    fi ) &
+  watchdog=$!
+  open -W --stderr "$OUT/driver-before-fix.log" "$DRIVER" --args "$OUT/before-fix.json" scenarios "$PROBE" "$APP" "X01,X02,X03,X04,X05"
+  kill "$watchdog" 2>/dev/null
+  cat "$OUT/driver-before-fix.log" || true
 fi
 
 # 随机操作（docs/test-catalog.md 第 11 节）：每次运行用新的种子，种子写在结果里。
@@ -315,27 +331,37 @@ print("PASS E13: save sheet once, window closed, worst probe %.3f s" % result.ge
 PY
 fi
 if $REPRODUCE; then
-echo "==> check that E13 catches the freeze in the build before the fix"
-python3 - "$OUT/close-unsaved.json" "$OUT/watchdog-fired" <<'PY' || status=1
+echo "==> check that the tests catch blocked input in the build before the fix"
+python3 - "$OUT/close-unsaved.json" "$OUT/before-fix.json" "$OUT/watchdog-fired" <<'PY' || status=1
 import json, os, sys
-if os.path.exists(sys.argv[2]):
-    print("PASS reproduce E13: the build before the fix stopped all input; the watchdog had to end it")
-    sys.exit(0)
+caught = []
+if os.path.exists(sys.argv[3]):
+    caught.append("the machine stopped taking input and the watchdog had to end WindowShade")
 try:
     with open(sys.argv[1]) as f:
-        result = json.load(f)
+        e13 = json.load(f)
+    print("E13:", json.dumps(e13, ensure_ascii=False))
+    caught += ["E13: " + f for f in e13.get("failures", []) if "probe click" in f]
+    if e13.get("passed"):
+        print("E13 passed on the build before the fix: it does not reproduce the reported freeze")
 except (OSError, ValueError) as error:
-    print(f"FAIL reproduce E13: no result and the watchdog did not fire ({error})")
-    sys.exit(1)
-print(json.dumps(result, ensure_ascii=False, indent=1))
-blocked = [f for f in result.get("failures", []) if "probe click" in f]
-if blocked:
-    print("PASS reproduce E13: the build before the fix blocked input:", "; ".join(blocked))
+    print(f"E13: no result ({error})")
+try:
+    with open(sys.argv[2]) as f:
+        suite = json.load(f)
+    for s in suite["scenarios"]:
+        print(("PASS " if s["passed"] else "FAIL ") + s["id"] + " " + s["title"])
+        for v in s["violations"]:
+            print("     " + v)
+        caught += [s["id"] + ": " + v for v in s["violations"] if v.startswith("I2:")]
+except (OSError, ValueError, KeyError) as error:
+    print(f"X01-X05: no result ({error})")
+if caught:
+    print("PASS before-fix: the tests catch blocked input in the build before the fix:")
+    for c in caught:
+        print("     " + c)
     sys.exit(0)
-if result.get("passed"):
-    print("FAIL reproduce E13: E13 passed on the build before the fix, so it does not reproduce the reported freeze")
-else:
-    print("FAIL reproduce E13: E13 failed for another reason:", "; ".join(result.get("failures", [])))
+print("FAIL before-fix: no test caught blocked input in the build before the fix")
 sys.exit(1)
 PY
 fi
