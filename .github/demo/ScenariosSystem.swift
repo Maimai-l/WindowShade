@@ -403,9 +403,11 @@ let systemScenarios: [Scenario] = [
                     + "layer=\(info[kCGWindowLayer as String] as? Int ?? 0) \(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height))"
             }
         }
-        /// 新出现的窗口里最大的一扇（8858a32 上访达新出现了两扇第 3 层的窗口）。
+        /// 新出现、不透明的窗口里最大的一扇。快速查看打开时访达新出现两扇第 3 层的窗口：一扇是面板，
+        /// 一扇是放大动画用的半透明过渡窗口（e1cc7bd：透明度 0.16）。
         func qlWindow() -> CGRect? {
-            newWindows().compactMap(bounds).max { $0.width * $0.height < $1.width * $1.height }
+            newWindows().filter { ($0[kCGWindowAlpha as String] as? Double ?? 1) > 0.9 }
+                .compactMap(bounds).max { $0.width * $0.height < $1.width * $1.height }
         }
         run("/usr/bin/open", [folder.path])
         await pause(2)
@@ -418,8 +420,21 @@ let systemScenarios: [Scenario] = [
         let opened = await eventually(6) { qlWindow() != nil }
         h.result.notes["preview"] = describe(newWindows())
         h.result.notes["finderWindows"] = finderWindowFacts(finderPID)
-        guard opened, let frame = qlWindow() else {
-            h.result.violations.append("setup: Quick Look did not open from Finder")
+        // 面板打开时有放大动画，CI 上要一两秒；动画没走完就按当时的外框双击，点会落在最终标题栏下面（e1cc7bd：
+        // 取外框时在 (123,116 721x483)，双击时已是 (104,65 816x611)）。等外框连续 0.6 秒不变再取。
+        var stable: CGRect?
+        if opened {
+            let started = Date()
+            var last = qlWindow(), since = Date()
+            while Date().timeIntervalSince(started) < 5 {
+                await pause(0.1)
+                let now = qlWindow()
+                if now != last { last = now; since = Date() } else if Date().timeIntervalSince(since) >= 0.6 { stable = now; break }
+            }
+            h.result.notes["previewFrame"] = stable.map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height))" } ?? "not stable in 5 s"
+        }
+        guard opened, let frame = stable else {
+            h.result.violations.append(opened ? "setup: the Quick Look panel kept changing size for 5 s" : "setup: Quick Look did not open from Finder")
             h.result.notes["onScreen"] = describe(onScreen())
             return
         }

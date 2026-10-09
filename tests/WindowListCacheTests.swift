@@ -136,19 +136,6 @@ struct WindowListCacheTests {
                      "the Dock and transparent windows are skipped")
         precondition(ordinaryWindowOwner(at: CGPoint(x: 1000, y: 700), in: [dock, probeWindow, textEdit]) == nil,
                      "no ordinary window under the point")
-
-        // 双击判定按窗口画出来的位置（场景 A32）：访达的快速查看面板，辅助功能报 (104,65 816x611)，
-        // 窗口服务器上画在 (126,119 703x472)；在画出来的标题栏 y=125 上双击，要算在标题栏里。
-        let quickLookAX = CGRect(x: 104, y: 65, width: 816, height: 611)
-        let quickLook = placed(738, 50, CGRect(x: 126, y: 119, width: 703, height: 472), layer: 3)
-        let drawn = titlebarHitFrame(axFrame: quickLookAX, windowID: 738, in: [dock, quickLook, textEdit])
-        precondition(drawn == CGRect(x: 126, y: 119, width: 703, height: 472), "the drawn frame wins over the AX frame: \(drawn)")
-        let click = CGPoint(x: 561, y: 125)
-        precondition(click.y >= drawn.minY && click.y <= drawn.minY + 38, "the click is in the drawn title bar")
-        precondition(!(click.y <= quickLookAX.minY + 38), "the AX frame alone puts the click below the title bar")
-        // 窗口列表里没有这扇窗口（刚出现、缓存还没刷新）：退回辅助功能报的外框。
-        precondition(titlebarHitFrame(axFrame: quickLookAX, windowID: 999, in: [dock, quickLook]) == quickLookAX,
-                     "a window missing from the list keeps its AX frame")
-        print("PASS: WindowListCache — 12 concurrent callers, one refresh, independent kinds, TTL, indexes, bounded wait, live order, drawn title bar frame")
+        print("PASS: WindowListCache — 12 concurrent callers, one refresh, independent kinds, TTL, indexes, bounded wait, live order")
     }
 }
