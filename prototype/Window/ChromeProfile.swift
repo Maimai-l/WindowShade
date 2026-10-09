@@ -228,25 +228,26 @@ final class ChromeProfileCache: @unchecked Sendable {
                       size: CGSize, pid: pid_t, title: String)]
     ) -> [CGWindowID: WindowChromeProfile] {
         guard requests.count > 1 else { return [:] }
-        // 各次写入都在下面的 NSLock 里；编译器看不见这把锁。
+        // 各次写入都在 resultsLock 里；编译器看不见这把锁。
         nonisolated(unsafe) var resolved = [WindowChromeProfile?](repeating: nil, count: requests.count)
         // Snapshot AppKit geometry before entering the concurrent AX reads.
         let localHeights = requests.map { localWindowChromeHeight(id: $0.id, pid: $0.pid) }
-        let lock = NSLock()
+        // 只保护 resolved；写 entries 要用 self.lock，才和其他线程读 entries 互斥。
+        let resultsLock = NSLock()
         DispatchQueue.concurrentPerform(iterations: requests.count) { index in
             let request = requests[index]
             let profile = resolveWindowChromeProfileUncached(
                 win: request.win, id: request.id, pos: request.pos,
                 size: request.size, pid: request.pid, title: request.title,
                 localChromeHeight: localHeights[index])
-            lock.lock()
+            resultsLock.lock()
             resolved[index] = profile
-            lock.unlock()
+            resultsLock.unlock()
         }
         let now = CFAbsoluteTimeGetCurrent()
         var warmed: [CGWindowID: WindowChromeProfile] = [:]
-        lock.lock()
-        defer { lock.unlock() }
+        self.lock.lock()
+        defer { self.lock.unlock() }
         for (index, request) in requests.enumerated() {
             guard let profile = resolved[index] else { continue }
             entries[request.id] = Entry(element: request.win, profile: profile,
