@@ -24,7 +24,7 @@ extension AppDelegate {
         shadeSounds.play(name)
     }
 
-    /// 折叠/展开动画开始前叫醒音频设备（见 ShadeSoundPlayer 的说明）：这样音效落在动作上，不迟半秒。
+    /// 收起、展开动画开始前提前启动音频设备（见 ShadeSoundPlayer 的说明），音效才能和动作同时出现。
     func prewarmShadeSound(_ name: String) {
         guard soundEnabled else { return }
         shadeSounds.prewarm(name)
@@ -56,8 +56,8 @@ extension AppDelegate {
     func quietNotice(_ message: String, log: String? = nil) {
         wlog(log ?? "notice: \(message)")
         statusNoticeWorkItem?.cancel()
-        // 菜单栏标题保持短小（完整文案在 tooltip 与可访问性值里），
-        // 否则一句长提示会把状态栏条挤得很宽，顶开旁边的菜单栏项目。
+        // 菜单栏上的标题保持简短（完整文案放在鼠标提示和辅助功能的值里），
+        // 否则一句长提示会让状态栏按钮变得很宽，把旁边的菜单栏项目推开。
         statusItem.button?.title = " \(PaperSurfaceAccessibility.statusItemNoticeTitle(message))"
         statusItem.button?.toolTip = message
         statusItem.button?.setAccessibilityValue(message)
@@ -240,8 +240,8 @@ extension AppDelegate {
             window.isReleasedWhenClosed = false
             window.tabbingMode = .disallowed
             onboardingWindow = window
-            // 点关闭按钮也算看过：否则下次启动它又会自己弹出来。缺权限时的再次提醒
-            // 走的是“缺权限”这条判断，不受这个标记影响。
+            // 点关闭按钮也算看过：否则下次启动它又会自己弹出来。看过之后缺权限也不再自动弹出，
+            // 只有 force（例如没有辅助功能权限时按了快捷键）才会再打开。
             NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
                                                    object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -264,7 +264,7 @@ extension AppDelegate {
         updateOnboardingRefresh()
     }
 
-    /// 授权的刷新：在系统设置里打开了，这里马上变成已授权。只在窗口看得见、还没全部授权时每秒查一次。
+    /// 授权的刷新：在系统设置里打开了，这里马上显示“已允许”。只在窗口看得见、还没全部授权时每秒查一次。
     @MainActor func updateOnboardingRefresh() {
         guard let window = onboardingWindow, window.isVisible, window.occlusionState.contains(.visible),
               let status = onboardingPermissions else {

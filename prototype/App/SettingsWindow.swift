@@ -5,7 +5,7 @@ import Cocoa
 import SwiftUI
 
 enum WindowShadeSettingsSection: Int, CaseIterable {
-  // 存下来的是原始值：拿掉的分页空出的编号不再复用，旧值落到默认分页。
+  // 存的是原始值：去掉的分页留下的编号不再使用；存着这些旧编号时打开默认分页。
   case shade = 1, shortcuts = 3, permissions = 4, advanced = 5
 
   private static let lastViewedKey = "WindowShade.Settings.LastViewedSection"
@@ -58,7 +58,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
                           backing: .buffered, defer: false)
     window.toolbarStyle = .preference
     window.isReleasedWhenClosed = false
-    // 工具型窗口不与其它窗口合并成标签页（系统偏好设为“始终”时也保持一致）。
+    // 工具型窗口不与其他窗口合并成标签页（系统偏好设为“始终”时也保持一致）。
     window.tabbingMode = .disallowed
     super.init(window: window)
     window.delegate = self

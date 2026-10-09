@@ -14,8 +14,7 @@ extension AppDelegate {
         return foldCallbackStamp(id: id, state: state)
     }
 
-    /// 每过一次异步或读取边界都重新核对。这是挡掉过期结果的栅栏，
-    /// 不证明外部窗口改动是原子的。
+    /// 每过一次异步或读取边界都重新核对，用来丢掉过期的结果；它不能证明外部窗口的改动是原子的。
     func foldCallbackIsCurrent(_ expected: FoldCallbackStamp,
                                maximumAge: TimeInterval = 2) -> Bool {
         guard let state = shaded[expected.window], state.sourceWindowID == expected.window,
@@ -31,8 +30,8 @@ extension AppDelegate {
             guard pid == getpid(), let local = ownWindow(id: id) else { return .unknown }
             return local.isVisible ? .visible : .hidden
         }
-        // 有意关掉的 QuickLook 另有一次正向枚举核对；只是不在屏幕列表里，
-        // 不能证明窗口被关掉或最小化了。
+        // 快速查看窗口是有意关掉的：用 .optionIncludingWindow 查这扇窗口，查不到才算已隐藏；
+        // 只是不在屏幕上的窗口列表里，不能证明它被关掉或最小化了。
         if hide == .quickLookClosed {
             guard let list = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]]
             else { return .unknown }
@@ -60,17 +59,17 @@ extension AppDelegate {
         }
     }
 
-    /// 保留已有的恢复记录。不知道既不算成功，也不许换第二种藏法再试；
-    /// 卷帘条留作手动恢复的入口，不当成藏住的证据。
+    /// 结果未知时：不算成功，也不改用第二种隐藏方式重试，保留已有的恢复记录。
+    /// 卷帘条留作手动恢复的入口，不当作窗口已藏好的证据。
     func retainUnconfirmedFold(id: CGWindowID, state: ShadeState) {
         guard shaded[id]?.foldTransactionID == state.foldTransactionID else { return }
         settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: false)
         if let overlay = state.overlay,
            enforceOverlaySpaceInvariant(id: id, state: state, reason: "hide-unconfirmed") {
-            overlay.contentView?.toolTip = "收起状态未确认，点击可尝试恢复窗口"
+            overlay.contentView?.toolTip = "这个窗口可能没有收起，双击展开"
             revealPreparedOverlay(overlay)
         }
-        quietNotice("收起状态未确认，已保留恢复入口", log: "shade: observation unknown id=\(id); recovery retained")
+        quietNotice("这个窗口可能没有收起，双击展开", log: "shade: observation unknown id=\(id); recovery retained")
     }
 
     /// AX 观察器装在主 run loop 上，C 回调会核对这一点；

@@ -1,4 +1,4 @@
-// 欢迎使用 WindowShade：首次打开时出现，菜单里随时能再打开。
+// 欢迎使用 WindowShade：首次打开时出现，设置的“高级”页里随时能再打开。
 // 一页：两项授权、标题和一句说明。关窗口也算看过，下次不再自动弹出。
 
 import AppKit
@@ -6,8 +6,8 @@ import SwiftUI
 
 enum WelcomeCopy {
     static let title = "欢迎使用 WindowShade"
-    static let lede = "辅助功能让 WindowShade 能移动窗口，屏幕录制让它能显示实时画面。两项都打开就能用了。"
-    static let standardAccount = "打开这两项时，要输入管理员的名字和密码。"
+    static let lede = "两项都允许后就可以开始使用。"
+    static let standardAccount = "允许这两项时，要输入管理员的用户名和密码。"
     static let later = "稍后再说"
     static let start = "开始使用"
 
@@ -53,7 +53,7 @@ struct WelcomeContent: View {
 
             HStack {
                 Spacer()
-                // 没授权时旁边给“稍后再说”，“开始使用”等两项都授权后才能点。
+                // 没授权时显示“稍后再说”；两项都授权后才能点“开始使用”。
                 if !status.allGranted {
                     Button(WelcomeCopy.later, action: onLater)
                 }

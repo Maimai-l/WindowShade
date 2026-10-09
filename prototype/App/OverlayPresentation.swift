@@ -1,5 +1,5 @@
-// 覆盖层展示与空间不变量：卷帘条窗口的呈现/销毁、Space 归属与兜底回切、
-// 外部唤回清理。作为 AppDelegate 扩展实现。
+// 卷帘条的显示与销毁、所属桌面的校正和跳走后的切回、外部唤回后的清理。
+// 作为 AppDelegate 扩展实现。
 
 import Cocoa
 
@@ -15,15 +15,15 @@ extension AppDelegate {
         return .normal
     }
 
-    /// 卷帘条的不透明度：设置里的滑块（ShadeTranslucency）。没拖过滑块时按老的“卷帘条半透明”开关算，
-    /// 开着就是 shadeTranslucentAlpha（0.82），和原来一样。
+    /// 卷帘条的不透明度来自设置里的滑块（ShadeTranslucency）。没拖过滑块时沿用旧的“卷帘条半透明”开关：
+    /// 开着时不透明度为 shadeTranslucentAlpha（0.82）。
     var overlayAlpha: CGFloat {
         let fraction = ShadeTranslucency.fraction()
         return fraction == ShadeTranslucency.legacyFraction ? shadeTranslucentAlpha : CGFloat(1 - fraction)
     }
 
-    /// 某一扇覆盖层该有的不透明度：缩略图的窗口保持不透明，半透明由它的画面自己管
-    /// （指针停上去要变实，减少透明度时一直实，见 Thumbnail.swift）。
+    /// 某一条卷帘条应有的不透明度：缩略图窗口本身保持不透明，半透明由它的画面处理
+    /// （指针停上去时变为不透明，打开“减少透明度”时一直不透明，见 Thumbnail.swift）。
     func overlayAlpha(for overlay: NSWindow) -> CGFloat {
         overlay is ShadeThumbnailWindow ? 1 : overlayAlpha
     }
@@ -59,12 +59,10 @@ extension AppDelegate {
               let displayID = state.sourceDisplayID,
               let sourceSpaceID = state.sourceSpaceID else { return }
 
-        // 保险丝：焦点交接（handOffFocus）负责预防，这里负责兜底补偿。
-        // 检测必须快于 Space 滑动动画（~300ms）：密集轮询 + SLSManagedDisplay-
-        // SetCurrentSpace 瞬时切换（无滑动动画），在动画完成前拉回，把"跳走再
-        // 滑回来"的双重闪动压缩成一瞬。每次检查只是一个 WindowServer 读，极廉价。
-        // 只覆盖系统级联跳变的窗口期：超过 ~0.55s 的 Space 差异更可能是用户自己
-        // 的切换动作（折叠后主动去别的 Space），旧实现 2.5s 内会把用户切走拽回。
+        // 焦点交接（handOffFocus）负责预防，这里负责补救。
+        // 检查必须比切换桌面的滑动动画（约 300 毫秒）快：密集检查，并用 SLSManagedDisplaySetCurrentSpace
+        // 立即切回（没有滑动动画），这样只会闪一下，不会看到“跳走再滑回来”。每次检查只读一次窗口服务器，开销很小。
+        // 只在收起后 0.8 秒内检查，之后的桌面变化多半是用户自己切换的（收起后主动去别的桌面），不能拉回。
         pendingSpaceReturns[id] = PendingSpaceReturn(displayID: displayID,
                                                      sourceSpaceID: sourceSpaceID,
                                                      deadline: Date().addingTimeInterval(0.8))
@@ -105,10 +103,13 @@ extension AppDelegate {
         guard activeSpaceID != request.sourceSpaceID else { return }
 
         if mover.setCurrentSpace(displayID: request.displayID, sid: request.sourceSpaceID) {
-            // parking 策略（空 Space 折叠）下系统级联仍可能跳变，此处兜回属预期；
-            // 若前面的 handoff 日志是 same-app/top-window 策略则需排查预防为何失效。
+            // 走到这里的只有隐藏应用程序和最小化两种方式（见 hideMethodCanTriggerSpaceJump）。
+            // 隐藏应用程序只在焦点已交出、或应用程序本来就不在前台时才用，这时切换桌面说明预防没有生效，
+            // 要对照前面焦点交接的日志（same-app 或 top-window 方式）查原因。
+            // 最小化是其他方式都不行时的最后一招，系统会自己挑下一扇窗口接收焦点（见 FocusHandoff 的说明），
+            // 可能切换桌面，在这里切回是预期行为。
             wlog("space: return guard fired sid=\(request.sourceSpaceID) from=\(activeSpaceID) id=\(id) reason=\(reason)")
-            // 与 overlay 可见性绑定：跳回后立即校正 overlay 归属与显隐。
+            // 切回之后马上校正卷帘条所在的桌面和显示状态。
             if let state = shaded[id] {
                 _ = enforceOverlaySpaceInvariant(id: id, state: state, reason: "space-return-guard")
             }
@@ -182,8 +183,8 @@ extension AppDelegate {
         return false
     }
 
-    /// 原窗口已被唤回（程序坞、Command-Tab 等）时撤掉卷帘条。原窗口的位置在该应用程序的队列上读（R5），
-    /// 读完回到主线程；这期间卷帘条换了一次收起（重新收起过），就不按旧的结果撤。
+    /// 原窗口已被唤回（程序坞、Command-Tab 等）时撤掉卷帘条；窗口不在原处时按展开流程放回（见 settleRevealedSource）。
+    /// 原窗口的位置在该应用程序的队列上读（R5），读完回到主线程；这期间这扇窗又重新收起过，就不按旧结果处理。
     func cleanupProxyIfSourceWindowVisible(id: CGWindowID, state: ShadeState, reason: String) {
         guard state.hide != .quickLookClosed, !pendingVisibilityChecks.contains(id) else { return }
         pendingVisibilityChecks.insert(id)
@@ -207,9 +208,9 @@ extension AppDelegate {
         overlay.orderFrontRegardless()
     }
 
-    /// 收起时焦点交给后面那个 App，系统会把它的窗口提到最前，盖住刚亮出来的卷帘条，
-    /// 要等前台切换的通知到了才又摆回上面（访达那一下约 0.2 秒，看起来像整扇窗没了）。
-    /// 交接这一阵卷帘条先浮一层，交接落定后回到平常的层级，仍在最上面。
+    /// 收起时焦点交给后面的应用程序，系统会把它的窗口提到最前，盖住刚显示的卷帘条，
+    /// 直到前台切换的通知到达才把卷帘条放回上面（访达约 0.2 秒，看起来像整扇窗口消失了）。
+    /// 交接期间卷帘条临时提高一层，交接完成后回到平常的层级，仍在最上面。
     func holdOverlayAboveFocusHandoff(_ overlay: NSWindow) {
         guard overlay.level < .floating else { return }
         overlay.level = .floating
@@ -221,12 +222,12 @@ extension AppDelegate {
         }
     }
 
-    /// fade 为 false 时直接亮出：窗口当场就藏好了，卷帘条又正好盖在原来的标题栏上，
-    /// 再淡入一下，中间那 0.12 秒会露出后面的桌面。
-    /// 直接亮出时当场画好、提交给窗口服务器：不然要等这一轮主线程跑完才上屏，
-    /// 而真窗口是别的 App 自己挪走的，马上就没了，中间会空一下（访达那一下约 0.2 秒）。
+    /// fade 为 false 时直接显示：窗口已经藏好，卷帘条又正好盖在原来的标题栏上；
+    /// 再淡入的话，那 0.12 秒里会露出后面的桌面。
+    /// 直接显示时立即绘制并提交给窗口服务器，否则要等这一轮主线程结束才显示到屏幕上，
+    /// 而原窗口由别的应用程序自己移走、很快就消失，中间会空一下（访达约 0.2 秒）。
     func revealPreparedOverlay(_ overlay: NSWindow, fade: Bool = true) {
-        // 缩略图第一次亮出来：截图从窗口原处缩进去，落定前缩略图自己不露面。
+        // 缩略图第一次显示：截图从窗口原处缩小到缩略图，动画结束前缩略图本身不显示。
         playThumbnailEntranceIfNeeded(overlay)
         let alpha = overlayAlpha(for: overlay)
         guard fade else {

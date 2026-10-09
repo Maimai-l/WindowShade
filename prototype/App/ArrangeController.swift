@@ -3,7 +3,7 @@
 import Cocoa
 
 extension AppDelegate {
-    // animated=false 给「归位之后立刻要读卷帘条位置」的调用方用：展开真窗口时
+    // animated=false 给“归位之后立刻要读卷帘条位置”的调用方用：展开原窗口时
     // 要按卷帘条的最终位置定位，动画中途的 frame 会把窗口放错地方。
     func restoreArrangedOverlayFrames(ids requestedIDs: Set<CGWindowID>? = nil,
                                       animated: Bool = true) -> Bool {
@@ -23,10 +23,9 @@ extension AppDelegate {
         isProgrammaticOverlayArrangement = true
         defer { isProgrammaticOverlayArrangement = false }
 
-        // NSWindow.setFrame(display:animate:) 是同步阻塞的：要等自己那段动画播完
-        // 才返回。放在循环里逐个调用，总耗时就是各自动画时长之和——实测 9 条卷帘条
-        // 3.2 秒，而且看上去是一条接一条地挪。改成一个动画组用 animator() 代理，
-        // 所有卷帘条同时动，总耗时收敛到单条动画的长度。
+        // NSWindow.setFrame(display:animate:) 要等自己的动画播完才返回，逐个调用时总耗时是各段动画之和
+        // （9 条卷帘条约 3.2 秒），看上去也是一条接一条地移动。
+        // 所以用一个动画组、通过 animator() 同时移动所有卷帘条，总耗时只有一段动画的长度。
         func applyMoves(_ moves: [(window: NSWindow, frame: NSRect)]) {
             guard !moves.isEmpty else { return }
             let proxies = moves.compactMap { $0.window as? NativeProxyOverlayWindow }
@@ -79,8 +78,8 @@ extension AppDelegate {
         pullOverlayBackIntoReachAfterDrag(id: id)
     }
 
-    /// 卷帘条被拖到屏幕外（例如拖过屏幕下边）：拖完之后拉回够得着的位置（docs/test-catalog.md C02）。
-    /// 拖动过程中不拉，免得和手抢；停下 0.3 秒且鼠标已经松开才检查。
+    /// 卷帘条被拖到屏幕外（例如拖过屏幕下边）：拖完后拉回能点到的位置（docs/test-catalog.md C02）。
+    /// 拖动过程中不拉回，以免和用户的拖动冲突；停下 0.3 秒、鼠标已松开才检查。
     func pullOverlayBackIntoReachAfterDrag(id: CGWindowID) {
         let token = UUID()
         overlayMoveSettleTokens[id] = token

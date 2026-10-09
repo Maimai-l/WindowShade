@@ -4,8 +4,7 @@ import Cocoa
 import Foundation
 #endif
 
-// Callers that must wait for a fold's real outcome (the title-bar triple click) register here.
-// Mutations are MainActor-owned.
+// 需要等收起真正结果的调用方（标题栏三击）在这里登记。只在主线程上修改。
 @MainActor extension AppDelegate {
     @discardableResult
     func registerFoldWaiter(id: CGWindowID, completion: @escaping (Bool) -> Void) -> UUID {
@@ -17,7 +16,7 @@ import Foundation
         return token
     }
 
-    /// Only the request's captured tokens may be bound to its newly installed state.
+    /// 只有这次请求事先拿到的令牌可以绑定到它新建立的状态上。
     func bindFoldWaiters(id: CGWindowID, tokens: [UUID], transaction: UUID) {
         for token in tokens where foldWaiters[id]?[token] != nil {
             guard foldWaiterTransactions[token] == nil else { continue }
@@ -29,7 +28,7 @@ import Foundation
         settleFoldWaiters(id: id, tokens: [token], success: success)
     }
 
-    /// No window-ID-only success path: a completion must name the exact transaction.
+    /// 不能只凭窗口号判定成功：完成时必须指明是哪一次事务。
     func settleFoldWaiters(id: CGWindowID, transaction: UUID, success: Bool) {
         let tokens = (foldWaiters[id] ?? [:]).keys.filter { foldWaiterTransactions[$0] == transaction }
         settleFoldWaiters(id: id, tokens: tokens, success: success)
@@ -49,8 +48,7 @@ import Foundation
             callbacks.append((callback, stamp))
         }
         foldWaiters[id] = waiting.isEmpty ? nil : waiting
-        // Drain the entire captured batch before any client callback. Delivery is
-        // queued so a client cannot reenter a half-finished install or cleanup.
+        // 先把这一批全部取出，再回调任何调用方；回调排到主队列上，调用方不会在建立到一半或清理到一半时重入。
         guard !callbacks.isEmpty else { return }
         DispatchQueue.main.async { [weak self] in
             for delivery in callbacks {

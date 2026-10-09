@@ -1,5 +1,5 @@
-// 折叠事务：真实窗口隐藏/恢复、焦点交接、折叠验证与回滚、
-// 交通灯转发、AX 观察器与会话生命周期通知。作为 AppDelegate 扩展实现。
+// 收起事务：原窗口的隐藏和恢复、焦点交接、收起验证与回滚、
+// 红绿灯转发、辅助功能观察器与会话生命周期通知。作为 AppDelegate 扩展实现。
 
 import Cocoa
 
@@ -24,23 +24,19 @@ extension AppDelegate {
         if let pid = pid { activateApp(pid: pid) }
     }
 
-    // MARK: 折叠事务：焦点交接
+    // MARK: 收起事务：焦点交接
     //
-    // 病灶：对焦点所在的 app/窗口执行 app-hide/minimize 时，macOS 自行挑选焦点
-    // 继承人，其"下一个 app"逻辑遵循全局最近使用顺序、不限当前 Space——继承人在
-    // 别的 Space 就跳 Space，继承人是同 app 其他窗口就"激活兄弟窗口"。而隐藏
-    // 非前台 app/窗口没有任何焦点级联。所以隐藏之前由我们显式把焦点交给当前
-    // Space 上的继承人：同 app 同 Space 其他窗口（菜单栏不变）→ 当前 Space
-    // 最顶层其他 regular app 窗口（与系统自身最小化行为一致）→ Finder。
-    // 不会隐藏整个 app 的藏法没有这个级联，改在藏好之后再交接（见 shade 里的说明）。
-    // 返回值 = app-hide 是否安全（会不会触发系统的前台 app 重新选举）。
-    // 隐藏整个 app 时，若它是前台 app，macOS 按全局最近使用顺序选举继任者，
-    // 继任者的窗口在别的 Space 就会跳过去——这个选举我们无法干预。
-    // 只有当焦点已交接到当前 Space 的其他窗口（或目标 app 本就不在前台）时，
-    // app-hide 才不会触发选举。
+    // 对当前有焦点的应用程序或窗口执行隐藏应用程序或最小化时，macOS 按全局最近使用顺序挑下一扇获得焦点的窗口，
+    // 不限当前桌面：挑中的窗口在别的桌面上，就会切换桌面；挑中同一应用程序的其他窗口，就会激活那扇窗口。
+    // 隐藏不在前台的应用程序或窗口没有这个问题。
+    // 所以隐藏之前，先把焦点交给当前桌面上的下一扇窗口：同一应用程序在当前桌面的其他窗口（菜单栏不变），
+    // 其次是当前桌面最上层的其他普通应用程序窗口（和系统最小化时一致）；都没有时不交接，
+    // 由调用方改用不会换前台应用程序的方式（见 FocusHandoff）。
+    // 不会隐藏整个应用程序的方式改为藏好之后再交接（见 shade 里的说明）。
+    // 返回值表示隐藏应用程序是否安全：只有焦点已交给当前桌面的其他窗口，或目标应用程序本来就不在前台时才安全。
     @discardableResult
     func handOffFocus(win: AXUIElement, pid: pid_t, id: CGWindowID) -> Bool {
-        // 交接后撤掉截图期的焦点停靠（成功路径此前从不释放）。
+        // 交接后撤掉截图时用的焦点停靠窗口。
         defer { focusParkingWindow?.orderOut(nil) }
         return FocusHandoff(control: FocusControlSystem()).handOff(focusHandoffRequest(win: win, pid: pid, id: id)).appHideSafe
     }
@@ -74,8 +70,7 @@ extension AppDelegate {
                 var pid: pid_t = 0
                 guard AXUIElementGetPid(state.element, &pid) == .success, pid == state.pid,
                       self.foldCallbackIsCurrent(expected) else { return false }
-                // Retry only the SAME strategy. Crossing from hidden/offscreen/alpha to
-                // minimized would need a restore record for both attempted mutations.
+                // 只重试同一种方式。从隐藏、移到屏幕外、透明改成最小化，就要为两次改动都留恢复记录。
                 setAXMinimized(state.element, true)
                 return true
             },
@@ -105,13 +100,12 @@ extension AppDelegate {
             overlay.contentView?.toolTip = nil
             revealPreparedOverlay(overlay)
         }
-        // The exact transaction settles even when its proxy is on another Space.
+        // 即使卷帘条在别的桌面上，这次事务也照样了结。
         settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: true)
     }
 
-    // 回滚折叠事务：按已尝试的隐藏方式逐项逆操作（此前的回滚漏了这步，
-    // 曾把实际已 app-hide 的 Safari 留在隐藏态、无卷帘条），再恢复几何、
-    // 撤 overlay/状态/journal。
+    // 回滚收起事务：按已尝试的隐藏方式做反向操作（漏掉这一步会把已隐藏的应用程序留在隐藏状态，又没有卷帘条），
+    // 再恢复位置和大小，撤掉卷帘条、状态和恢复记录。
     func rollbackFoldTransaction(id: CGWindowID, expectedTransaction: UUID? = nil) {
         if let expectedTransaction, shaded[id]?.foldTransactionID != expectedTransaction { return }
         guard let state = shaded[id] else { return }
@@ -132,7 +126,7 @@ extension AppDelegate {
         _ = applyRestoredGeometry(state, to: state.originalPosition, label: "rollback", reason: "restore")
         forceCleanup(id, preserveRecovery: true)
         verifyRestoredWindow(state, to: state.originalPosition, completion: nil)
-        quietNotice("这个窗口暂时收不起来",
+        quietNotice("没能收起这个窗口",
                     log: "shade: transaction rolled back id=\(id) app=\(state.appName)")
     }
 
@@ -147,10 +141,10 @@ extension AppDelegate {
         if let id { restoreFocusTokens[id]=token }
         func attempt(_ label: String) {
             if let id { guard restoreFocusTokens[id] == token,shaded[id] == nil,!shadeOperationIDs.contains(id) else { return } }
-            // 只在 app 尚未前台时 activate：250ms 内连发 activate 会反复重启
-            // 菜单栏的交叉淡入，赶上时机就把两套菜单叠印留在屏幕上（系统级
-            // 渲染残影，实测截图 2026-07）。激活已生效的重试只做 AX raise/focus
-            // （不触碰菜单栏）；unhide 保留（.hidden 恢复路径依赖，且幂等）。
+            // 只在应用程序还不在前台时激活它：250 毫秒内连续激活会让菜单栏的交叉淡入反复重来，
+            // 时机不巧时两套菜单会叠在一起留在屏幕上（系统自身的绘制残影，2026-07 截图为证）。
+            // 已经激活后的重试只做辅助功能的升起和聚焦，不碰菜单栏；
+            // 取消隐藏保留（.hidden 的恢复依赖它，重复执行也没有影响）。
             if NSWorkspace.shared.frontmostApplication?.processIdentifier != pid {
                 activateApp(pid: pid)
             } else {
@@ -272,8 +266,8 @@ extension AppDelegate {
         }
         guard let pinToken else { return }
 
-        // 前几次只校正几何，最后一次才升起、聚焦：每次都聚焦，批量展开时焦点会连着跳。
-        // 取消隐藏、解除最小化的窗口多校正一次；那时窗口又是最小化的，是人或应用程序刚把它收回去了，不再拉出来。
+        // 第一次（80 毫秒）和最后一次才升起、聚焦，中间几次只校正位置和大小：每次都聚焦的话，批量展开时焦点会连着跳。
+        // 取消隐藏、解除最小化的窗口多校正一次；那时窗口又是最小化的，说明用户或应用程序刚把它最小化了，不再把它放回来。
         let needsLatePin = hide == .hidden || hide == .minimized
         var steps: [(label: String, delay: TimeInterval, focus: Bool, verify: Bool, late: Bool)] = [
             ("after-80ms", 0.08, true, true, false),
@@ -351,7 +345,7 @@ extension AppDelegate {
         let request = HideRequest(window: WindowHandle(ax: win), id: id, pid: pid, position: pos, size: size,
                                   policy: policy, appHideSafe: appHideSafe, layout: .current(),
                                   otherFoldedWindows: shaded.filter { $0.key != id && $0.value.pid == pid }.count)
-        // 窗口藏好之后键盘别再落到它身上：交出焦点和移开放在同一个后台任务里，主线程不等。
+        // 窗口藏好之后，键盘输入不能再发给它：交出焦点和移开窗口放在同一个后台任务里，主线程不等。
         let focusRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
         let hider = windowHider
         let finish = HandOff(completion)
@@ -374,18 +368,14 @@ extension AppDelegate {
         return axPosition(fromCocoaFrame: clamped)
     }
 
-    // trustFallback：调用方已经在别处确认过这个元素可用（标题栏双击时刚读过它的
-    // 位置和尺寸），这里直接用，一次 IPC 都不发。
+    // trustFallback：调用方已经在别处确认过这个元素可用（标题栏双击时刚读过它的位置和尺寸），
+    // 这里直接用，不发任何请求。
     //
-    // 这里曾经再做一次存活探测，代价被严重低估：单个 AX 属性读只有在目标 App
-    // 空闲时才是 0.1ms，而级联折叠时它正忙着隐藏自己，实测一次 axPosition 要
-    // 19ms，20 个窗口就是 375ms。而且这次探测是多余的——预热阶段已经验证过。
-    // 元素万一在预热之后失效，shade() 开头的 axPosition/axSize 会读不到而干净地
-    // 中止这一个窗口的折叠，不会造成错误状态。
+    // 这里不做存活探测：目标应用程序正忙着隐藏自己时，一次 axPosition 要 19 毫秒，批量收起时累计可达数百毫秒；
+    // 元素若已失效，后台读窗口那一步读不到位置和大小，会中止这一扇的收起，不会留下错误状态。
     //
-    // 不做 id 比对：传进来的 id 来自 windowID(of:)，那个函数优先用几何+标题匹配，
-    // 和 _AXUIElementGetWindow 对某些 App 给出的值并不一致，比对会系统性失配，
-    // 结果每个窗口先付一次失败比对再付一次完整枚举。
+    // 也不用 _AXUIElementGetWindow 比对 id：传进来的 id 来自 windowID(of:)，它优先按几何和标题匹配，
+    // 和 _AXUIElementGetWindow 对某些应用程序给出的值不一致，比对会一直失败，每扇窗口白做一次比对和一次完整枚举。
     func refreshedWindowElement(id: CGWindowID, fallback: AXUIElement,
                                 trustFallback: Bool = false) -> AXUIElement {
         if trustFallback { return fallback }
@@ -395,11 +385,9 @@ extension AppDelegate {
     }
 
     func resolvedWindowElement(for state: ShadeState) -> AXUIElement {
-        // 存活即可信。这里同样不能拿 id 做精确比对：state.sourceWindowID 来自
-        // windowID(of:)，那是几何+标题匹配的结果，和 _AXUIElementGetWindow 对某些
-        // App 并不一致，比对会系统性失配，于是每次几何校正都先付一次失败比对再付
-        // 一次整 App 枚举。而这里本来就不需要精确校验：元素死了写入会失败，
-        // applyRestoredGeometry 会重新解析后重写。
+        // 元素还能读到位置就直接用，不用 _AXUIElementGetWindow 比对 id（原因见 refreshedWindowElement），
+        // 否则每次校正位置都白做一次比对和一次整个应用程序的枚举。
+        // 这里也不需要精确校验：元素失效时写入会失败，applyRestoredGeometry 会重新解析后再写。
         if axPosition(state.element) != nil { return state.element }
 
         let windows = appWindows(pid: state.pid)
@@ -408,18 +396,17 @@ extension AppDelegate {
         if let match = windows.first(where: { windowID(of: $0) == state.sourceWindowID }) {
             return match
         }
-        // A surviving sibling (even the sole remaining window) is not the source.
-        // Keep the original element on failure; AX then fails safely instead of moving another window.
+        // 剩下的同级窗口（哪怕是唯一剩下的一扇）也不是原窗口。
+        // 失败时保留原来的元素：辅助功能调用会安全地失败，不会挪动别的窗口。
         return state.element
     }
 
-    // verify=false 时跳过回读。回读的两次 AX 往返只用来拼日志里的 actual=（不参与
-    // 任何判断），而重试阶梯的中间几档每个窗口都要付一次——批量恢复 15 个窗口时
-    // 就是上百次纯日志用途的 IPC。首档与末档仍然回读，"App 自己把窗口挪回去了"
-    // 这类问题照样看得见；AX 报错时无条件回读。
+    // verify=false 时跳过回读。回读的两次辅助功能调用只用来拼日志里的 actual=（不参与任何判断），
+    // 而重试中间几次每扇窗口都要做一次，批量恢复 15 扇窗口时就是上百次只为写日志的调用。
+    // 第一次和最后一次仍然回读，“应用程序自己把窗口挪回去了”这类问题照样看得见；辅助功能调用报错时一定回读。
     // element 非空时直接复用上一档解析好的元素：同一个窗口在阶梯的四档之间不会
-    // 变，而重新解析要么是一次整 App 枚举、要么是四次 AX 读。元素真的失效了
-    // （App 在 unhide 后重建了 AX 元素，正是这条阶梯存在的理由）写入会失败，
+    // 变，而重新解析要么是一次整个应用程序的枚举、要么是四次 AX 读。元素真的失效了
+    // （应用程序在 unhide 后重建了 AX 元素，正是这条阶梯存在的理由）写入会失败，
     // 那时再解析一次重写，结果与每档都重新解析一致。
     @discardableResult
     func applyRestoredGeometry(_ state: ShadeState, to pos: CGPoint,
@@ -453,7 +440,7 @@ extension AppDelegate {
         return win
     }
 
-    // 按隐藏方式把真窗口恢复可见，并放到指定位置
+    // 按隐藏方式把原窗口恢复可见，并放到指定位置
     @discardableResult
     func restoreWindow(_ state: ShadeState, to pos: CGPoint) -> AXUIElement {
         switch state.hide {
@@ -477,8 +464,8 @@ extension AppDelegate {
                 _ = setAXAppHidden(pid: state.pid, false)
             }
         case .minimized:
-            // hide/minimize 周期后原 AX 元素可能失效（Safari 常见），先重新解析，
-            // 否则解除的是无效元素或错误窗口，表现为"恢复失败/几何漂移"。
+            // 隐藏或最小化之后，原来的辅助功能元素可能失效（Safari 常见），先重新解析；
+            // 否则解除最小化的是失效元素或别的窗口，表现为“恢复失败”或位置大小偏移。
             setAXMinimized(resolvedWindowElement(for: state), false)
         case .ownWindowOrderedOut:
             if let window = ownWindow(id: state.sourceWindowID) {
@@ -504,8 +491,8 @@ extension AppDelegate {
         let token = UUID()
         restorePinTokens[id] = token
 
-        // 前几次尝试只校正几何，最后一次才 raise+focus：旧实现每次尝试都重新
-        // 激活/聚焦，restoreAll 批量展开时会造成焦点连环跳（每次 3~4 次 focus）。
+        // 第一次（80 毫秒）和最后一次才升起、聚焦，中间几次只校正位置和大小：
+        // 每次都聚焦的话，批量展开时焦点会连着跳。
         var resolvedElement: AXUIElement?
         func attempt(_ label: String, focus: Bool, verify: Bool = true) {
             guard restorePinTokens[id] == token else { return }
@@ -520,8 +507,8 @@ extension AppDelegate {
             }
         }
 
-        // Safari 等 app 从 unhide/unminimize 自恢复窗口帧可晚于 550ms（"大窗口
-        // 恢复成小窗口"的窗口期），只对这两种 hide 方式追加一次晚校验。
+        // Safari 等应用程序取消隐藏、解除最小化后，可能在 550 毫秒以后才自己把窗口改回别的大小（“大窗口变成小窗口”），
+        // 所以只对这两种隐藏方式多加一次较晚的校正。
         let needsLatePin = state.hide == .hidden || state.hide == .minimized
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { attempt("after-80ms", focus: true) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -532,7 +519,7 @@ extension AppDelegate {
                 attempt("after-550ms", focus: false, verify: false)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.10) {
-                // 这时还原动画早已走完：窗口又是最小化的，是人（或 App）刚把它收回去了，不再拉出来、不抢焦点。
+                // 这时还原动画早已走完：窗口又是最小化的，说明用户或应用程序刚把它最小化了，不再把它放回来、不抢焦点。
                 if let win = resolvedElement, axBoolAttribute(win, kAXMinimizedAttribute as String) {
                     self.restorePinTokens[id] = UUID()
                     wlog("restore: id=\(id) minimized again after restore; late pin skipped")
@@ -577,8 +564,8 @@ extension AppDelegate {
         wlog("resize: proxy id=\(id) width=\(Int(newWidth)) restoredSize=(\(Int(newSize.width))x\(Int(newSize.height)))")
     }
 
-    // 监听窗口被外部唤回：app 显示(⌘Tab 取消隐藏) / 取消最小化(点 Dock)。
-    // app activated 只说明应用拿到焦点，不代表真实窗口已经回到用户可见位置；不能据此展开。
+    // 监听窗口被外部唤回或关掉：应用程序重新显示（Command-Tab 取消隐藏）、取消最小化（点程序坞）、窗口被销毁。
+    // 应用程序被激活只说明它拿到了焦点，不代表原窗口已经回到看得见的位置，不能据此展开。
     func makeRevealObserver(pid: pid_t, win: AXUIElement, id: CGWindowID, transaction: UUID) -> AXObserver? {
         guard shaded[id]?.foldTransactionID == transaction, foldObserverSerial < UInt(Int.max) else { return nil }
         var observer: AXObserver?
@@ -607,7 +594,7 @@ extension AppDelegate {
     }
 
     func removeObserver(_ state: ShadeState) {
-        // Withdraw routes before removing a source. Old queued notifications remain harmless.
+        // 先撤路由，再移除运行循环源；已经排队的旧通知不会造成影响。
         for (serial, route) in foldObserverRoutes where route.transaction == state.foldTransactionID {
             foldObserverRoutes.removeValue(forKey: serial)
         }
@@ -623,8 +610,8 @@ extension AppDelegate {
                 wlog("quicklook: ignore expected destroyed notification id=\(id)")
                 return
             }
-            // A delayed destruction notification is a hint, not permission to act on
-            // a reused ID. Require a successful full-membership query with no result.
+            // 延迟到达的销毁通知只是线索，不能据此处理可能被复用的窗口号：
+            // 要求完整的窗口列表查询成功、并且查不到这扇窗口。
             guard let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]],
                   windows.isEmpty, foldCallbackIsCurrent(expected) else { return }
             forceCleanup(id)
@@ -644,7 +631,7 @@ extension AppDelegate {
         }
     }
 
-    /// 被收起时隐藏了的应用程序又显示了。看一眼临时取消隐藏、刚收起时的余波不算；其余按用户唤回处理。
+    /// 被收起时隐藏了的应用程序又显示了。看一眼临时取消隐藏、收起刚完成时由收起本身引起的显示都不算；其余按用户唤回处理。
     func appShown(_ id: CGWindowID, state: ShadeState, expected: FoldCallbackStamp, source: String) {
         if MainActor.assumeIsolated({ glance.holdsReveal(id) }) {
             wlog("ignore app reveal caused by glance id=\(id) app=\(state.appName)")
@@ -710,7 +697,7 @@ extension AppDelegate {
     }
 
     @objc func frontmostApplicationChanged(_ note: Notification) {
-        // 卡顿归因：这几条系统回调以前不在任何标记里，出了长卡顿只能看到「未标记」。
+        // 卡顿归因：给这几条系统回调加上标记，长卡顿时才不会只显示“未标记”。
         MainThreadActivity.push("system: 前台应用变化")
         defer { MainThreadActivity.pop() }
         // 当前应用程序换了谁都记下来：卷帘条上的按键落到了别的应用程序（场景 C13）时，日志能对上是谁先抢了前台。
@@ -743,7 +730,7 @@ extension AppDelegate {
     /// 当前桌面上没有别的窗口时，收起无处交焦点，原窗口停到屏幕角落，应用程序不隐藏（第 5.4 节第 8 步）。
     /// 这时点程序坞图标、Command-Tab、选“窗口”菜单，系统只激活应用程序，没有“取消隐藏”或“取消最小化”可等，
     /// 窗口也不一定被系统拉回屏幕内（用户的 macOS 14.5 上一直停在角落）。应用程序到前台、它的当前窗口
-    /// 正是停在角落的这扇，就是用户要它回来：展开（场景 B06-alone）。刚收起的 1 秒内是收起自己的余波，过后再看。
+    /// 正是停在角落的这扇，就是用户要它回来：展开（场景 B06-alone）。刚收起的 1 秒内，这类激活可能是收起本身引起的，过后再看。
     func unshadeParkedWindowOnActivation(pid: pid_t) {
         for (id, state) in shaded where state.pid == pid && state.lifecycleStage == .folded
             && (state.hide == .offscreen || state.hide == .privateOffscreen) {
@@ -822,8 +809,8 @@ extension AppDelegate {
         }
         menuPreviewHoverID = nil
         menuPreviewAnchor = nil
-        // 重操作（逐窗口 AX/WindowServer 查询 + overlay space enforce）合并防抖：
-        // 连续切 Space / 切换动画期间的通知风暴只结算一次。
+        // 开销大的操作（逐个窗口查询辅助功能和窗口服务器、校正卷帘条所在桌面）合并延后执行：
+        // 连续切换桌面或切换动画期间连发的通知只处理一次。
         spaceRefreshWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }

@@ -1,5 +1,5 @@
-// 覆盖层工厂：按外观模式构建截图条 / 代理标题栏窗口，
-// 复用简单条窗口池。作为 AppDelegate 扩展实现。
+// 建卷帘条窗口：按收起后显示的样式建原标题栏或简化标题栏的卷帘条，复用回收的卷帘条窗口。
+// 作为 AppDelegate 扩展实现。
 
 import Cocoa
 
@@ -7,7 +7,7 @@ extension AppDelegate {
     func makeBaseOverlay(axPos: CGPoint, width: CGFloat, height: CGFloat) -> NSWindow {
         let frame = cocoaFrame(fromAXPosition: axPos, size: CGSize(width: width, height: height))
 
-        // 复用已回收的简单卷帘条窗口，避免频繁创建 NSWindow；池取不到才新建。
+        // 复用已回收的卷帘条窗口（原标题栏样式、没有红绿灯的那种），避免频繁创建 NSWindow；池里没有才新建。
         let overlay = ShadeStripPool.shared.take()
             ?? OverlayWindow(contentRect: frame, styleMask: .borderless,
                              backing: .buffered, defer: false)
@@ -101,7 +101,7 @@ extension AppDelegate {
         iv.onMoveEnded = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
         }
-        if !buttons.isEmpty {                                  // 在真灯位置盖透明命中区
+        if !buttons.isEmpty {                                  // 在红绿灯位置盖透明的点击区
             let union = buttons.dropFirst().reduce(buttons[0].0) { $0.union($1.0) }
             let tlFrame = union.insetBy(dx: -4, dy: -4)
             let local = buttons.map { ($0.0.offsetBy(dx: -tlFrame.minX, dy: -tlFrame.minY), $0.1) }
@@ -110,8 +110,8 @@ extension AppDelegate {
             iv.addSubview(tl)
         }
         overlay.contentView = iv
-        overlay.invalidateShadow()                 // 阴影跟随（已镜像的）圆角轮廓
-        // 截图条的画面自带窗口圆角；系统方角阴影会在透明角落透出一块方形底，
+        overlay.invalidateShadow()
+        // 原标题栏样式的卷帘条画面自带窗口圆角；系统方角阴影会在透明角落透出一块方形底，
         // 因此换成“上圆下直”的纸面阴影。
         overlay.hasShadow = false
         PaperSurfaceStyle.installShadow(on: overlay, corners: .top)
@@ -138,8 +138,8 @@ extension AppDelegate {
         if trafficLights.minimizeVisible { style.insert(.miniaturizable) }
         if canResize || effectiveWindowManagement.isEnabled || trafficLights.zoomVisible { style.insert(.resizable) }
         let contentRect = NSWindow.contentRect(forFrameRect: frame, styleMask: style)
-        // 拆开量：NSWindow 本体创建（titled + 红绿灯是 AppKit 最贵的窗口类型）
-        // 与之后的属性配置。只有前者占大头，池化才值得冒重置漏项的风险。
+        // 单独计时 NSWindow 本体的创建（带标题栏和红绿灯的窗口是 AppKit 里创建最慢的一种）：
+        // 只有它占大部分时间，才值得冒重置漏项的风险改用窗口池。
         let overlay = foldPhase("└ NSWindow 创建") {
             NativeProxyOverlayWindow(contentRect: contentRect, styleMask: style,
                                      backing: .buffered, defer: false)
@@ -187,7 +187,7 @@ extension AppDelegate {
             content.wantsLayer = true
             content.layer?.backgroundColor = NSColor.clear.cgColor
 
-            // 代理标题栏材质与其它自定义表面共用同一份系统外观策略。
+            // 代理标题栏材质与其他自定义表面共用同一份系统外观策略。
             let material = SystemMaterialView(purpose: .proxyTitleBar)
             material.frame = content.bounds
             material.autoresizingMask = [.width, .height]

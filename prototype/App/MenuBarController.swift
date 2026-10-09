@@ -47,7 +47,7 @@ extension AppDelegate {
     statusItem.button?.toolTip =
       shaded.isEmpty ? "WindowShade"
         : "WindowShade：\(PaperSurfaceAccessibility.statusItemValue(foldedCount: shaded.count))"
-    // VoiceOver：状态栏按钮读成“WindowShade + 当前折叠数量”，而不是一个孤立的数字。
+    // VoiceOver：状态栏按钮读成“WindowShade + 已收起的窗口数”，而不是一个孤立的数字。
     statusItem.button?.setAccessibilityLabel(PaperSurfaceAccessibility.statusItemLabel)
     statusItem.button?.setAccessibilityValue(
       PaperSurfaceAccessibility.statusItemValue(foldedCount: shaded.count))
@@ -68,21 +68,21 @@ extension AppDelegate {
     action(foldTitle,
            foldTitle.contains("展开") ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
            #selector(toggleAction), .toggleShade)
-    let arrangeTitle = thumbnailsInUse ? (hasArrangedOverlayFrames ? "恢复缩略图原位" : "整理缩略图")
-                                       : (hasArrangedOverlayFrames ? "恢复卷帘条原位" : "整理卷帘条")
+    let arrangeTitle = thumbnailsInUse ? (hasArrangedOverlayFrames ? "把缩略图放回原位" : "整理缩略图")
+                                       : (hasArrangedOverlayFrames ? "把卷帘条放回原位" : "整理卷帘条")
     action(arrangeTitle, "rectangle.grid.1x2", #selector(arrangeShadedWindows), .arrange,
            enabled: menuState.canArrangeShades)
 
     if !menuState.foldedWindows.isEmpty {
       statusMenu.addItem(.separator())
       statusMenu.addItem(.sectionHeader(title: "已收起的窗口"))
-      // 前 9 个内联并带 ⌃⌘1…9；其余进“更多已折叠窗口”子菜单（同样的动作与图标）。
+      // 前 9 扇直接列出，带 ⌃⌘1…9；其余放进“更多”子菜单（动作和图标相同）。
       let sections = StandardMenu.splitFoldedWindows(menuState.foldedWindows)
       for (index, entry) in sections.inline.enumerated() {
         statusMenu.addItem(foldedWindowMenuItem(entry, index: index))
       }
       if !sections.overflow.isEmpty {
-        let more = NSMenuItem(title: "更多收起的窗口（\(sections.overflow.count)）",
+        let more = NSMenuItem(title: "更多（\(sections.overflow.count)）",
                               action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         for entry in sections.overflow {
@@ -91,7 +91,7 @@ extension AppDelegate {
         more.submenu = submenu
         statusMenu.addItem(more)
       }
-      // 仅在有已收起的窗口时才显示「全部展开」。
+      // 仅在有已收起的窗口时才显示“全部展开”。
       statusMenu.addItem(.separator())
       let restore = NSMenuItem(title: "全部展开", action: #selector(restoreAll), keyEquivalent: "")
       statusMenu.addItem(restore)
@@ -99,8 +99,8 @@ extension AppDelegate {
 
     statusMenu.addItem(.separator())
     // D03 / M1：不在重建时 if option { addItem } 插入行。
-    // 「设置…」↔「关于」用 isAlternate；「检查更新…」始终挂在菜单上，用 isHidden 随 ⌥ 显隐。
-    // 「欢迎使用」只在设置里。
+    // “设置…”↔“关于”用 isAlternate；“检查更新…”始终挂在菜单上，用 isHidden 随 ⌥ 显隐。
+    // “欢迎使用 WindowShade”只在设置里。
     let optionHeld = NSEvent.modifierFlags.contains(.option)
     let settings = NSMenuItem(title: "设置…", action: #selector(showPreferences), keyEquivalent: ",")
     settings.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
@@ -213,7 +213,7 @@ extension AppDelegate {
     item.keyEquivalentModifierMask = equivalent.modifiers
   }
 
-  /// 单个折叠窗口的菜单项（内联时带 ⌃⌘1…9，子菜单里不带快捷键）。
+  /// 单个已收起窗口的菜单项（直接列出时带 ⌃⌘1…9，子菜单里不带快捷键）。
   private func foldedWindowMenuItem(_ entry: (CGWindowID, ShadeState),
                                     index: Int?) -> NSMenuItem {
     let (id, state) = entry

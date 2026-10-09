@@ -1,4 +1,4 @@
-// 折叠出口与交通灯：展开恢复、清理、交通灯动作转发、QuickLook 特殊处理。
+// 展开与红绿灯：展开时的恢复、清理、红绿灯动作转发、快速查看的特殊处理。
 // 作为 AppDelegate 扩展实现。
 
 import Cocoa
@@ -8,12 +8,12 @@ extension AppDelegate {
                                          pinAfterRestore: Bool = true,
                                          onVerified: ((Bool) -> Void)? = nil) -> AXUIElement? {
         guard shaded[id] != nil else { return nil }
-        // 同 ShadeController.shade：展开开始就在后台把音频设备叫醒，音效不迟半秒。
+        // 同 ShadeController.shade：展开一开始就在后台提前启动音频设备，音效才能和动作同时出现。
         prewarmUnfoldSound()
         markShadeLifecycle(id: id, .restoring, reason: "unshade")
         transitionOperationState(id: id, to: .restoring, reason: "unshade")
         guard let state = shaded.removeValue(forKey: id) else { return nil }
-        // 缩略图原地展开：整理（⌃⌘0）过的，按整理前的原位放，和飞回去的截图、看一眼的卡片落在同一处。
+        // 缩略图原地展开：整理缩略图之后，按整理前的原位放，和移回原处的截图、看一眼的卡片落在同一处。
         // 要在下面清掉整理记录之前取。卷帘条照旧在它现在的位置展开。
         let thumbnailHome = state.appearanceMode == .thumbnail
             ? state.overlay.map { restoreReferenceFrame(id: id, overlay: $0) } : nil
@@ -28,7 +28,7 @@ extension AppDelegate {
         accessibilityActionTargets.removeValue(forKey: id)
         if let overlayID = state.overlayID { overlayIDs.remove(overlayID) }
         removeObserver(state)                          // 先停掉监听，避免下面的恢复动作反过来触发自己
-        // 折叠条可能被拖动过 → 窗口在折叠条「当前」位置展开（标题栏带着窗口走）
+        // 卷帘条可能被拖动过：窗口在卷帘条现在的位置展开（窗口的标题栏对齐卷帘条）。
         let pos: CGPoint
         // 窗口是从屏幕外挪回来的：先让它回到原处，再撤卷帘条，中间不留空档。
         // 最小化、隐藏的窗口要等系统把它放出来，照旧先撤。
@@ -40,7 +40,7 @@ extension AppDelegate {
             pos = axPosition(state.element) ?? state.originalPosition
         }
         if state.hide == .quickLookClosed {
-            clearShadeJournal(id: id) // This strategy intentionally closes the original window.
+            clearShadeJournal(id: id) // 这种收起方式本来就会关掉原窗口。
             onVerified?(false)
             if let url = state.quickLookReopenURL, reopenQuickLookPreview(url: url) {
                 wlog("quicklook: reopened via qlmanage id=\(id) path=\(url.path)")
@@ -84,15 +84,15 @@ extension AppDelegate {
         defer { MainThreadActivity.pop() }
         let memoScope = beginAppWindowsMemo()
         defer { endAppWindowsMemo(memoScope) }
-        // 看一眼的卡片正盖在原处：由它来展开，卡片留到真窗口回来再撤。
-        // 直接展开会先撤卡片，真窗口回来之前露出后面的窗口。
+        // 看一眼的卡片正盖在原处：由它来展开，卡片留到原窗口回来再撤。
+        // 直接展开会先撤卡片，原窗口回来之前露出后面的窗口。
         if MainActor.assumeIsolated({ glance.isShown(id) }) {
             return MainActor.assumeIsolated { glance.expand(id) }
         }
         return unshadeReturningElement(id) != nil
     }
-    /// 双击卷帘条。快速查看等窗口收起时，卷帘条先出现，关掉原窗口、交接焦点之后收起才算完成（约 0.3 秒）；
-    /// 这段时间里的双击 unshade 接不住，记下来，收起完成时展开（场景 A32：双击被丢掉，卷帘条一直留着）。
+    /// 双击卷帘条。快速查看等窗口收起时，卷帘条先出现，关掉原窗口、交出焦点之后（约 0.3 秒）收起才算完成。
+    /// 这段时间里的双击 unshade 处理不了，先记下来，收起完成时再展开（场景 A32：双击被丢掉，卷帘条一直留着）。
     func unshadeFromStrip(_ id: CGWindowID) {
         if unshade(id) { return }
         guard shaded[id] == nil, shadeOperationIDs.contains(id) || currentOperationState(id) == .capturing else { return }
@@ -128,8 +128,8 @@ extension AppDelegate {
         markShadeLifecycle(id: id, stage, reason: reason)
         transitionOperationState(id: id, to: .normal, reason: "removeProxy")
         hideMenuHoverPreview(id: id)
-        // 先移出收起记录，再撤看一眼：画面结束时，窗口若还算收起着，会把临时取消隐藏的应用程序藏回去，
-        // 刚放回来、正要按它的关闭按钮的窗口就又不见了（CI 场景 C04-cancel：选“取消”后窗口不在屏幕上）。
+        // 先从 shaded 里移除，再收回看一眼的卡片：看一眼结束时，窗口若还算收起着，会把临时取消隐藏的应用程序重新隐藏，
+        // 刚放回来、正要按关闭按钮的窗口就又不见了（CI 场景 C04-cancel：选“取消”后窗口不在屏幕上）。
         shaded.removeValue(forKey: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         clearShadeJournal(id: id)
@@ -301,7 +301,7 @@ extension AppDelegate {
         let f = restoreReferenceFrame(id: id, overlay: overlay)
         let pos = axPosition(fromCocoaFrame: f)
         removeProxyForForwardedAction(id, state: state)
-        // 先让真窗口回到原处、可见可达，再按它自己的按钮；都在该应用程序的队列上（R5）。
+        // 先让原窗口回到原处、可见可达，再按它自己的按钮；都在该应用程序的队列上（R5）。
         performForwardedTrafficAction(state: state, pos: pos, id: id, action: action)
     }
 }

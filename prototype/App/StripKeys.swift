@@ -1,5 +1,5 @@
-// 卷帘条上的 ⌘N / ⌘H / ⌘M / ⌘Q / ⌘W 转给它背后的 App（见 StripKeyForwarding）。
-// WindowMizer 在占位条上也这样做；我们原来不转，⌘Q 会退出 WindowShade 自己。
+// 卷帘条上的 ⌘N / ⌘H / ⌘M / ⌘Q / ⌘W 转给它背后的应用程序（见 StripKeyForwarding）。
+// 不转发的话，⌘Q 会退出 WindowShade 自己；WindowMizer 也这样转发。
 
 import Cocoa
 import Carbon.HIToolbox
@@ -13,10 +13,10 @@ extension AppDelegate {
         }
     }
 
-    /// - ⌘N：交给原 App，新建窗口。
-    /// - ⌘H：隐藏原 App。
-    /// - ⌘W / ⌘M：关掉或最小化这扇窗，和卷帘条上的红灯、黄灯一样。
-    /// - ⌘Q：先把窗口放下来再退出原 App——退出时要问“是否保存”，对话框得出现在看得见的窗口上。
+    /// - ⌘N：交给原应用程序，新建窗口。
+    /// - ⌘H：隐藏原应用程序。
+    /// - ⌘W / ⌘M：关掉或最小化这扇窗口，和点卷帘条上的关闭、最小化按钮一样。
+    /// - ⌘Q：先展开窗口再退出原应用程序。退出时会问“是否保存”，对话框要出现在看得见的窗口上。
     func forwardStripKey(_ key: String, id: CGWindowID, pid: pid_t) -> Bool {
         guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return false }
         wlog("strip-key: ⌘\(key) id=\(id) → \(app.localizedName ?? "?")")
@@ -41,7 +41,7 @@ extension AppDelegate {
     }
 }
 
-/// 按下某个 App 菜单栏里快捷键是 Command 加这个字母的那一项（辅助功能的“按下”，不合成按键）。
+/// 按下某个应用程序菜单栏里快捷键是 Command 加这个字母的那一项（辅助功能的“按下”，不合成按键）。
 /// 只看菜单栏下的第一层菜单，“新建”这类命令都在那里。
 func pressCommandMenuItem(_ character: String, pid: pid_t) -> Bool {
     let app = AXUIElementCreateApplication(pid)

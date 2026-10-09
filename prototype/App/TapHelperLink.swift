@@ -1,7 +1,7 @@
-// 和鼠标钩子进程（TapHelper/main.swift）打交道：启动它、回答它的询问、它意外退出就重新启动，
-// 实在用不了就改用 WindowShade 自己的钩子（docs/design.md 第 5.9 节）。
+// 管理鼠标钩子进程（TapHelper/main.swift）：启动它、回答它的询问、意外退出时重新启动；
+// 无法使用时改用 WindowShade 自己的钩子（docs/design.md 第 5.9 节）。
 //
-// 钩子在另一个进程里，WindowShade 停住、卡住都不再挡全系统的点击：钩子进程问不到回话就放行（场景 X11）。
+// 钩子在另一个进程里，WindowShade 停止响应时，全系统的点击不受影响：钩子进程等不到回答就放行（场景 X11）。
 
 import Cocoa
 
@@ -12,7 +12,7 @@ enum TapHelperLink {
     private static var output: Pipe?
     /// 钩子进程意外退出的时刻：一分钟内退出 3 次就不再启动它。
     private static var recentExits: [CFAbsoluteTime] = []
-    /// 不再用钩子进程（建不了钩子、反复退出）：改用 WindowShade 自己的钩子，直到下次启动。
+    /// 不再用钩子进程（无法创建钩子、反复退出）：改用 WindowShade 自己的钩子，直到下次启动。
     private static var gaveUp = false
     private static var stopping = false
 
@@ -133,7 +133,7 @@ enum TapHelperLink {
         if request.clicks >= 3 {
             return delegate.handleTitleBarTripleClick(at: request.point, clickCount: request.clicks)
         }
-        return delegate.handleTitleBarDoubleClick(at: request.point)   // 吞掉，阻止系统「双击缩放」
+        return delegate.handleTitleBarDoubleClick(at: request.point)   // 拦下，阻止系统“双击缩放”
     }
 }
 

@@ -1,13 +1,13 @@
-// 看一眼：指针停在卷帘条上，那扇窗的画面出现；移开就收回；单击画面才真正打开它。
+// 看一眼：指针停在卷帘条上，那扇窗的画面出现；移开就收回；单击画面才展开它。
 //
 // 画面贴在卷帘条下沿，按原尺寸出现在原处。
-// 收成缩略图的（见 Thumbnail.swift）：画面就是整扇窗口，从缩略图长回原来的大小，移开缩回去；
-// 按 ⌃⌘0 排成一排以后，画面在原位像卷帘条那样卷下来。
+// 收成缩略图的（见 Thumbnail.swift）：画面就是整扇窗口，从缩略图放大到窗口原来的大小，移开缩回去；
+// 用“整理缩略图”排成一排以后，画面在原位像卷帘条那样卷下来。
 //
-// 真窗口不激活、不移动。画面有三种来源：
-// - 直接开流：真窗口挪在屏幕外，或在别的桌面上照常显示。指针一进卷帘条就开流，
+// 原窗口不激活、不移动。画面有三种来源：
+// - 直接开流：原窗口挪在屏幕外，或在别的桌面上照常显示。指针一进卷帘条就开流，
 //   停够时间再显示，多数时候显示那一刻第一帧已经到了。
-// - 盖住再取消隐藏：整个 App 被隐藏时，画面先卷下来盖住原处，再在下面临时取消
+// - 盖住再取消隐藏：整个应用程序被隐藏时，画面先卷下来盖住原处，再在下面临时取消
 //   隐藏、开流；收回时先藏回去再卷上。
 // - 只有截图：最小化、没有屏幕录制权限等，显示收起时的截图。
 
@@ -29,10 +29,10 @@ struct GlanceTarget {
     let card: NSRect
     /// 整扇窗口的画面在卡片里的位置，超出卡片的部分（标题栏、屏幕外）裁掉。
     let picture: NSRect
-    /// 真窗口会在底下临时取消隐藏时，它露在卡片之外的那块区域（屏幕坐标）：
+    /// 原窗口会在底下临时取消隐藏时，它露在卡片之外的那块区域（屏幕坐标）：
     /// 打开时截一张那里原本的背景垫上。
     let backdropArea: NSRect?
-    /// 画面四个角的圆角半径（点），取真窗口自己的。
+    /// 画面四个角的圆角半径（点），取原窗口自己的。
     let cornerRadius: CGFloat
     let source: Source
     let snapshot: CGImage?
@@ -106,7 +106,7 @@ private final class GlanceSession {
     var showDeadline: TimeInterval?
     var shownAt: TimeInterval?
     var firstFrameAt: TimeInterval?
-    /// 被整体隐藏的 App：画面盖好之后在原处取消隐藏，拿到实时画面；收回时先藏回去再卷上。
+    /// 被整体隐藏的应用程序：画面盖好之后在原处取消隐藏，拿到实时画面；收回时先藏回去再卷上。
     var viaUnhide = false
     var pid: pid_t = 0
     var bundleID = ""
@@ -120,7 +120,7 @@ private final class GlanceSession {
     var cardScreen: NSRect?
     /// 缩略图：卡片从这里（面板坐标）长出来、缩回这里。
     var growFrom: NSRect?
-    /// 看一眼展开时已经开始把真窗口挪回来了。
+    /// 看一眼展开时已经开始把原窗口挪回来了。
     var restoreStarted = false
     /// 展开开始的时刻：展开后 80、250 毫秒还会再把原窗口升起、聚焦一次，画面要撑过这两次。
     var restoreStartedAt: Date?
@@ -134,7 +134,7 @@ private final class GlanceSession {
 
     var hasLiveFrame: Bool { firstFrameAt != nil }
 
-    /// 只从主线程的 GlanceController 收画面。
+    /// 只由主线程上的 GlanceController 调用：撤掉画面、停止视频流。
     @MainActor
     func tearDown() {
         cancelled = true
@@ -154,10 +154,10 @@ final class GlanceController {
     /// 实时画面最多等这么久；等不到就先给截图。
     static let firstFrameWait: TimeInterval = 0.25
 
-    /// 被整体隐藏的 App 在画面下面临时取消隐藏以拿到实时画面。
+    /// 被整体隐藏的应用程序在画面下面临时取消隐藏以拿到实时画面。
     /// 实测（macOS 27.0）：辅助功能取消隐藏 23ms 回到原处、前台不变；首帧 104ms；藏回 13ms。
     nonisolated(unsafe) static var unhideForLiveEnabled = true
-    /// 取消隐藏后出现前台切换的 App：不再对它这样做。
+    /// 取消隐藏后出现前台切换的应用程序：不再对它这样做。
     private var activatesOnUnhide: Set<String> = []
     /// 这段时间内“App 又显示出来”是看一眼自己造成的，不当作用户唤回。
     private var revealHoldUntil: [CGWindowID: TimeInterval] = [:]
@@ -242,14 +242,14 @@ final class GlanceController {
         apply(intent.clicked(id, at: clock()))
     }
 
-    /// 切换 App、换桌面、关掉设置：收回正在看的那一个。
+    /// 切换应用程序、换桌面、关掉设置：收回正在看的那一个。
     func cancelAll(reason: String) {
         let effects = intent.cancel()
         if !effects.isEmpty { wlog("glance: cancel reason=\(reason)") }
         apply(effects)
     }
 
-    /// 用户切回临时取消隐藏的 App：先交出隐藏所有权，再走正常展开，不能把它藏回去。
+    /// 用户切回临时取消隐藏的应用程序：先交出隐藏所有权，再走正常展开，不能把它藏回去。
     func takeOverUnhiddenSessions(for pid: pid_t, restore: (CGWindowID) -> Void) {
         for session in Array(sessions.values) where session.pid == pid
             && session.viaUnhide && session.frontmostBeforeUnhide != nil
@@ -269,7 +269,7 @@ final class GlanceController {
         return stage == .shown || stage == .waitingForFrame
     }
 
-    /// 这一扇先别看一眼（缩略图被拖动、正飞回原处）：收掉它的，指针离开一次才恢复。
+    /// 暂停这一扇的看一眼（缩略图正被拖动或正移回原处）：收回它的卡片，指针离开一次后才恢复。
     func suppress(_ id: CGWindowID) {
         apply(intent.forget(id))
         intent.block(id)
@@ -308,7 +308,7 @@ final class GlanceController {
         return shadedTarget(state: state, strip: overlay.frame)
     }
 
-    /// 收起的窗口：原貌卷帘条不动，卡片紧接在它下面，按原尺寸显示标题栏以下的内容，
+    /// 收起的窗口：卷帘条不动，卡片紧接在它下面，按原尺寸显示标题栏以下的内容，
     /// 两块拼起来就是原来那扇窗；超出屏幕可见区域的部分裁掉，上沿不动。
     private func shadedTarget(state: ShadeState, strip: NSRect) -> GlanceTarget? {
         let size = state.originalSize
@@ -331,7 +331,7 @@ final class GlanceController {
         let snapshot = state.previewImage?.cgImage(forProposedRect: nil, context: nil, hints: nil)
         let canRecord = hasScreenRecordingPermission()
         let source: GlanceTarget.Source
-        // 真窗口临时回来时，卷帘条下面那块（标题栏以下）就是它的内容区：卡片圆角外的缺口
+        // 原窗口临时回来时，卷帘条下面那块（标题栏以下）就是它的内容区：卡片圆角外的缺口
         // 落在这里，要垫背景。
         let realContent = NSRect(x: strip.minX, y: strip.minY - contentH,
                                  width: size.width, height: contentH)
@@ -358,8 +358,8 @@ final class GlanceController {
             stripJoin: join)
     }
 
-    /// 缩略图：卡片就是整扇窗口（连标题栏），左上角对着缩略图的左上角，从缩略图长回原大小。
-    /// 排成一排以后（⌃⌘0）缩略图不在原位：卡片放回原位，像卷帘条那样卷下来。
+    /// 缩略图：卡片就是整扇窗口（连标题栏），左上角对着缩略图的左上角，从缩略图放大到窗口原来的大小。
+    /// 用“整理缩略图”排成一排以后，缩略图不在原位：卡片放回原位，像卷帘条那样卷下来。
     /// 上边顶到菜单栏时整张往下挪，下边、左右超出可用区域的部分裁掉。
     private func thumbnailTarget(id: CGWindowID, state: ShadeState, overlay: NSWindow) -> GlanceTarget? {
         let strip = overlay.frame
@@ -388,7 +388,7 @@ final class GlanceController {
                   !activatesOnUnhide.contains(state.bundleID),
                   framesAlmostEqual(card, original, tolerance: 0.5),
                   panel.insetBy(dx: -0.5, dy: -0.5).contains(original) {
-            // 真窗口临时回到原处时，整张卡片正好盖住它。
+            // 原窗口临时回到原处时，整张卡片正好盖住它。
             source = .unhideUnderCover
             backdropArea = original
         } else {
@@ -406,7 +406,7 @@ final class GlanceController {
             growFrom: growing ? thumbnail.offsetBy(dx: -panel.minX, dy: -panel.minY) : nil)
     }
 
-    /// 真窗口临时回到原处时，必须被卷帘条（标题栏）和面板（卡片 + 背景垫片）完全盖住。
+    /// 原窗口临时回到原处时，必须被卷帘条（标题栏）和面板（卡片 + 背景垫片）完全盖住。
     private func canUnhideUnderCover(state: ShadeState, strip: NSRect, card: NSRect,
                                      wanted: NSRect, panel: NSRect, realContent: NSRect) -> Bool {
         guard Self.unhideForLiveEnabled, state.hide == .hidden, FastCapture.isAvailable,
@@ -435,7 +435,7 @@ final class GlanceController {
     private func prepare(_ id: CGWindowID) {
         if let existing = sessions[id] {
             if existing.stage == .closing, existing.rehiddenAt != nil {
-                // 真窗口已藏回、视频流已停：旧画面不能再当作实时会话复用。
+                // 原窗口已藏回、视频流已停：旧画面不能再当作实时会话复用。
                 finish(existing, reason: "reenter-after-rehide")
             } else if existing.stage == .closing,
                       let frame = stripFrame(id), !framesAlmostEqual(frame, existing.stripFrame) {
@@ -466,7 +466,7 @@ final class GlanceController {
         let id = session.id
         let capture = WindowStreamCapture()
         session.capture = capture
-        // 画面可能已经建好（被隐藏的 App 要等盖住之后才开流）：视频层现在就挂上去。
+        // 画面可能已经建好（被隐藏的应用程序要等盖住之后才开流）：视频层现在就挂上去。
         session.content?.attachVideo(capture.videoLayer)
         let stripScreen = screenForCocoaFrame(session.stripFrame)
         let wantedDisplay = stripScreen.flatMap { displayID(for: $0) }
@@ -512,8 +512,7 @@ final class GlanceController {
         guard let session = sessions[id] else { return }
         if session.stage == .shown || session.stage == .waitingForFrame { return }
         guard let target = target(for: id) else {
-            // 卷帘条还在，但背后的窗口不再能看一眼：忘掉这条卷帘条的意图，
-            // 立刻收掉已经开始准备的会话，别留下没人管的准备。
+            // 卷帘条还在，但背后的窗口已经不能看一眼：忘掉这条卷帘条的意图，立刻结束已经开始准备的会话。
             wlog("glance: no room id=\(id)")
             _ = intent.forget(id)
             finish(session, reason: "no-room")
@@ -530,7 +529,7 @@ final class GlanceController {
         session.cardScreen = target.card.offsetBy(dx: target.panel.minX, dy: target.panel.minY)
         session.growFrom = target.growFrom
         if session.viaUnhide {
-            // 真窗口还藏着：此刻那块区域的样子就是它背后的背景。截不到就不取消隐藏，只给截图。
+            // 原窗口还藏着：此刻那块区域的样子就是它背后的背景。截不到就不取消隐藏，只给截图。
             if let area = target.backdropArea,
                let backdrop = FastCapture.composite(
                 excluding: [], rect: CGRect(origin: axPosition(fromCocoaFrame: area), size: area.size)) {
@@ -551,7 +550,7 @@ final class GlanceController {
         diagnostics.lastPanelFrame = target.panel
         refreshLiveState(session, now: now)
         if session.viaUnhide {
-            // 卷下（或从缩略图长大）要多久，卡片才整张盖住原处。
+            // 卷下（或从缩略图放大）要多久，卡片才整张盖住原处。
             let coverDuration = show(session, now: now)
             session.unhideAt = now + coverDuration + 0.02
         } else if target.snapshot == nil, session.liveExpected,
@@ -574,7 +573,7 @@ final class GlanceController {
         panel.orderFrontRegardless()
         let coverDuration: TimeInterval
         if let growFrom = session.growFrom {
-            // 缩略图：卡片从缩略图长回原大小。
+            // 缩略图：卡片从缩略图放大到窗口原来的大小。
             coverDuration = content.grow(from: growFrom)
         } else {
             content.rollDown()
@@ -617,7 +616,7 @@ final class GlanceController {
                 return
             }
             if session.viaUnhide, session.unhideAt != nil, rehide(session) {
-                // 先把真窗口藏回去，确认它离开屏幕再卷上画面，免得卷上时露出真窗口。
+                // 先把原窗口藏回去，确认它离开屏幕再卷上画面，免得卷上时露出原窗口。
                 return
             }
             putAway(session, content: content) { [weak self, weak session] in
@@ -641,7 +640,7 @@ final class GlanceController {
         }
     }
 
-    /// 单击画面或双击卷帘条：原地展开那扇窗，画面留到真窗口回到原处再撤。返回是否展开了。
+    /// 单击画面或双击卷帘条：原地展开那扇窗，画面留到原窗口回到原处再撤。返回是否展开了。
     @discardableResult
     func expand(_ id: CGWindowID) -> Bool {
         guard let session = sessions[id] else { return false }
@@ -652,7 +651,7 @@ final class GlanceController {
             return false
         }
         wlog("glance: expand id=\(id)")
-        // 实时流还开着时，真窗口一回来，系统就在它的红绿灯上画录屏胶囊。先停流（卡片留着最后一帧），
+        // 实时流还开着时，原窗口一回来，系统就在它的红绿灯上画录屏胶囊。先停流（卡片留着最后一帧），
         // 停稳了再把窗口挪回来；停不下来也最多等 0.25 秒。
         guard let capture = session.capture else {
             return restoreForExpand(session)
@@ -691,14 +690,13 @@ final class GlanceController {
     }
 
 
-    /// 位置对了还不够，画面要等两件事都成了才撤：
-    /// 1. 原窗口排到别的应用程序窗口前面，否则撤掉的那一两帧露出盖在它上面的窗口
-    ///    （2026-10-08 CI 录像：访达展开时文本编辑的窗口露出 2 帧）；
-    /// 2. 它的应用程序已经成为当前应用程序，再多等两帧：窗口从非活跃换成活跃样式时会重画标题栏，
-    ///    重画期间标题栏是空的（同日 CI 录像：文本编辑展开后标题栏黑了 2 帧）；
-    /// 3. 展开后 80、250 毫秒那两次补升起、补聚焦已经做过：应用程序本来就在前台时，第 2 条一开始就成立，
-    ///    窗口却要等这两次聚焦才换成活跃样式，重画的那一帧标题栏是黑的（同日 19:05 CI 录像，黑了 1 帧）。
-    /// 每帧查一次，最多等到 deadline。
+    /// 位置对了还不够，画面要等下面三件事都成立才撤：
+    /// 1. 原窗口排到别的应用程序窗口前面，否则撤掉的那一两帧会露出盖在它上面的窗口；
+    /// 2. 它的应用程序已经成为当前应用程序，再多等两帧：窗口从非活跃样式换成活跃样式时会重画标题栏，
+    ///    重画期间标题栏是空的；
+    /// 3. 展开后 80、250 毫秒那两次补升起、补聚焦已经做完：应用程序本来就在前台时第 2 条一开始就成立，
+    ///    窗口却要等这两次聚焦才换样式。
+    /// 2026-10-08 的 CI 录像里，这三种情况分别露出别的窗口 2 帧、标题栏空白 2 帧、标题栏变黑 1 帧。每帧查一次，最多等到 deadline。
     private func finishWhenSourceInFront(_ session: GlanceSession, deadline: Date, readyFrames: Int = 0) {
         if Date() >= deadline {
             wlog("glance: source not in front and active before deadline id=\(session.id)")
@@ -740,7 +738,7 @@ final class GlanceController {
         }
     }
 
-    // MARK: 被隐藏的 App：盖住再取消隐藏
+    // MARK: 被隐藏的应用程序：盖住再取消隐藏
 
     private func driveUnhide(_ session: GlanceSession, now: TimeInterval) {
         guard session.viaUnhide else { return }
@@ -767,7 +765,7 @@ final class GlanceController {
             session.unhiddenAt = now
             let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
             if front == session.pid, session.frontmostBeforeUnhide != session.pid {
-                // 取消隐藏把它换到了前台：这个 App 以后不再这样做。
+                // 取消隐藏把它换到了前台：这个应用程序以后不再这样做。
                 activatesOnUnhide.insert(session.bundleID)
                 wlog("glance: unhide activated app bundle=\(session.bundleID); falling back to snapshots for it")
             }
@@ -790,7 +788,7 @@ final class GlanceController {
         }
     }
 
-    /// 把临时取消隐藏的 App 藏回去。返回 true 表示要等它离开屏幕再卷上。
+    /// 把临时取消隐藏的应用程序藏回去。返回 true 表示要等它离开屏幕再卷上。
     private func rehide(_ session: GlanceSession) -> Bool {
         guard session.frontmostBeforeUnhide != nil, session.rehiddenAt == nil else { return false }
         session.capture?.stop()
@@ -875,7 +873,7 @@ final class GlanceController {
         session.content?.setLive(true)
     }
 
-    /// 真窗口的圆角半径（点）：从截图左上角量第一行第一个不透明像素的位置，再按连续曲率换算。
+    /// 原窗口的圆角半径（点）：从截图左上角量第一行第一个不透明像素的位置，再按连续曲率换算。
     /// 量不出来就用系统窗口的默认圆角。同一扇窗只量一次。
     func windowCornerRadius(_ id: CGWindowID, snapshot: CGImage?, windowWidth: CGFloat) -> CGFloat {
         if let cached = cornerRadii[id] { return cached }
@@ -886,7 +884,7 @@ final class GlanceController {
             return SystemCornerRadius.window
         }
         // 量到的是弧线从哪里开始。窗口用的是连续曲率圆角，弧线起点在半径的约 1.528 倍处，
-        // 换算回半径，画面的角才和真窗口重合，不会在外面露出一圈底下的边。
+        // 换算回半径，画面的角才和原窗口重合，不会在外面露出一圈底下的边。
         let extent = pixels / (CGFloat(snapshot.width) / windowWidth)
         let radius = min(40, max(4, extent / 1.528))
         cornerRadii[id] = radius

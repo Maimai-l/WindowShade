@@ -16,8 +16,8 @@ enum SettingsCopy {
         (.nativeScreenshot, "原标题栏"), (.proxyTitleBar, "简化标题栏"), (.thumbnail, "缩略图"),
     ]
     static let floating = "卷帘条置顶"
-    static let stripTranslucency = "卷帘条半透明"
-    static let thumbnailTranslucency = "缩略图半透明"
+    static let stripTranslucency = "卷帘条透明度"
+    static let thumbnailTranslucency = "缩略图透明度"
 
     static let sound = "声音"
     static let playSound = "收起和展开时播放音效"
@@ -26,10 +26,10 @@ enum SettingsCopy {
 
     static let permissions = "权限"
     static let accessibility = "辅助功能"
-    static let accessibilityNote = "找到、移动和恢复窗口"
+    static let accessibilityNote = "找到、移动、收起和展开窗口"
     static let screenRecording = "屏幕录制"
     static let screenRecordingNote = "原标题栏和看一眼要用窗口画面"
-    static let granted = "已授权"
+    static let granted = "已允许"
     static let grant = "打开系统设置"
 
     static let launchAtLogin = "登录时自动启动"
@@ -51,7 +51,7 @@ enum SettingsCopy {
     static let reservedBySystem = "系统已占用这个组合"
     static func usedBy(_ name: String) -> String { "已用于：\(name)" }
 
-    static let welcomeWindow = "欢迎窗口"
+    static let welcomeWindow = "欢迎使用 WindowShade"
     static let diagnostics = "诊断日志"
     static let open = "打开"
 
@@ -89,7 +89,7 @@ final class PermissionStatus: ObservableObject {
 }
 
 /// 设置窗口显示的值。界面改了哪一项，didSet 交给 AppDelegate 生效；reload 从 AppDelegate 整体读回来
-///（菜单里改的也一样），读的时候不触发 didSet。
+///（菜单里改的也一样）；读的时候 loading 为真，didSet 不会把值写回 AppDelegate。
 @MainActor
 final class SettingsModel: ObservableObject {
     private weak var app: AppDelegate?
@@ -308,7 +308,7 @@ private struct AdvancedSettings: View {
         Section {
             LabeledContent(SettingsCopy.welcomeWindow) {
                 Button(SettingsCopy.open) { model.perform { $0.showWelcomeGuide() } }
-                    .accessibilityLabel(SettingsCopy.open + SettingsCopy.welcomeWindow)
+                    .accessibilityLabel("打开“\(SettingsCopy.welcomeWindow)”")
             }
             LabeledContent(SettingsCopy.diagnostics) {
                 Button(SettingsCopy.open) { model.perform { $0.openDiagnosticsLog() } }
@@ -320,7 +320,7 @@ private struct AdvancedSettings: View {
 
 // MARK: - 零件
 
-/// 两行授权：已授权时一个系统的对勾符号和“已授权”，没授权时一个“打开系统设置”按钮，打开系统设置里对应的那一页。
+/// 两行授权：已授权时一个系统的对勾符号和“已允许”，没授权时一个“打开系统设置”按钮，打开系统设置里对应的那一页。
 @MainActor
 struct PermissionRows: View {
     @ObservedObject var status: PermissionStatus

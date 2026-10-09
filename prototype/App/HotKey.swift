@@ -7,7 +7,7 @@ struct HotKey: Equatable {
     let keyCode: UInt32
     let modifiers: UInt32
 
-    /// 拒绝明显保留组合与单字母无修饰键绑定。
+    /// 拒绝的组合：没有修饰键或只有 Shift；只有 Command 或 Command-Shift；含 Command 时的 Q、W、Tab、空格、逗号、H。
     static func isReserved(_ hotKey: HotKey) -> Bool {
         let carbonModifiers = hotKey.modifiers
             & UInt32(cmdKey | shiftKey | optionKey | controlKey)
@@ -15,12 +15,12 @@ struct HotKey: Equatable {
               carbonModifiers != UInt32(shiftKey) else { return true }
         let isCommand = carbonModifiers & UInt32(cmdKey) != 0
         let hasControlOrOption = carbonModifiers & UInt32(controlKey | optionKey) != 0
-        // 这是全局热键：只按 Command（或 Command-Shift）的组合几乎都是系统和各应用的保留快捷键
+        // 这是全局快捷键：只按 Command（或 Command-Shift）的组合几乎都是系统和各应用的保留快捷键
         // （Command-C、Command-V……），录进去会让全系统对应功能失效，因此要求组合里必须
         // 含 Control 或 Option。项目自身的 Control-Command 系列就是这个约定。
         if isCommand, !hasControlOrOption { return true }
         if !isCommand { return false }
-        // 与本应用其它快捷键的冲突不在这里写死，由 GlobalShortcutSettings 按当前设置判断。
+        // 和本应用其他快捷键的冲突不在这里列出，由 GlobalShortcutSettings 按当前设置判断。
         let forbidden: Set<UInt32> = [
             UInt32(kVK_ANSI_Q), UInt32(kVK_ANSI_W), UInt32(kVK_Tab),
             UInt32(kVK_Space), UInt32(kVK_ANSI_Comma), UInt32(kVK_ANSI_H)
@@ -89,8 +89,8 @@ struct HotKey: Equatable {
         return modifierKeyCodes.contains(keyCode)
     }
 
-    /// 主键的文字名字。优先用当前输入源的键盘布局翻译键码，避免把键码硬解释成美国键盘字符；
-    /// 取不到布局数据时退回内置的 US 名称表。
+    /// 主键的文字名字。优先按当前输入源的键盘布局翻译键码，不直接当成美式键盘字符；
+    /// 取不到布局数据时改用内置的美式键盘名称表。
     static func keyName(for keyCode: UInt32, shift: Bool) -> String {
         if let special = specialKeys[Int(keyCode)] { return special.name }
         if let translated = layoutKeyName(keyCode: keyCode, shift: shift),
@@ -140,6 +140,6 @@ struct HotKey: Equatable {
             kVK_ANSI_4: "4", kVK_ANSI_5: "5", kVK_ANSI_6: "6", kVK_ANSI_7: "7",
             kVK_ANSI_8: "8", kVK_ANSI_9: "9",
         ]
-        return map[Int(keyCode)] ?? "键码 \(keyCode)"
+        return map[Int(keyCode)] ?? "未知按键"
     }
 }

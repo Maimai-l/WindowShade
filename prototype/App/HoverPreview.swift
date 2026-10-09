@@ -93,14 +93,13 @@ extension AppDelegate {
                        trigger: .menuHover)
     }
 
-    /// 悬停缩略图要展示的窗口名。
+    /// 菜单悬停预览要显示的窗口名。
     func hoverPreviewTitle(ownerID: CGWindowID) -> String {
         guard let state = shaded[ownerID] else { return "" }
         return descriptiveDisplayTitle(appName: state.appName, windowTitle: state.title)
     }
 
-    // 唯一的预览显示入口：建窗、挂载内容，并保证系统中只有一个预览视窗存在——
-    // 显示新的一定先关掉旧的。
+    // 唯一显示预览的入口：建窗口、放入内容，并保证同一时间只有一个预览窗口：显示新的之前一定先关掉旧的。
     func presentPreview(ownerID: CGWindowID, frame: NSRect, contentView: NSView,
                                 trigger: PreviewTrigger, alpha: CGFloat = 1) {
         hidePreview(reason: "replaced")
@@ -168,7 +167,7 @@ extension AppDelegate {
         return false
     }
 
-    /// 单击卷帘条：看一眼打开时马上看一眼（原位、原尺寸）；关着时什么都不做。
+    /// 单击卷帘条：设置里打开了看一眼时，立即在原处按原尺寸显示看一眼的卡片；没打开时什么都不做。
     func stripClicked(_ id: CGWindowID) {
         guard GlanceController.isEnabled else { return }
         MainActor.assumeIsolated { glance.stripClicked(id) }

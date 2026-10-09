@@ -1,16 +1,16 @@
-// 应用自己的全局快捷键：每个动作一条可改、可关的组合。
-// 1.0.16 起新装的一个都不占（docs/direction.md“少做”：⌃⌘ 那一组要的人自己在设置里录）；从以前的版本升级上来的，
-// 没改过的那几个照他原来在用的（新装还是升级见文件末尾的 InstallHistory）。
+// 应用自己的全局快捷键：每个动作一个可改、可关的组合。
+// 1.0.16 起，新安装时不预设任何组合，需要的用户在设置里自己录；从旧版本升级的，
+// 没改过的组合沿用升级前的出厂组合（怎样判断见文件末尾的 InstallHistory）。
 
 import Cocoa
 import Carbon.HIToolbox
 
 enum GlobalShortcut: String, CaseIterable {
     case toggleShade
-    /// 存储键沿用旧名，升级上来的人录过的组合照样生效。
+    /// 存储键沿用旧名，升级的用户录过的组合照样生效。
     case arrange = "arrangeOrFocus"
 
-    /// Carbon 热键编号：事件处理按它分派，与 1.0 起的编号一致；拿掉的动作空出的编号不再复用。
+    /// Carbon 快捷键编号：事件处理按它分派，与 1.0 起的编号一致；拿掉的动作空出的编号不再复用。
     var hotKeyID: UInt32 {
         switch self {
         case .toggleShade: return 1
@@ -26,8 +26,8 @@ enum GlobalShortcut: String, CaseIterable {
         }
     }
 
-    /// 各版本出厂就占着的组合：新装的一个都不占；1.0.15 及以前是 ⌃⌘C 和 ⌃⌘0。
-    /// 只用来让升级上来的人照原样用下去，不再给新装的。
+    /// 各版本的出厂组合：新安装的为空；1.0.15 及以前是 ⌃⌘C 和 ⌃⌘0。
+    /// 只用于让升级的用户照原样使用，不给新安装。
     func factoryHotKey(for history: InstallHistory) -> HotKey? {
         guard history.hadFactoryShortcuts else { return nil }
         let controlCommand = UInt32(controlKey | cmdKey)
@@ -50,18 +50,18 @@ enum GlobalShortcutSettings {
         kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9
     ].map(UInt32.init)
 
-    /// 只有单线程的测试会在使用前换掉它再换回；App 里从不赋值。
+    /// 只有单线程的测试会在使用前换掉它再换回；WindowShade 自己从不赋值。
     nonisolated(unsafe) static var defaults: UserDefaults = .standard
 
-    /// 这台 Mac 从哪一版用起（启动第一步认一次、存下来，见下面的 InstallHistory）：决定没动过的快捷键是什么。
+    /// 这台 Mac 从哪个版本开始用（启动第一步判断一次并存下，见下面的 InstallHistory）：决定没改过的快捷键是什么。
     static var history: InstallHistory { InstallHistory.settled(in: defaults) }
 
-    /// 没动过时的组合：新装的一个都不占；升级上来的照他原来在用的出厂组合。
+    /// 没改过时的组合：新安装的为空；升级的沿用原来的出厂组合。
     static func defaultHotKey(for shortcut: GlobalShortcut) -> HotKey? {
         shortcut.factoryHotKey(for: history)
     }
 
-    /// 当前组合；nil 表示没设或关掉了。没设置过时就是默认值。
+    /// 当前组合；nil 表示关掉了，或没设置过且默认没有组合。
     static func hotKey(for shortcut: GlobalShortcut) -> HotKey? {
         guard let stored = defaults.array(forKey: shortcut.defaultsKey) as? [Int] else {
             return defaultHotKey(for: shortcut)
@@ -80,7 +80,7 @@ enum GlobalShortcutSettings {
         }
     }
 
-    /// Control-Command-1 至 9 没动过时开不开：和别的 Control-Command 组合一样，新装的不占，升级上来的照旧开着。
+    /// Control-Command-1 至 9 没改过时是否打开：和别的 Control-Command 组合一样，新安装时关闭，升级的保持打开。
     static var numberedExpandDefault: Bool { history.hadFactoryShortcuts }
 
     static var numberedExpandEnabled: Bool {
@@ -96,7 +96,7 @@ enum GlobalShortcutSettings {
             && numberedExpandEnabled == numberedExpandDefault
     }
 
-    /// 恢复默认：新装的全部清空；升级上来的回到他原来的出厂组合（不会因为这一版不再占键就把他的也清掉）。
+    /// 恢复默认：新安装的全部清空；升级的回到原来的出厂组合（不会因为这一版不再预设就把升级用户的组合也清掉）。
     static func resetAll() {
         for shortcut in GlobalShortcut.allCases { setHotKey(defaultHotKey(for: shortcut), for: shortcut) }
         numberedExpandEnabled = numberedExpandDefault
@@ -110,7 +110,7 @@ enum GlobalShortcutSettings {
         }
         if numberedExpandEnabled, candidate.modifiers == numberedModifiers,
            numberedKeyCodes.contains(candidate.keyCode) {
-            return "按编号展开已收起的窗口"
+            return "按编号展开"
         }
         return nil
     }
@@ -158,26 +158,26 @@ enum GlobalShortcutSettings {
     }
 }
 
-/// 这台 Mac 上的 WindowShade 是新装的，还是从以前的版本升级上来的。
+/// 这台 Mac 上的 WindowShade 是新安装的，还是从旧版本升级的。
 ///
-/// 1.0.16 起按 docs/direction.md 最后一张表“少做”：⌃⌘ 那一组快捷键新装的一个都不占，“让开这个 App”对换机的人默认关。
-/// 老用户升级不能跟着变：他正在用的组合、已经开着的东西都原样留着。所以第一次问到时认一次、存下来，以后都照存的。
-/// 认的依据是以前各版本会写下的设置，最可靠的是每次启动都写的声音迁移版本号（从第一版起就有）；
-/// 其余是欢迎窗口看过了、收起过窗口、改过外观或快捷键（这几样不是人人都有：欢迎窗口点红色按钮关掉的就没写“看过了”）。
-/// 所以必须赶在这一次启动写下任何设置之前认：启动的第一步就认（WindowShade.swift 的 applicationDidFinishLaunching），
-/// 在声音迁移、清理收起记录之前。万一认晚了，新装的会被当成升级、照 1.0.15 占着那一组，不会反过来让老用户丢快捷键。
-/// 纯逻辑，只碰 UserDefaults，可单测。
+/// 1.0.16 起，⌃⌘ 那一组快捷键在新安装时不预设，“让开这个 App”对换机的用户默认关闭；
+/// 升级的用户不受影响，正在用的组合和已经打开的功能都保持原样。所以第一次需要时判断一次并存下，以后都用存下的结果。
+/// 判断依据是旧版本会写下的设置：最可靠的是每次启动都写的声音迁移版本号（从第一版起就有）；
+/// 其次是看过欢迎窗口、收起过窗口、改过外观或快捷键（这几项不一定都有，例如用红色按钮关掉欢迎窗口时不会写“看过”）。
+/// 因此必须在这一次启动写下任何设置之前判断：放在 WindowShade.swift 的 applicationDidFinishLaunching 开头、
+/// 声音迁移和清理收起记录之前。万一判断晚了，新安装会被当成升级、预设 1.0.15 的那一组，不会反过来让老用户丢掉快捷键。
+/// 只读写 UserDefaults，可以做单元测试。
 enum InstallHistory: Int, Sendable {
-    /// 新装的：照新的默认走。
+    /// 新安装：用新的默认值。
     case fresh = 0
-    /// 从 1.0.15 及以前升级上来的：那时 ⌃⌘ 那一组（C、0、P、G、四个方向键）和 ⌃⌘1…9 出厂就占着。
+    /// 从 1.0.15 及以前升级的：那时出厂预设了 ⌃⌘ 那一组（⌃⌘C、⌃⌘0，见 factoryHotKey）和 ⌃⌘1…9。
     case shipped = 1
     /// 用过 1.0.16 的测试版：那一版又多占了 ⌃⌘S、L、M、N、H，“让开这个 App”也默认开着。
     case preview = 2
 
     static let defaultsKey = "InstallHistory"
 
-    /// 1.0.16 测试版每次启动都会写下的键（它那时检查新加的默认组合有没有撞上老用户自己录的）。
+    /// 1.0.16 测试版每次启动都会写下的键（它当时检查新加的默认组合是否和老用户自己录的组合冲突）。
     static let previewMarker = "GlobalShortcut.newDefaultsChecked.1.0.16"
     /// 以前的版本会写下的键（名字见 WindowShade.swift 开头那一组常量）：有一个就是老安装。
     /// 第一个是以前每一版每次启动都写的（这一版也写，所以要在启动第一步、它被写之前认）。
@@ -197,7 +197,7 @@ enum InstallHistory: Int, Sendable {
         return .fresh
     }
 
-    /// 认过就照存的；没认过就现在认、存下来。存了认不出的值（以后的版本写的）当新装。
+    /// 判断过就用存下的结果；没判断过就现在判断并存下。存的值认不出（以后的版本写的）时按新安装处理。
     @discardableResult
     static func settled(in defaults: UserDefaults) -> InstallHistory {
         if let raw = defaults.object(forKey: defaultsKey) as? Int { return InstallHistory(rawValue: raw) ?? .fresh }

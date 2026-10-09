@@ -1,4 +1,4 @@
-// 折叠会话监控（Reconcile）：周期性核对真实窗口与卷帘条状态，
+// 收起会话监控（Reconcile）：周期性核对原窗口与卷帘条状态，
 // 处理外部唤回、窗口丢失与异常清理。作为 AppDelegate 扩展实现。
 
 import Cocoa
@@ -98,7 +98,7 @@ extension AppDelegate {
             }
             return false
         case .none:
-            // Repeated AX failure still does not prove that a live app's window closed.
+            // 辅助功能反复读取失败，也不能证明还在运行的应用程序已经关掉了这扇窗口。
             if shouldLogReconcileInvalidCount(count) {
                 wlog("reconcile: native source unknown id=\(id) count=\(count); recovery retained")
             }
@@ -146,8 +146,8 @@ extension AppDelegate {
         return ids
     }
 
-    /// 只发还没在途、且名额还够的 App。一个 App 没回来，不重发，也不挡住别的 App。
-    /// 刚返回的 App 要等下一次巡检才再排队，避免读完立刻再读。
+    /// 只给还没有读取在进行、而且还有空位的应用程序发起读取。一个应用程序没有返回，不重发，也不影响别的应用程序。
+    /// 刚返回的应用程序要等下一次定时检查才再排队，避免读完立刻再读。
     func pumpReconcileAXReads(reason: String, refreshWanted: Bool) {
         let now = ProcessInfo.processInfo.systemUptime
         guard now.isFinite else { return }
@@ -189,7 +189,7 @@ extension AppDelegate {
 
     func startReconcileAXRead(_ ticket: AXReadGate<pid_t, [FoldCallbackStamp]>.Ticket,
                               targets: [ReconcileAXTarget], reason: String) {
-        // 每个已准入的 App 自己读自己的窗口。不在这里等待其他 App，也不提前放开名额。
+        // 每个已准入的应用程序单独在后台读取它的窗口：不在这里等其他应用程序，也不提前释放空位。
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let startedAt = ProcessInfo.processInfo.systemUptime
             let snapshots = targets.map { target -> ReconcileAXSnapshot in
@@ -230,7 +230,7 @@ extension AppDelegate {
         if elapsedMilliseconds >= 50 {
             wlog("slow: reconcile-ax reason=\(reason) took \(elapsedMilliseconds)ms windows=\(snapshots.count)")
         }
-        // Observe screen membership at application time, not before a possibly slow AX batch.
+        // 在应用结果时再查窗口是否在屏幕上，不在可能很慢的辅助功能读取之前查。
         let onScreenIDs = currentOnScreenWindowIDs()
         for snapshot in snapshots {
             guard foldCallbackIsCurrent(snapshot.stamp), let state = shaded[snapshot.id] else { continue }

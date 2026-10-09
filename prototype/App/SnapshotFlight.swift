@@ -1,17 +1,18 @@
-// 窗口截图在两个外框之间飞：缩略图收起、展开时用。
+// 窗口截图从一个外框移动到另一个外框：缩略图收起、展开时用。
 
 import Cocoa
 
-/// 窗口截图从一个外框弹到另一个外框（Core Animation 的弹簧，参数见 Motion.Spring）。
-/// 面板一次开够整条路径（含冲过头的余量），之后只动里面那一层：窗口本身一帧都不挪。
+/// 窗口截图从一个外框移动到另一个外框（Core Animation 的弹簧）：位置的弹簧参数由 fly 的 response、bounce 给出，
+/// 尺寸和圆角用 Motion.Spring.settle。
+/// 面板一次开到能容纳整条路径（含弹簧超出终点的余量），之后只移动里面那一层：面板窗口本身一帧都不移动。
 @MainActor
 final class SnapshotFlight {
     private let panel: NSPanel
     private let picture = CALayer()
     private let area: NSRect
 
-    /// from、to：Cocoa 坐标。joinsAllSpaces = false：只留在现在这张桌面上（先盖在原处、过一会儿才飞的那种，
-    /// 中途切了桌面不能跟过去）。
+    /// from、to：Cocoa 坐标。joinsAllSpaces = false：只留在当前桌面上
+    /// （用于先盖在原处、稍后才开始动画的截图，中途切换桌面时不跟过去）。
     init(image: CGImage, from: NSRect, to: NSRect, level: NSWindow.Level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1),
          joinsAllSpaces: Bool = true) {
         area = from.union(to).insetBy(dx: -80, dy: -80)
@@ -36,7 +37,7 @@ final class SnapshotFlight {
         panel.orderFrontRegardless()
     }
 
-    /// 面板开出的那块地方够不够飞到 target（Cocoa 坐标）：够不着的部分会被面板边裁掉。
+    /// 面板开出的那块地方够不够移动到 target（Cocoa 坐标）：够不着的部分会被面板边裁掉。
     func canReach(_ target: NSRect) -> Bool {
         area.contains(target)
     }
@@ -53,8 +54,8 @@ final class SnapshotFlight {
 
         CATransaction.begin()
         CATransaction.setCompletionBlock { done() }
-        // 横竖各一条弹簧（WWDC18：二维运动拆成独立的轴），各自接上甩出去的那一分量的速度——
-        // 只把速度投到连线上会丢掉横着的那一分量，斜着甩时起步会拐一下。
+        // 横、竖各用一条弹簧（WWDC18：二维运动拆成相互独立的轴），各自接上甩动速度在这条轴上的分量；
+        // 只把速度投影到连线上会丢掉横向分量，斜着甩时起步会转弯。
         // CASpringAnimation 的初速度按“这条轴剩下的路程每秒走几倍”算。
         func axis(_ keyPath: String, from: CGFloat, to: CGFloat, speed: CGFloat) -> CASpringAnimation {
             let spring = CASpringAnimation(perceptualDuration: response, bounce: bounce)
@@ -68,7 +69,7 @@ final class SnapshotFlight {
         }
         let positionX = axis("position.x", from: start.midX, to: end.midX, speed: velocity.dx)
         let positionY = axis("position.y", from: start.midY, to: end.midY, speed: velocity.dy)
-        // 尺寸走 settle：不回弹，也不跟着位置那根弹簧把时长乘一个系数。
+        // 尺寸用 settle：不回弹，时长按它自己的弹簧计算。
         let size = CASpringAnimation(perceptualDuration: Motion.Spring.settle.response, bounce: Motion.Spring.settle.bounce)
         size.keyPath = "bounds.size"
         size.fromValue = NSValue(size: start.size)
@@ -91,7 +92,7 @@ final class SnapshotFlight {
         CATransaction.commit()
     }
 
-    /// 减少动态效果时不飞：原处淡出，目标处淡入。
+    /// 减少动态效果时截图不移动：原处淡出，目标处淡入。
     private func dissolve(to end: CGRect, cornerRadius: CGFloat?, done: @escaping () -> Void) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

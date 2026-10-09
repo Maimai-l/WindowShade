@@ -1,5 +1,5 @@
-// 全局快捷键与事件 tap：注册全局快捷键、标题栏双击/三击处理、
-// 事件 tap 生命周期与退避重启用。作为 AppDelegate 扩展实现。
+// 全局快捷键与鼠标钩子：注册全局快捷键，处理标题栏双击、三击，钩子被停用后延迟重新启用。
+// 作为 AppDelegate 扩展实现。
 
 import Cocoa
 import Carbon.HIToolbox
@@ -11,8 +11,8 @@ import Carbon.HIToolbox
 extension AppDelegate {
     func registerHotKey() {
         installHotKeyHandler()
-        // 新装还是升级：启动第一步已经认过、存下了（见 GlobalShortcuts.swift 的 InstallHistory），这里只读出来记一笔。
-        // 新装的 ⌃⌘ 一个都不占，升级上来的照他原来在用的。
+        // 新安装还是升级，启动第一步已经判断并存下（见 GlobalShortcuts.swift 的 InstallHistory），这里只读出来写一行日志。
+        // 新安装不预设 ⌃⌘ 组合，升级的沿用原来的组合。
         let history = GlobalShortcutSettings.history
         wlog("hotkey: install history=\(history) factory ⌃⌘ shortcuts \(history.hadFactoryShortcuts ? "kept" : "off")")
         registerGlobalShortcuts()
@@ -79,8 +79,8 @@ extension AppDelegate {
             let duplicated = failed.filter { $0.value.status == OSStatus(eventHotKeyExistsErr) }
             let taken = failed.filter { $0.value.status != OSStatus(eventHotKeyExistsErr) }
             var parts: [String] = []
-            if !taken.isEmpty { parts.append("\(names(taken)) 被其他应用占用") }
-            if !duplicated.isEmpty { parts.append("\(names(duplicated)) 被 WindowShade 里的另一个快捷键占用") }
+            if !taken.isEmpty { parts.append("其他应用已占用：\(names(taken))") }
+            if !duplicated.isEmpty { parts.append("和 WindowShade 的另一个快捷键重复：\(names(duplicated))") }
             quietNotice(parts.joined(separator: "；"),
                         log: "hotkey: registration failed "
                             + failed.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.status)" }
@@ -114,7 +114,7 @@ extension AppDelegate {
     func expandShadedWindow(atMenuIndex index: Int) {
         let entries = sortedShadedEntries()
         guard entries.indices.contains(index) else {
-            quietNotice("没有对应窗口", log: "hotkey: no shaded window at index=\(index)")
+            quietNotice("没有第 \(index + 1) 个已收起的窗口", log: "hotkey: no shaded window at index=\(index)")
             return
         }
         unshade(entries[index].0)
@@ -155,16 +155,15 @@ extension AppDelegate {
             wlog("titlebar-double-click: strip id=\(entry.key) under the point visible=\(overlay.isVisible) "
                  + "alpha=\(String(format: "%.2f", overlay.alphaValue)) onScreen=\(overlay.isOnActiveSpace)")
         }
-        // 先用 WindowServer 廉价排除内容区双击（选词等高频操作），
-        // 避免在 tap 回调里对目标 app 做同步 AX 命中测试。
+        // 先用窗口服务器的数据排除内容区的双击（选词等常见操作），
+        // 这些双击就不用在钩子线程等待时对目标应用程序做同步的辅助功能命中测试。
         guard pointMayLieInTitlebarBand(point) else { return false }
-        // Chrome profiles describe crop geometry, not the absence of controls.
-        // Even a standard titlebar can contain an editable accessory view.
-        // 过了带内预过滤的点击都是"疑似标题栏双击"，低频且用户可感——
-        // 此后的每个拒绝分支都要留日志，否则"有时候折叠不了"无从排查。
+        // 窗口外观配置描述的是裁剪几何，不说明标题栏里没有控件；标准标题栏里也可能有可编辑的附加视图。
+        // 过了带内预过滤的点击都是“疑似标题栏双击”，这种点击不多，用户也能察觉——
+        // 此后的每个拒绝分支都要留日志，否则“有时候收不起来”无从排查。
         let (hitErr, elRef, hitTimedOut) = titlebarHitTest(at: point)
         if hitErr == .success, let el = elRef {
-            // 交通灯、地址栏、搜索框、工具栏按钮等控件不抢；标签放行（见谓词注释）。
+            // 红绿灯、地址栏、搜索框、工具栏按钮等控件上的双击不处理；标签放行（见 stealsTitlebarDoubleClick 的注释）。
             let role = axRole(el)
             if stealsTitlebarDoubleClick(role) {
                 wlog("titlebar-double-click: refused control role=\(role ?? "?") at=(\(Int(point.x)),\(Int(point.y)))")
@@ -180,13 +179,12 @@ extension AppDelegate {
                 return handleTitleBarDoubleClick(win: win, point: point, source: "geometry-after-orphan-hit")
             }
         } else if hitTimedOut {
-            // 应用程序在 titlebarHitTestTimeout 内没有回答：它卡住了。几何回退还要再问它窗口位置，
+            // 应用程序在 titlebarHitTestTimeout 内没有回答。几何回退还要再问它窗口位置，
             // 每问一次又是一次超时，所以这次双击放行给它自己，不收起。
             wlog("titlebar-double-click: app did not answer the hit-test in time; passing the click through at=(\(Int(point.x)),\(Int(point.y)))")
             return false
         } else if hitErr != .success {
-            // 命中测试出了别的错（此前静默死掉，正是"有时候双击没反应"的一类来源）。
-            // 降级用几何回退判定标题栏。
+            // 命中测试出了别的错：改用几何方法判断标题栏，并记一行日志，否则双击没反应时查不出原因。
             wlog("titlebar-double-click: ax hit-test failed err=\(hitErr.rawValue); trying geometry fallback")
             if let win = frontmostWindowContaining(point: point, requireCompatProfile: false) {
                 return handleTitleBarDoubleClick(win: win, point: point, source: "geometry-after-ax-error")
@@ -253,24 +251,22 @@ extension AppDelegate {
            pending.deadline >= Date(),
            pendingTitlebarTripleClickMatches(pending, point: point) {
             pending.deadline = Date().addingTimeInterval(max(0.65, NSEvent.doubleClickInterval))
-            // The third click can arrive before capture or hide verification.
-            // Record it now; only the verified fold may begin restoration.
+            // 第三下可能在截图或隐藏验证完成之前到达：先记下来，只有验证通过的收起才能开始展开。
             if clickCount == 3, pending.intent.request() { enqueuePendingTitlebarTripleClick(pending) }
             return true
         }
 
-        // A fourth click must not bypass a consumed triple's completion gate.
+        // 第四下不能绕过已经拦下的三击的完成检查。
         guard clickCount == 3 else { return false }
 
-        // pending 分支之后才预过滤：三击补系统动作的 pending 匹配不依赖 AX。
+        // 在待处理三击的分支之后才预过滤：三击补做系统动作时，和待处理记录的匹配不需要辅助功能查询。
         guard pointMayLieInTitlebarBand(point) else { return false }
 
         let (hitErr, elRef, hitTimedOut) = titlebarHitTest(at: point)
-        // 应用程序卡住时不再用几何回退去问它（见 handleTitleBarDoubleClick）。
+        // 应用程序没有响应时不再用几何回退去问它（见 handleTitleBarDoubleClick）。
         if hitTimedOut { return false }
         if hitErr == .success, let el = elRef {
-            // A rejected control is conclusive. Geometry must not turn a text
-            // selection or button click into a window action.
+            // 命中的控件被排除时直接放行，不再用几何判断，否则选中文字或点按钮会变成窗口动作。
             guard !stealsTitlebarDoubleClick(axRole(el)) else { return false }
             if let win = containingWindow(el) {
                 guard let (id, _) = titlebarContains(point: point, in: win) else { return false }
@@ -297,7 +293,7 @@ extension AppDelegate {
                   systemTitlebarDoubleClickAction() != .none,
                   let transaction = pending.foldTransactionID,
                   self.shaded[pending.id]?.foldTransactionID == transaction else { return }
-            // The verifier schedules completion after this call returns its element.
+            // 这个调用返回元素之后，验证器才安排完成回调。
             var restored: AXUIElement?
             restored = self.unshadeReturningElement(
                 pending.id, playSound: false, pinAfterRestore: false,
@@ -314,7 +310,7 @@ extension AppDelegate {
     }
     private func completeTitlebarTripleClick(on win: AXUIElement,
                                             pending: PendingTitlebarTripleClick) {
-        // A new fold may have started while restoration was being verified.
+        // 验证展开期间可能已经开始了新的收起。
         guard shaded[pending.id] == nil, !shadeOperationIDs.contains(pending.id),
               currentOperationState(pending.id) == .normal else { return }
         performSystemTitlebarDoubleClickAction(on: win, id: pending.id,
@@ -372,7 +368,7 @@ extension AppDelegate {
         guard titlebarDoubleClickEnabled, systemTitlebarDoubleClickAction() != .none,
               windowID(of: win) == id else { return }
         cancelRestorePin(for: id)
-        // 三击先展开再做系统动作：展开安排的 80、250 毫秒“带到最前”会升起窗口，把刚最小化的窗口又拉回来（场景 A08）。
+        // 取消展开时安排的 80、250 毫秒两次“带到最前”：三击是先展开再做系统动作，那两次升起会把刚最小化的窗口又拉回来（场景 A08）。
         restoreFocusTokens.removeValue(forKey: id)
         let beforePos = axPosition(win)
         let beforeSize = axSize(win)
@@ -404,13 +400,12 @@ extension AppDelegate {
     func frontmostWindowContaining(point: CGPoint,
                                            requireCompatProfile: Bool = true) -> AXUIElement? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        // 常规路径只对已知需要几何回退的兼容 app 生效；AX 命中测试出错的
-        // 降级路径（requireCompatProfile=false）对任何前台 app 生效。
+        // 常规路径只对已知需要几何回退的应用程序生效；辅助功能命中测试出错时的降级路径
+        // （requireCompatProfile=false）对任何前台应用程序都生效。
         if requireCompatProfile {
             guard needsControlPaddedChrome(pid: app.processIdentifier) else { return nil }
         }
-        // Avoid AXWindows when the focused element is demonstrably the window
-        // under the pointer. Crop geometry and title matching cannot prove this.
+        // 焦点所在的元素确实就是指针下的窗口时，不读 AXWindows；裁剪几何和标题匹配都证明不了这一点。
         if let info = WindowListCache.shared.onScreenWindows().first(where: { info in
             guard let bounds = cgWindowBounds(info), bounds.contains(point) else { return false }
             return (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0
@@ -451,8 +446,8 @@ extension AppDelegate {
     }
     func handleTitleBarDoubleClick(win: AXUIElement, point: CGPoint, source: String) -> Bool {
         guard let (id, pid) = titlebarContains(point: point, in: win) else {
-            // 该分支仍在 event tap 回调中；失败诊断不能再额外读一次 AXTitle，
-            // 否则忙 app 的一次“未命中”会平白多消耗一个同步 IPC timeout。
+            // 钩子线程还在等这里的结果：未命中时的诊断不能再读一次 AXTitle，
+            // 否则忙碌的应用程序每未命中一次，就多等一次同步调用超时。
             // 窗口属于哪个应用程序是本地查询，不是 IPC；问错了应用程序时（场景 B16）从这里看得出来。
             var owner: pid_t = 0
             AXUIElementGetPid(win, &owner)
@@ -470,7 +465,7 @@ extension AppDelegate {
             pending = nil
         }
         pendingTitlebarTripleClick = pending
-        // Register the gesture before leaving the tap, but defer all window work.
+        // 离开钩子之前登记这次手势，窗口操作全部延后。
         DispatchQueue.main.async { [weak self] in
             self?.performTitleBarDoubleClickAction(win: win, id: id, pid: pid,
                                                    point: point, source: source, pending: pending)
@@ -493,13 +488,13 @@ extension AppDelegate {
         logIfSlow("titlebar-double-click action id=\(id)", threshold: 0.05) {
             wlog("titlebar-double-click: source=\(source) app=\(appDisplayName(pid: pid)) id=\(id)")
             if let pending {
-                // Another action may have changed this window since the tap returned.
+                // 钩子返回之后，别的操作可能已经改动了这扇窗口。
                 guard titlebarFoldCanBegin(id: id) else {
                     pending.intent.cancel()
                     if pendingTitlebarTripleClick === pending { pendingTitlebarTripleClick = nil }
                     return
                 }
-                // 这段闭包在事件 tap 回调里同步执行（registerFoldWaiter 是 MainActor 方法）。
+                // 这段闭包在主线程上执行（registerFoldWaiter 是 MainActor 方法）。
                 MainActor.assumeIsolated {
                     _ = registerFoldWaiter(id: id) { [weak self, pending] success in
                         guard let self else { return }
