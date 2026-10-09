@@ -33,11 +33,17 @@ jobs:
             name: scenarios-3
           - part: random
             name: random
+          # 用修复之前的版本跑 E13：E13 必须报出输入被挡住，证明它测得出用户遇到的全系统卡死。
+          - part: reproduce-e13
+            name: e13-before-fix
     name: record (${{ matrix.name }})
     runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          # reproduce-e13 要编修复之前的提交，需要历史。
+          fetch-depth: ${{ matrix.part == 'reproduce-e13' && '0' || '1' }}
       - name: Select newest Xcode
         run: .github/scripts/select-xcode.sh
       - name: Install ffmpeg for the frame check

@@ -8,16 +8,26 @@ csrutil status || true
 sw_vers
 system_profiler SPDisplaysDataType | grep -E "Resolution|Display Type" || true
 
-echo "==> build"
-WINDOWSHADE_CHECK_OUTPUT="$OUT/bin" prototype/build.sh --check || exit 1
+# RECORD_PART=reproduce-e13 时编的是修复之前的版本（f183ee4 的上一个提交），用来证明场景 E13
+# 测得出 2026-10-08 用户遇到的全系统输入卡死（docs/testing.md 第 5 节）。其余情况编当前的代码。
+SRC="$PWD"
+if [ "${RECORD_PART:-all}" = "reproduce-e13" ]; then
+  SRC="$PWD/.build/before-fix"
+  rm -rf "$SRC"
+  git worktree prune
+  git worktree add --detach "$SRC" f183ee4^ || exit 1
+fi
+
+echo "==> build ($(git -C "$SRC" log -1 --format='%h %s'))"
+WINDOWSHADE_CHECK_OUTPUT="$OUT/bin" "$SRC/prototype/build.sh" --check || exit 1
 
 APP="$OUT/WindowShade.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-cp prototype/Info.plist "$APP/Contents/Info.plist"
+cp "$SRC/prototype/Info.plist" "$APP/Contents/Info.plist"
 cp "$OUT/bin/WindowShade" "$APP/Contents/MacOS/WindowShade"
 cp assets/app-icon/WindowShade.icns "$APP/Contents/Resources/" 2>/dev/null || true
-ditto prototype/Vendor/Sparkle.framework "$APP/Contents/Frameworks/Sparkle.framework"
+ditto "$SRC/prototype/Vendor/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --deep -s - "$APP"
 # 给人下载试用：ditto 打包保留框架里的符号链接和可执行权限（GitHub 自己打包会丢掉这两样）。
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/WindowShade-app.zip"
@@ -134,15 +144,18 @@ record() {
 #   recordings   录像（文本编辑、访达）、E13、检查的检查（K01 至 K05）、两个权限场景组
 #   shard:i/n    主场景组里序号除以 n 余 i 的那些场景
 #   random       随机操作 Q01（300 步，十几分钟，单独一个任务）
+#   reproduce-e13  用修复之前的版本跑 E13，E13 必须报出输入被挡住（测试测得出这个缺陷）
 #   all（默认）  全部，本地运行用
 PART="${RECORD_PART:-all}"
 RECORDINGS=false
 RANDOM_OPS=false
+REPRODUCE=false
 SHARD=""
 case "$PART" in
   all) RECORDINGS=true; RANDOM_OPS=true; SHARD="main" ;;
   recordings) RECORDINGS=true ;;
   random) RANDOM_OPS=true ;;
+  reproduce-e13) REPRODUCE=true ;;
   shard:*) SHARD="$PART" ;;
   *) echo "unknown RECORD_PART=$PART"; exit 1 ;;
 esac
@@ -171,6 +184,25 @@ echo "==> checks of the checks: K01-K04"
 open -W --stderr "$OUT/driver-checks.log" "$DRIVER" --args "$OUT/checks.json" scenarios "$PROBE" "$APP" "K01,K02,K03,K04"
 cat "$OUT/driver-checks.log" || true
 SCENARIO_RESULTS+=("$OUT/checks.json")
+fi
+
+# 用修复之前的版本跑 E13。那个版本会让整台机器不响应输入，驱动程序自己也可能停住：
+# 看门狗不靠输入，120 秒后结束 WindowShade，再过 30 秒结束驱动程序，并留下标记。
+if $REPRODUCE; then
+  echo "==> scenario E13 against the build before the fix: it must report blocked input"
+  rm -f "$OUT/watchdog-fired"
+  ( sleep 120
+    if pgrep -x DemoDriver >/dev/null; then
+      echo "watchdog: E13 still running after 120 s; killing WindowShade"
+      touch "$OUT/watchdog-fired"
+      pkill -9 -x WindowShade
+      sleep 30
+      pkill -9 -x DemoDriver
+    fi ) &
+  watchdog=$!
+  open -W --stderr "$OUT/driver-close-unsaved.log" "$DRIVER" --args "$OUT/close-unsaved.mp4" close-unsaved
+  kill "$watchdog" 2>/dev/null
+  cat "$OUT/driver-close-unsaved.log" || true
 fi
 
 # 随机操作（docs/test-catalog.md 第 11 节）：每次运行用新的种子，种子写在结果里。
@@ -282,9 +314,35 @@ if not result.get("passed"):
 print("PASS E13: save sheet once, window closed, worst probe %.3f s" % result.get("probeWorstLatency", 0))
 PY
 fi
+if $REPRODUCE; then
+echo "==> check that E13 catches the freeze in the build before the fix"
+python3 - "$OUT/close-unsaved.json" "$OUT/watchdog-fired" <<'PY' || status=1
+import json, os, sys
+if os.path.exists(sys.argv[2]):
+    print("PASS reproduce E13: the build before the fix stopped all input; the watchdog had to end it")
+    sys.exit(0)
+try:
+    with open(sys.argv[1]) as f:
+        result = json.load(f)
+except (OSError, ValueError) as error:
+    print(f"FAIL reproduce E13: no result and the watchdog did not fire ({error})")
+    sys.exit(1)
+print(json.dumps(result, ensure_ascii=False, indent=1))
+blocked = [f for f in result.get("failures", []) if "probe click" in f]
+if blocked:
+    print("PASS reproduce E13: the build before the fix blocked input:", "; ".join(blocked))
+    sys.exit(0)
+if result.get("passed"):
+    print("FAIL reproduce E13: E13 passed on the build before the fix, so it does not reproduce the reported freeze")
+else:
+    print("FAIL reproduce E13: E13 failed for another reason:", "; ".join(result.get("failures", [])))
+sys.exit(1)
+PY
+fi
 grep -n "event-tap: main thread did not answer\|traffic: " "$OUT/windowshade.log" | tail -20 || true
 echo "==> check scenarios"
-python3 - "${GITHUB_STEP_SUMMARY:-/dev/null}" "${SCENARIO_RESULTS[@]}" <<'PY' || status=1
+# reproduce-e13 没有场景组结果：数组为空时 bash 3.2 在 set -u 下会报未定义，用 + 展开。
+python3 - "${GITHUB_STEP_SUMMARY:-/dev/null}" ${SCENARIO_RESULTS[@]+"${SCENARIO_RESULTS[@]}"} <<'PY' || status=1
 import json, sys
 rows = ["| 场景 | 内容 | 结果 | 违反的不变式 |", "|---|---|---|---|"]
 failed = 0

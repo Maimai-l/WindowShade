@@ -260,7 +260,7 @@
 | `ScenariosSystem.swift` | E05 至 E07、L01 至 L03、L07、P03 至 P07、X08 至 X10、H01、H02、H10、A21、A32 |
 | 同上，收回屏幕录制权限后单独运行 | A26、D08 |
 | 同上，收回辅助功能权限后单独运行 | A27、H08、H09（CI 机器上辅助功能收不回，结果为“跳过”，见下表） |
-| `DemoDriver.swift` | E13（文本编辑：关闭收起的未保存窗口） |
+| `DemoDriver.swift` | E13（文本编辑：关闭收起的未保存窗口）；`record.sh` 的 reproduce-e13 用修复之前的版本再跑一遍，要求它报错 |
 | `ScenariosChecks.swift`，`record.sh` 的 recordings 任务 | K01 至 K04 |
 | `tests/run-frame-check-selftest.sh`，`record.sh` 的 recordings 任务 | K05 |
 | `ScenariosRandom.swift`，CI 的 random 任务 | Q01 |
