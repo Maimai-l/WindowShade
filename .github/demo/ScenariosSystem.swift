@@ -379,16 +379,25 @@ let systemScenarios: [Scenario] = [
             run("/usr/bin/killall", ["qlmanage"], timeout: 5)
             try? FileManager.default.removeItem(at: folder)
         }
-        /// 预览窗口：标题是那个文件的名字（访达的快速查看；文件夹窗口的标题是文件夹名，不会混淆），或者属于 qlmanage（展开时重新打开的）。
+        /// 预览窗口：按空格之后新出现在屏幕上、高过 100 点、不属于 WindowShade 的窗口。7047ba0 上预览已经打开，
+        /// 但按标题（文件名）和所属进程名都没有认出来，所以不再猜它的标题和进程，只看是不是新出现的。
+        func onScreen() -> [[String: Any]] {
+            (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).filter {
+                let owner = $0[kCGWindowOwnerName as String] as? String ?? ""
+                let layer = $0[kCGWindowLayer as String] as? Int ?? 0
+                let height = ($0[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }?.height ?? 0
+                return owner != "WindowShade" && owner != "Window Server" && owner != "Dock" && layer < 1000 && height > 100
+            }
+        }
+        var baseline: Set<Int> = []
+        func newWindows() -> [[String: Any]] {
+            onScreen().filter { !baseline.contains($0[kCGWindowNumber as String] as? Int ?? 0) }
+        }
+        func describe(_ windows: [[String: Any]]) -> [String] {
+            windows.map { "\($0[kCGWindowOwnerName as String] as? String ?? "?") \"\($0[kCGWindowName as String] as? String ?? "")\" layer=\($0[kCGWindowLayer as String] as? Int ?? 0)" }
+        }
         func qlWindow() -> CGRect? {
-            (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { info -> CGRect? in
-                let owner = info[kCGWindowOwnerName as String] as? String ?? ""
-                let title = info[kCGWindowName as String] as? String ?? ""
-                guard title.hasPrefix(item) || owner.contains("qlmanage") || owner.contains("Quick Look"),
-                      let bounds = info[kCGWindowBounds as String] as? NSDictionary,
-                      let rect = CGRect(dictionaryRepresentation: bounds), rect.height > 100 else { return nil }
-                return rect
-            }.first
+            newWindows().compactMap { ($0[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } }.first
         }
         run("/usr/bin/open", [folder.path])
         await pause(2)
@@ -396,14 +405,15 @@ let systemScenarios: [Scenario] = [
         await pause(0.6)
         await pressKey(0, .maskCommand)   // ⌘A：文件夹里只有这一个文件
         await pause(1.5)
+        baseline = Set(onScreen().compactMap { $0[kCGWindowNumber as String] as? Int })
         await pressKey(49)   // 空格
-        guard await eventually(6, { qlWindow() != nil }), let frame = qlWindow() else {
+        let opened = await eventually(6) { qlWindow() != nil }
+        h.result.notes["preview"] = describe(newWindows())
+        guard opened, let frame = qlWindow() else {
             h.result.violations.append("setup: Quick Look did not open from Finder")
+            h.result.notes["onScreen"] = describe(onScreen())
             return
         }
-        h.result.notes["preview"] = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
-            .first { ($0[kCGWindowName as String] as? String)?.hasPrefix(item) == true }
-            .map { "\($0[kCGWindowOwnerName as String] as? String ?? "?") \"\($0[kCGWindowName as String] as? String ?? "")\"" } ?? "?"
         let point = CGPoint(x: frame.minX + frame.width * 0.6, y: frame.minY + 12)
         await glide(to: point, duration: 0.3)
         await doubleClick(at: point)
@@ -413,7 +423,9 @@ let systemScenarios: [Scenario] = [
         guard folded, let strip = stripFrames().first else { return }
         await doubleClick(at: CGPoint(x: strip.midX, y: strip.midY))
         await glide(to: h.neutral, duration: 0.2)
-        h.expect(await eventually(6) { qlWindow() != nil }, "A32: Quick Look did not reopen")
+        let reopened = await eventually(6) { qlWindow() != nil }
+        h.result.notes["reopened"] = describe(newWindows())
+        h.expect(reopened, "A32: Quick Look did not reopen")
         await expectNoStrip(h, within: 3)
     },
 
