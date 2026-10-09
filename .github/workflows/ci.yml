@@ -22,6 +22,28 @@ jobs:
       - name: Compile app
         run: prototype/build.sh --check
 
+  # macOS 14 上能装的最高版本是 Swift 6.0（命令行工具 16.2），默认 SDK 14.5。Swift 6.0 的数据竞争检查比 6.1、6.2 保守，
+  # 在新编译器上通过的代码可能在这里报错（2026-10-09 在用户的 macOS 14.5 机器上，ShadeController.swift 编不过）。
+  build-swift60:
+    name: build.sh --check (Swift 6.0, macOS 14.5 SDK)
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 16.2 and the macOS 14.5 SDK
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcode=$(ls -d /Applications/Xcode_16.2*.app 2>/dev/null | head -1)
+          [ -n "$xcode" ] || xcode=$(ls -d /Applications/Xcode_16.[0-2]*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          sdk=$(ls -d /Applications/Xcode_15.4*.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX14.*.sdk 2>/dev/null | head -1)
+          [ -n "$sdk" ] || { echo "no macOS 14 SDK on this runner"; exit 1; }
+          echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
+          swiftc --version
+          echo "SDK: $sdk"
+      - name: Compile app
+        run: prototype/build.sh --check
+
   tests:
     name: Test runners
     runs-on: macos-26
