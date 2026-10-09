@@ -102,8 +102,110 @@ func stillHiddenAfterMove(_ probe: Probe, _ folded: Folded, _ h: Harness) async 
     return true
 }
 
+/// SkyLight：当前桌面的编号，和这台 Mac 上普通桌面（不含全屏应用程序的桌面）的个数。只在测试驱动程序里用。
+private func skyLightSymbol(_ name: String) -> UnsafeMutableRawPointer? {
+    dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY).flatMap { dlsym($0, name) }
+}
+
+private func skyLightConnection() -> Int32? {
+    guard let symbol = skyLightSymbol("SLSMainConnectionID") else { return nil }
+    typealias Main = @convention(c) () -> Int32
+    return unsafeBitCast(symbol, to: Main.self)()
+}
+
+func activeSpaceID() -> UInt64? {
+    guard let cid = skyLightConnection(), let symbol = skyLightSymbol("SLSGetActiveSpace") else { return nil }
+    typealias Get = @convention(c) (Int32) -> UInt64
+    return unsafeBitCast(symbol, to: Get.self)(cid)
+}
+
+func desktopCount() -> Int {
+    guard let cid = skyLightConnection(), let symbol = skyLightSymbol("SLSCopyManagedDisplaySpaces") else { return 0 }
+    typealias Copy = @convention(c) (Int32) -> Unmanaged<CFArray>?
+    guard let displays = unsafeBitCast(symbol, to: Copy.self)(cid)?.takeRetainedValue() as? [[String: Any]] else { return 0 }
+    // type 0 是普通桌面，4 是全屏应用程序占的桌面。
+    return displays.flatMap { $0["Spaces"] as? [[String: Any]] ?? [] }.filter { ($0["type"] as? Int) == 0 }.count
+}
+
+/// 按 Control-右方向键（或左方向键）切到相邻的桌面，和系统设置里“调度中心”的默认快捷键一样。
+func switchDesktop(right: Bool) async {
+    await pressKey(right ? 124 : 123, [.maskControl, .maskSecondaryFn, .maskNumericPad])
+    await pause(1.2)
+}
+
+/// 访达里标题是 title 的那扇窗口。
+func finderWindow(titled title: String) -> AXUIElement? {
+    guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else { return nil }
+    var value: CFTypeRef?
+    AXUIElementCopyAttributeValue(AXUIElementCreateApplication(finder.processIdentifier), kAXWindowsAttribute as CFString, &value)
+    return (value as? [AXUIElement] ?? []).first { axString($0, kAXTitleAttribute as String) == title }
+}
+
+func closeWindow(_ window: AXUIElement) {
+    var button: CFTypeRef?
+    if AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &button) == .success, let button {
+        AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+    }
+}
+
 let systemScenarios: [Scenario] = [
     // MARK: 系统事件（第 7 节）
+    // 用户 2026-10-09 报告：访达在一个桌面上有窗口，在另一个桌面上打开废纸篓、双击标题栏，屏幕切到了前一个桌面。
+    // 要两个以上的桌面：CI 的虚拟机只有一个，这一条只在自己的 Mac 上跑，只有一个桌面时跳过。
+    Scenario(id: "E11", title: "访达在别的桌面上有窗口时，在这个桌面上收起访达的窗口：不切换桌面", options: []) { _, h in
+        guard desktopCount() >= 2, let home = activeSpaceID() else {
+            h.result.notes["skipped"] = "this Mac has only one desktop"; return
+        }
+        let base = FileManager.default.temporaryDirectory
+        let here = base.appendingPathComponent("windowshade-e11-a"), there = base.appendingPathComponent("windowshade-e11-b")
+        for folder in [here, there] { try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        run("/usr/bin/open", [here.path])
+        guard await eventually(5, { finderWindow(titled: here.lastPathComponent) != nil }) else {
+            h.result.notes["skipped"] = "no Finder window opened"; return
+        }
+        await switchDesktop(right: true)
+        guard let other = activeSpaceID(), other != home else {
+            h.result.notes["skipped"] = "Control-Right Arrow did not switch desktops"
+            if let window = finderWindow(titled: here.lastPathComponent) { closeWindow(window) }
+            return
+        }
+        run("/usr/bin/open", [there.path])
+        var target: AXUIElement?
+        _ = await eventually(5) { target = finderWindow(titled: there.lastPathComponent); return target != nil }
+        await pause(1)
+        if let target, let frame = axFrame(target) {
+            AXUIElementPerformAction(target, kAXRaiseAction as CFString)
+            let point = emptyTitleBarPoint(CGPoint(x: frame.midX, y: frame.minY + 14), minX: frame.minX + 80, maxX: frame.maxX - 20)
+            await glide(to: point, duration: 0.3)
+            await doubleClick(at: point)
+            var jumpedTo: UInt64?
+            for _ in 0..<25 {
+                await pause(0.1)
+                if let now = activeSpaceID(), now != other { jumpedTo = now; break }
+            }
+            h.result.notes["desktops"] = "home=\(home) folded on=\(other) after=\(activeSpaceID().map { String($0) } ?? "?")"
+            h.expect(jumpedTo == nil, "E11: folding the Finder window switched the desktop (\(other) → \(jumpedTo ?? 0))")
+            if activeSpaceID() == other, let strip = stripFrames().first {
+                await doubleClick(at: CGPoint(x: strip.midX, y: strip.minY + 8))
+                await pause(1.5)
+            } else if jumpedTo != nil {
+                await switchDesktop(right: true)
+                if let strip = stripFrames().first {
+                    await doubleClick(at: CGPoint(x: strip.midX, y: strip.minY + 8))
+                    await pause(1.5)
+                }
+            }
+        } else {
+            h.result.violations.append("setup: the Finder window on the second desktop did not open")
+        }
+        if let window = finderWindow(titled: there.lastPathComponent) { closeWindow(window) }
+        while let now = activeSpaceID(), now != home {
+            await switchDesktop(right: false)
+            if activeSpaceID() == now { break }
+        }
+        if let window = finderWindow(titled: here.lastPathComponent) { closeWindow(window) }
+        await glide(to: h.neutral, duration: 0.2)
+    },
     Scenario(id: "E05", title: "收起后切换深色、浅色外观", options: []) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
         guard setDarkMode(true) else { h.result.notes["skipped"] = "cannot switch appearance"; return }
