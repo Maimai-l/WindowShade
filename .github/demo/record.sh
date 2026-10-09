@@ -2,7 +2,8 @@
 # 在 CI 的 macOS 机器上编出 WindowShade、授权，录收起 / 看一眼 / 展开的视频：文本编辑和访达各一段。
 set -uo pipefail
 cd "$(dirname "$0")/../.."
-OUT="$PWD/.build/demo"
+# 本机运行时放在固定的目录（run-on-this-mac.sh 的 WINDOWSHADE_DEMO_OUT）。
+OUT="${WINDOWSHADE_DEMO_OUT:-$PWD/.build/demo}"
 mkdir -p "$OUT"
 # WINDOWSHADE_LOCAL=1：在自己的 Mac 上跑（.github/demo/run-on-this-mac.sh），不是 GitHub 的临时虚拟机。
 # 那里系统完整性保护开着，不能直接写权限数据库：权限由用户在系统设置里给一次，这里只检查；

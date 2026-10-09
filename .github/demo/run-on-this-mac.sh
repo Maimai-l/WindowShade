@@ -16,6 +16,8 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 RESULTS="$HOME/WindowShadeTests"
 mkdir -p "$RESULTS"
 RUN_LOG="$RESULTS/run-$STAMP.log"
+# 编出来的程序每次都放在同一个地方（解开测试包的目录换了也一样），系统里的权限记录指向同一个位置。
+DEMO_OUT="$RESULTS/build"
 exec > >(tee "$RUN_LOG") 2>&1
 
 say() { printf '\n==> %s\n' "$*"; }
@@ -32,7 +34,7 @@ echo "$swift_version" | grep -qE "Swift version ([6-9]|[1-9][0-9])\." || stop "�
 # 测试包自己编的 WindowShade 还在运行（上一次没跑完）就结束它；别处装的 WindowShade 要用户自己先退出。
 for pid in $(pgrep -x WindowShade); do
   case "$(ps -p "$pid" -o comm= 2>/dev/null)" in
-    */.build/demo/WindowShade.app/*) kill "$pid" 2>/dev/null ;;
+    */.build/demo/WindowShade.app/*|"$DEMO_OUT"/WindowShade.app/*) kill "$pid" 2>/dev/null ;;
     *) stop "WindowShade 正在运行。先从菜单栏退出它（会先展开全部收起的窗口），再运行。" ;;
   esac
 done
@@ -43,8 +45,29 @@ sw_vers
 sysctl -n hw.model
 system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Resolution|Display Type|Online" || true
 
+# 签名：同一张证书签，系统就认得是同一个程序，辅助功能等权限只用给一次。
+# 先用这台 Mac 上长期固定的证书（用户建好、已设为代码签名受信任）；没有它才用下面自签名的测试证书，再不行用临时签名。
+say "签名证书"
+SIGN_ID="-"
+SIGN_KEYCHAIN=""
+KEYCHAIN_LIST_CHANGED=0
+ORIGINAL_KEYCHAINS=()
+FIXED_KEYCHAIN="$HOME/Library/Keychains/windowshade-signing.keychain-db"
+FIXED_CERT="WindowShade Local Test"
+FIXED_PASSWORD_FILE="$HOME/server/signing/keychain-password"
+if [ -f "$FIXED_KEYCHAIN" ] && [ -f "$FIXED_PASSWORD_FILE" ]; then
+  if security unlock-keychain -p "$(cat "$FIXED_PASSWORD_FILE")" "$FIXED_KEYCHAIN" \
+     && security find-certificate -c "$FIXED_CERT" "$FIXED_KEYCHAIN" >/dev/null 2>&1; then
+    SIGN_ID="$FIXED_CERT"
+    SIGN_KEYCHAIN="$FIXED_KEYCHAIN"
+    echo "用这台 Mac 上固定的证书签名：${FIXED_CERT}（${FIXED_KEYCHAIN}）"
+  else
+    echo "找到了 ${FIXED_KEYCHAIN}，但解不开或里面没有 ${FIXED_CERT}：改用测试证书。"
+  fi
+fi
+
+if [ "$SIGN_ID" = "-" ]; then
 # 测试证书：自签名、只用来给测试用的程序签名。放在单独的钥匙串里，密码固定，不需要输入登录密码。
-say "测试证书"
 KEYCHAIN="$HOME/Library/Keychains/windowshade-test.keychain-db"
 KEYCHAIN_PASSWORD="windowshade-test"
 CERT_NAME="WindowShade Test Signing"
@@ -74,7 +97,6 @@ CNF
     || echo "建测试证书失败，改用临时签名。"
   rm -rf "$work"
 fi
-SIGN_ID="-"
 try_sign() {  # 用测试证书签一个临时文件，成功返回 0；失败时把 codesign 的原话打出来
   local probe_bin
   probe_bin=$(mktemp)
@@ -86,7 +108,6 @@ try_sign() {  # 用测试证书签一个临时文件，成功返回 0；失败�
 }
 # codesign 只在用户的钥匙串搜索列表里找签名身份（10-09 在用户的 Mac 上：只给 --keychain 时报
 # “The specified item could not be found in the keychain”）。测试期间把测试钥匙串加进列表，结束时去掉。
-ORIGINAL_KEYCHAINS=()
 while IFS= read -r line; do
   line=${line#*\"}
   line=${line%\"}
@@ -95,6 +116,7 @@ done < <(security list-keychains -d user)
 if [ -f "$KEYCHAIN" ]; then
   security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
   security list-keychains -d user -s ${ORIGINAL_KEYCHAINS[@]+"${ORIGINAL_KEYCHAINS[@]}"} "$KEYCHAIN"
+  KEYCHAIN_LIST_CHANGED=1
   security find-identity -p codesigning "$KEYCHAIN"
   cert_hash=$(security find-certificate -c "$CERT_NAME" -Z "$KEYCHAIN" 2>/dev/null | awk '/SHA-1/ {print $NF}')
   if [ -n "$cert_hash" ] && try_sign; then
@@ -113,6 +135,7 @@ fi
 if [ "$SIGN_ID" != "-" ]; then
   echo "用测试证书签名（${SIGN_ID}）"
 fi
+fi   # 没有固定证书时的测试证书
 if [ "$SIGN_ID" = "-" ]; then
   echo "测试证书用不了，改用临时签名：每换一个测试包，都要在系统设置里重新给一次权限。"
 fi
@@ -138,8 +161,8 @@ restore_saved() {  # $1：哪一次运行记下的（时刻）
   else
     defaults delete com.windowshade.prototype 2>/dev/null || true
   fi
-  if [ -f "$look" ] && [ -d "$ROOT/.build/demo/DemoDriver.app" ]; then
-    open -W "$ROOT/.build/demo/DemoDriver.app" --args appearance "$(cat "$look")" || true
+  if [ -f "$look" ] && [ -d "$DEMO_OUT/DemoDriver.app" ]; then
+    open -W "$DEMO_OUT/DemoDriver.app" --args appearance "$(cat "$look")" || true
     echo "  外观 = $(cat "$look")"
   fi
   rm -f "$look"
@@ -184,16 +207,23 @@ restore() {
   pkill -x WindowShade 2>/dev/null || true
   pkill -x DemoDriver 2>/dev/null || true
   restore_saved "$STAMP"
-  security list-keychains -d user -s ${ORIGINAL_KEYCHAINS[@]+"${ORIGINAL_KEYCHAINS[@]}"} 2>/dev/null || true
+  if [ "$KEYCHAIN_LIST_CHANGED" = 1 ] && [ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]; then
+    security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" 2>/dev/null || true
+  fi
   [ -n "${CAFFEINATE:-}" ] && kill "$CAFFEINATE" 2>/dev/null
 }
 trap restore EXIT
+
+# 固定目录里只留编出来的程序，上一次的结果文件先删掉，免得这一次没跑到时被当成这一次的结果打包。
+mkdir -p "$DEMO_OUT"
+rm -f "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png "$DEMO_OUT"/*.txt "$DEMO_OUT"/*.ips "$DEMO_OUT"/*.mp4
 
 caffeinate -dimsu &
 CAFFEINATE=$!
 
 say "开始测试（RECORD_PART=${1:-all}）"
-WINDOWSHADE_LOCAL=1 WINDOWSHADE_TEST_SIGN_IDENTITY="$SIGN_ID" \
+WINDOWSHADE_LOCAL=1 WINDOWSHADE_TEST_SIGN_IDENTITY="$SIGN_ID" WINDOWSHADE_TEST_KEYCHAIN="$SIGN_KEYCHAIN" \
+  WINDOWSHADE_DEMO_OUT="$DEMO_OUT" \
   RECORD_PART="${1:-all}" bash .github/demo/record.sh
 status=$?
 
@@ -203,8 +233,8 @@ if [ "$status" = 3 ]; then
 
 权限还没给全。在“系统设置 → 隐私与安全性”里，给下面两个程序打开这三项的开关：
   辅助功能、输入监控、录屏与系统录音
-    $ROOT/.build/demo/DemoDriver.app
-    $ROOT/.build/demo/WindowShade.app
+    $DEMO_OUT/DemoDriver.app
+    $DEMO_OUT/WindowShade.app
 列表里没有的，点“＋”选上面的路径。系统问“退出并重新打开”时选“稍后”。然后再运行一次 bash run.sh。
 （以上要在屏幕上操作：用另一台电脑的“屏幕共享”连到这台 Mac。）
 MSG
@@ -215,8 +245,8 @@ restore
 say "打包结果"
 PACK=$(mktemp -d)
 mkdir -p "$PACK/results"
-cp "$ROOT"/.build/demo/*.json "$ROOT"/.build/demo/*.log "$ROOT"/.build/demo/*.png \
-   "$ROOT"/.build/demo/*.txt "$ROOT"/.build/demo/*.ips "$PACK/results/" 2>/dev/null || true
+cp "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png \
+   "$DEMO_OUT"/*.txt "$DEMO_OUT"/*.ips "$PACK/results/" 2>/dev/null || true
 cp "$ROOT/KIT_VERSION" "$PACK/results/" 2>/dev/null || true
 cp "$RUN_LOG" "$PACK/results/run.log"
 echo "exit=$status" > "$PACK/results/exit-status.txt"
