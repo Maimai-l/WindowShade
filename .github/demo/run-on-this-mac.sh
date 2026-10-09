@@ -69,16 +69,33 @@ CNF
   rm -rf "$work"
 fi
 SIGN_ID="-"
+try_sign() {  # 用测试证书签一个临时文件，成功返回 0；失败时把 codesign 的原话打出来
+  local probe_bin
+  probe_bin=$(mktemp)
+  cp /usr/bin/true "$probe_bin"
+  codesign --force --keychain "$KEYCHAIN" -s "$cert_hash" "$probe_bin"
+  local result=$?
+  rm -f "$probe_bin"
+  return $result
+}
 if [ -f "$KEYCHAIN" ]; then
   security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
   cert_hash=$(security find-certificate -c "$CERT_NAME" -Z "$KEYCHAIN" 2>/dev/null | awk '/SHA-1/ {print $NF}')
-  probe_bin=$(mktemp)
-  cp /usr/bin/true "$probe_bin"
-  if [ -n "$cert_hash" ] && codesign --force --keychain "$KEYCHAIN" -s "$cert_hash" "$probe_bin" 2>/dev/null; then
+  if [ -n "$cert_hash" ] && try_sign; then
     SIGN_ID="$cert_hash"
-    echo "用测试证书签名（$cert_hash）"
+  elif [ -n "$cert_hash" ]; then
+    # 自签名证书要先被信任（只用于代码签名），codesign 才肯用。改信任设置时系统会在屏幕上要一次本机登录密码：
+    # 用屏幕共享输入。只在这台 Mac 上做一次，以后的测试包都不再问。
+    echo "测试证书还没被信任。屏幕上会弹出“修改证书信任设置”的密码框，用屏幕共享输入一次本机登录密码。"
+    cert_file=$(mktemp)
+    security find-certificate -c "$CERT_NAME" -p "$KEYCHAIN" > "$cert_file"
+    security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$cert_file"
+    rm -f "$cert_file"
+    if try_sign; then SIGN_ID="$cert_hash"; fi
   fi
-  rm -f "$probe_bin"
+fi
+if [ "$SIGN_ID" != "-" ]; then
+  echo "用测试证书签名（$SIGN_ID）"
 fi
 if [ "$SIGN_ID" = "-" ]; then
   echo "测试证书用不了，改用临时签名：每换一个测试包，都要在系统设置里重新给一次权限。"
@@ -88,12 +105,13 @@ fi
 say "记下会被改动的系统设置"
 SAVED_FILE="$RESULTS/.saved-settings-$STAMP"
 : > "$SAVED_FILE"
+# 原来没有的键记成 ABSENT，恢复时删掉；不能记成空值（空值去 defaults write 会失败，只打出用法说明）。
 remember() {  # 域 键 类型
   local value
   if value=$(defaults read "$1" "$2" 2>/dev/null); then
     printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$value" >> "$SAVED_FILE"
   else
-    printf '%s\t%s\t%s\t\n' "$1" "$2" "$3" >> "$SAVED_FILE"
+    printf '%s\t%s\t%s\tABSENT\n' "$1" "$2" "$3" >> "$SAVED_FILE"
   fi
 }
 remember -g AppleActionOnDoubleClick string
@@ -108,15 +126,20 @@ defaults export com.windowshade.prototype "$WS_DEFAULTS" 2>/dev/null || rm -f "$
 cat "$SAVED_FILE"
 echo "外观：$APPEARANCE"
 
+RESTORED=0
 restore() {
+  [ "$RESTORED" = 1 ] && return
+  RESTORED=1
   say "改回系统设置"
   pkill -x WindowShade 2>/dev/null || true
   pkill -x DemoDriver 2>/dev/null || true
   while IFS=$'\t' read -r domain key type value; do
-    if [ -z "$value" ]; then
+    if [ "$value" = ABSENT ]; then
       defaults delete "$domain" "$key" 2>/dev/null || true
-    else
+      echo "  删除 $domain $key（原来没有）"
+    elif [ -n "$value" ]; then
       defaults write "$domain" "$key" "-$type" "$value"
+      echo "  $domain $key = $value"
     fi
   done < "$SAVED_FILE"
   rm -f "$SAVED_FILE"
@@ -157,6 +180,7 @@ MSG
   exit 3
 fi
 
+restore
 say "打包结果"
 PACK=$(mktemp -d)
 mkdir -p "$PACK/results"

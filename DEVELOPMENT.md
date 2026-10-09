@@ -5,7 +5,7 @@
 ## 环境要求
 
 - macOS 14 或更新版本
-- Xcode Command Line Tools
+- Xcode Command Line Tools，Swift 6.0 或更新（macOS 14 上能装的最高版本是命令行工具 16.2，Swift 6.0.3；CI 的 build-swift60 任务用这个版本和 macOS 14.5 SDK 编一遍）
 - 用于签名的 Apple Development 证书（构建脚本强制要求，拒绝 ad-hoc 签名）
 
 ## 模块结构

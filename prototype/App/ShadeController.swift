@@ -392,8 +392,11 @@ extension AppDelegate {
                                    ignoreAppRevealUntil: Date().addingTimeInterval(1.0),
                                    observer: observer)
             shaded[id] = state
+            // 闭包只拿事务编号，不拿整个 state：Swift 6.0 把交给主队列的闭包当作把 state 送出去，
+            // 之后再用 state 就报数据竞争（macOS 14 上能装的最高版本是 Swift 6.0.3）。
+            let transactionID = state.foldTransactionID
             MainActor.assumeIsolated {
-                bindFoldWaiters(id: id, tokens: completionTokens, transaction: state.foldTransactionID)
+                bindFoldWaiters(id: id, tokens: completionTokens, transaction: transactionID)
             }
             MainActor.assumeIsolated {
                 glance.attach(id: id, overlay: overlay)
@@ -407,9 +410,9 @@ extension AppDelegate {
                     // 期间被展开、或已经注册过，就不再注册：否则会留下一个没人
                     // 移除的 runloop source。
                     guard let current = self.shaded[id], current.observer == nil,
-                          current.foldTransactionID == state.foldTransactionID, CFEqual(current.element, win) else { return }
+                          current.foldTransactionID == transactionID, CFEqual(current.element, win) else { return }
                     guard let registered = foldPhase("观察者注册", {
-                        self.makeRevealObserver(pid: pid, win: win, id: id, transaction: state.foldTransactionID)
+                        self.makeRevealObserver(pid: pid, win: win, id: id, transaction: transactionID)
                     }) else { return }
                     self.shaded[id]?.observer = registered
                 }
@@ -429,7 +432,7 @@ extension AppDelegate {
                 if admissionCurrent() { scheduleFoldVerification(id: id) }
                 else {
                     MainActor.assumeIsolated {
-                        settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: false)
+                        settleFoldWaiters(id: id, transaction: transactionID, success: false)
                     }
                 }
             }

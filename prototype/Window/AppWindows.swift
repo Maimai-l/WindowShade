@@ -33,7 +33,9 @@ nonisolated(unsafe) var axWindowListEnumerations = 0
 // 所以累计起来，按需要做差报出一次折叠的分段。
 nonisolated(unsafe) var foldPhaseTotals: [String: Double] = [:]
 
-@discardableResult
+/// 只在主线程上用（折叠流程）。标成主线程：闭包和调用方同在主线程，Swift 6.0 不把闭包里用到的
+/// 收起状态算作送到了别处（见 ShadeController.swift 的 transactionID）。
+@MainActor @discardableResult
 func foldPhase<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
     let started = CFAbsoluteTimeGetCurrent()
     defer { foldPhaseTotals[name, default: 0] += CFAbsoluteTimeGetCurrent() - started }
