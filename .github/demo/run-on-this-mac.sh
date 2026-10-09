@@ -2,7 +2,9 @@
 # 在自己的 Mac 上跑全部场景测试，不经过 GitHub（docs/testing.md 第 7 节）。
 #
 # 用法（在解开的测试包目录里）：
-#   bash run.sh             全部：录像、检查的检查、主场景组、随机操作，约一小时
+#   bash run.sh             全部：录像、检查的检查、主场景组、随机操作（本机 100 步），约 22 分钟
+#   bash run.sh failed      只重跑上一次没通过的场景，几分钟
+#   bash run.sh A35 C03     只跑这几条场景
 #   bash run.sh shard:0/3   只跑主场景组的三分之一（同 CI 的 RECORD_PART）
 # 结果：~/WindowShadeTests/results-<时刻>.zip，把它发回给 Claude。
 #
@@ -218,6 +220,31 @@ restore() {
 }
 trap restore EXIT
 
+# 要跑哪些：上一次的结果文件还在，先从里面找出没通过的场景。
+PART=all
+case "${1:-}" in
+  "") ;;
+  all|recordings|random|shard:*|only:*) PART="$1" ;;
+  failed)
+    ids=$(python3 -I - "$DEMO_OUT" <<'PY'
+import json, sys, glob
+ids = []
+for path in sorted(glob.glob(sys.argv[1] + "/*.json")):
+    try:
+        data = json.load(open(path))
+    except Exception:
+        continue
+    for s in data.get("scenarios", []) if isinstance(data, dict) else []:
+        if not s.get("passed", True) and s["id"] not in ids:
+            ids.append(s["id"])
+print(",".join(ids))
+PY
+)
+    [ -n "$ids" ] || stop "上一次的结果里没有没通过的场景（或者结果已经被删掉）。"
+    PART="only:$ids" ;;
+  *) PART="only:$(IFS=,; echo "$*")" ;;
+esac
+
 # 固定目录里只留编出来的程序，上一次的结果文件先删掉，免得这一次没跑到时被当成这一次的结果打包。
 mkdir -p "$DEMO_OUT"
 rm -f "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png "$DEMO_OUT"/*.txt "$DEMO_OUT"/*.ips "$DEMO_OUT"/*.mp4
@@ -233,10 +260,10 @@ fi
 caffeinate -dimsu &
 CAFFEINATE=$!
 
-say "开始测试（RECORD_PART=${1:-all}）"
+say "开始测试（${PART}）"
 WINDOWSHADE_LOCAL=1 WINDOWSHADE_TEST_SIGN_IDENTITY="$SIGN_ID" WINDOWSHADE_TEST_KEYCHAIN="$SIGN_KEYCHAIN" \
   WINDOWSHADE_DEMO_OUT="$DEMO_OUT" \
-  RECORD_PART="${1:-all}" bash .github/demo/record.sh
+  RECORD_PART="$PART" bash .github/demo/record.sh
 status=$?
 
 if [ "$status" = 3 ]; then

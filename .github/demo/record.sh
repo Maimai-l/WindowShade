@@ -186,17 +186,20 @@ record() {
 #   random       随机操作 Q01（300 步，十几分钟，单独一个任务）
 #   reproduce-e13  用修复之前的版本跑 E13、A34、X01 至 X05，至少一条要报出输入被挡住（测试测得出这类缺陷）
 #   all（默认）  全部，本地运行用
+#   only:A35,B03 只跑这几条场景（本地复查用；编号可以是任何一组的，包括 K、Q）
 PART="${RECORD_PART:-all}"
 RECORDINGS=false
 RANDOM_OPS=false
 REPRODUCE=false
 SHARD=""
+ONLY=""
 case "$PART" in
   all) RECORDINGS=true; RANDOM_OPS=true; SHARD="main" ;;
   recordings) RECORDINGS=true ;;
   random) RANDOM_OPS=true ;;
   reproduce-e13) REPRODUCE=true ;;
   shard:*) SHARD="$PART" ;;
+  only:*) ONLY="${PART#only:}" ;;
   *) echo "unknown RECORD_PART=$PART"; exit 1 ;;
 esac
 SCENARIO_RESULTS=()
@@ -266,7 +269,11 @@ fi
 # 随机操作（docs/test-catalog.md 第 11 节）：每次运行用新的种子，种子写在结果里。
 if $RANDOM_OPS; then
   echo "==> random operations: Q01"
-  open -W --stderr "$OUT/driver-random.log" "$DRIVER" --args "$OUT/random.json" scenarios "$PROBE" "$APP" "Q01"
+  # 本地运行默认 100 步（约 2.5 分钟）；CI 每次推送都跑 300 步
+  steps="${WINDOWSHADE_RANDOM_STEPS:-}"
+  [ -z "$steps" ] && [ "$LOCAL" = 1 ] && steps=100
+  open -W ${steps:+--env "WINDOWSHADE_RANDOM_STEPS=$steps"} --stderr "$OUT/driver-random.log" \
+    "$DRIVER" --args "$OUT/random.json" scenarios "$PROBE" "$APP" "Q01"
   cat "$OUT/driver-random.log" || true
   SCENARIO_RESULTS+=("$OUT/random.json")
 fi
@@ -279,6 +286,13 @@ if [ -n "$SHARD" ]; then
   else
     open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE" "$APP" "$SHARD"
   fi
+  cat "$OUT/driver-scenarios.log" || true
+  SCENARIO_RESULTS+=("$OUT/scenarios.json")
+fi
+
+if [ -n "$ONLY" ]; then
+  echo "==> scenarios: $ONLY"
+  open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE" "$APP" "$ONLY"
   cat "$OUT/driver-scenarios.log" || true
   SCENARIO_RESULTS+=("$OUT/scenarios.json")
 fi

@@ -23,7 +23,9 @@ cat > "$work/$name/说明.txt" <<'TXT'
      cd WindowShade-test-kit
      bash run.sh
 3. 第一次会停在权限这一步，按提示在系统设置里打开开关，再运行一次 bash run.sh。
-4. 跑完（约一小时）终端最后一行是结果文件的路径（~/WindowShadeTests/results-….zip），把它发给 Claude。
+4. 跑完（约 22 分钟）终端最后一行是结果文件的路径（~/WindowShadeTests/results-….zip），把它发给 Claude。
+5. 只重跑上一次没通过的场景：bash run.sh failed；只跑指定的几条：bash run.sh A35 C03；
+   只跑录像和检查的检查：bash run.sh recordings。
 
 需要：Xcode 26 或对应的命令行工具（Swift 6）。有 ffmpeg 时会多做录像的逐帧检查，没有也能跑。
 TXT

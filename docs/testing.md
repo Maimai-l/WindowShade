@@ -253,7 +253,7 @@ CI 虚拟机的耗时波动较大：2026-10-08 的 5 次运行中，访达的收
 | 录像检查程序 | `.github/demo/check_frames.py`，由 `record.sh` 在每段录像后执行，任一检查失败时 CI 失败；它自己的检查（K05）是 `tests/run-frame-check-selftest.sh`，需要 ffmpeg，在 `demo.yml` 的 recordings 任务里运行 |
 | 检查的检查 | `.github/demo/ScenariosChecks.swift`（K01 至 K04、K06），`record.sh` 的 recordings 任务运行（`docs/test-catalog.md` 第 12 节） |
 | 随机操作 | `.github/demo/ScenariosRandom.swift`（Q01），`demo.yml` 的 random 任务运行，每次新种子（`docs/test-catalog.md` 第 11 节） |
-| 在自己的 Mac 上跑第 4、5 层（不经过 GitHub） | `bash .github/demo/make-mac-kit.sh <目录>` 打出 `WindowShade-test-kit.tar.gz`；在那台 Mac 上解开后运行 `bash run.sh`（`.github/demo/run-on-this-mac.sh`）。第一次按提示在系统设置里给 `DemoDriver` 和 `WindowShade` 打开辅助功能、输入监控、录屏与系统录音；签名先用这台 Mac 上长期固定的证书（`~/Library/Keychains/windowshade-signing.keychain-db` 里的 `WindowShade Local Test`，钥匙串密码在 `~/server/signing/keychain-password`），没有它才用单独钥匙串里的自签名测试证书，再不行用临时签名；编出来的程序固定放在 `~/WindowShadeTests/build`，换新的测试包不用重新给权限。收回权限的场景组（A26、D08、A27、H09）要改权限数据库，只在 CI 上跑。测试改动的系统设置跑完改回。结果打包在 `~/WindowShadeTests/results-<时刻>.zip` |
+| 在自己的 Mac 上跑第 4、5 层（不经过 GitHub） | `bash .github/demo/make-mac-kit.sh <目录>` 打出 `WindowShade-test-kit.tar.gz`；在那台 Mac 上解开后运行 `bash run.sh`（`.github/demo/run-on-this-mac.sh`）。第一次按提示在系统设置里给 `DemoDriver` 和 `WindowShade` 打开辅助功能、输入监控、录屏与系统录音；签名先用这台 Mac 上长期固定的证书（`~/Library/Keychains/windowshade-signing.keychain-db` 里的 `WindowShade Local Test`，钥匙串密码在 `~/server/signing/keychain-password`），没有它才用单独钥匙串里的自签名测试证书，再不行用临时签名；编出来的程序固定放在 `~/WindowShadeTests/build`，换新的测试包不用重新给权限。收回权限的场景组（A26、D08、A27、H09）要改权限数据库，只在 CI 上跑。测试改动的系统设置跑完改回。结果打包在 `~/WindowShadeTests/results-<时刻>.zip`。本机运行的随机操作 Q01 默认 100 步；`bash run.sh failed` 只重跑上一次没通过的场景，`bash run.sh A35 C03` 只跑指定的场景 |
 
 ## 8. 编写测试的规定
 
