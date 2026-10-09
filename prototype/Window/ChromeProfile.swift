@@ -227,7 +227,7 @@ final class ChromeProfileCache: @unchecked Sendable {
         nonisolated(unsafe) var resolved = [WindowChromeProfile?](repeating: nil, count: requests.count)
         // 进入并发的辅助功能读取之前，先在主线程取好 AppKit 的几何信息。
         let localHeights = requests.map { localWindowChromeHeight(id: $0.id, pid: $0.pid) }
-        // 只保护 resolved；写 entries 要用 self.lock，才和其他线程读 entries 互斥。
+        // 只保护 resolved；写 entries 要用 self.lock，才和其他线程读写 entries 互斥。
         let resultsLock = NSLock()
         DispatchQueue.concurrentPerform(iterations: requests.count) { index in
             let request = requests[index]

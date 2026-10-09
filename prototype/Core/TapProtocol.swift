@@ -9,16 +9,15 @@ import CoreGraphics
 import Foundation
 
 enum TapProtocol {
-    /// 钩子进程等 WindowShade 回话的时限。系统在钩子约 2 秒不回话时才停用它，这里要远小于那个值。
+    /// 从事件产生算起，钩子进程最多等 WindowShade 回话多久。系统在钩子约 2 秒不回话时才停用它，这里要远小于那个值。
     static let deadline: TimeInterval = 0.4
     /// 询问送进 WindowShade 的端口最多等多久：端口排满（WindowShade 停住、积了很多询问）时才会等。
     static let sendTimeout: TimeInterval = 0.1
-    /// 送进去以后等回话最多多久。WindowShade 判断询问是否过时（isFresh）按的就是这个时限，
-    /// 所以钩子放行之后 WindowShade 不会再按它收起。两段加起来最多 0.5 秒。
+    /// 旧的固定回话时限，只有测试还在用；钩子实际的两段等待见 waits，合计不超过 deadline。
     static let replyTimeout: TimeInterval = deadline
     /// 钩子进程等回话时只跑这个运行循环模式：等的时候不处理钩子自己的事件。
     static let replyMode = "com.windowshade.prototype.tap.reply"
-    /// 问的是“这次双击（三击）要不要吞掉”。
+    /// 问的是“这次双击（三击）要不要拦下”。
     static let askMessageID: Int32 = 1
     /// 钩子进程在 WindowShade 包里的文件名（Contents/MacOS/）。
     static let helperName = "WindowShadeTapHelper"
@@ -29,7 +28,7 @@ enum TapProtocol {
     static func portName(appPID: pid_t) -> String { "com.windowshade.prototype.tap.\(appPID)" }
 
     /// 这次询问的两段等待各给多少：从事件产生算起，钩子总共只等 deadline。前面的询问占着钩子线程时，
-    /// 后面的事件已经排了一段队；每次询问再各等一个完整时限，等待就会累加，超过系统能容忍的时间，
+    /// 后面的事件已经排了一段队；如果每次询问都再等一个完整时限，等待就会累加，超过系统允许钩子占用的时间，
     /// 系统会停用钩子（2026-10-09 CI 场景 A33-Safari：探测点击晚了 1.24 秒，钩子被停用一次）。
     /// 剩下的时间不够 minimumWait 就不问，直接放行。
     static func waits(eventAge: TimeInterval) -> (send: TimeInterval, reply: TimeInterval)? {
@@ -41,7 +40,7 @@ enum TapProtocol {
     static let minimumWait: TimeInterval = 0.05
 
     /// 事件从产生到现在过了多久（秒）。CGEvent 的时间戳在有的系统上是纳秒，在有的系统上是 mach 时钟的计数，
-    /// 两种都换算一次，取落在 0 到 10 秒之间的那个；都不在这个范围就返回 nil，调用方按刚产生处理。
+    /// 两种都换算一次，先看按计数换算的结果，不在 0 到 10 秒之间再看按纳秒换算的；都不在就返回 nil，调用方按刚产生处理。
     static func eventAge(timestamp: UInt64, nowTicks: UInt64, numer: UInt32, denom: UInt32) -> TimeInterval? {
         let scale = Double(numer) / Double(denom)
         let nowNanos = Double(nowTicks) * scale
@@ -73,7 +72,7 @@ struct TapAskGate {
     mutating func recordAnswered() { quietUntil = 0 }
 }
 
-/// 一次询问：点在哪里、第几下（2 是双击，3 是三击）、事件产生的时刻（钩子按它算等待，WindowShade 按它判断是否过时）。
+/// 一次询问：点在哪里、第几下（2 是双击，3 是三击）、事件产生的时刻。WindowShade 按这个时刻判断询问是否过时。
 struct TapRequest: Equatable, Sendable {
     var point: CGPoint
     var clicks: Int64
@@ -100,7 +99,7 @@ struct TapRequest: Equatable, Sendable {
     }
 }
 
-/// 回话：一个字节，1 是吞掉，其他都是放行。
+/// 回话：一个字节，1 是拦下，其他都是放行。
 enum TapReply {
     static func encoded(swallow: Bool) -> Data { Data([swallow ? 1 : 0]) }
     static func swallow(_ data: Data?) -> Bool { data?.count == 1 && data?.first == 1 }

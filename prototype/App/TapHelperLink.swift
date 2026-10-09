@@ -121,7 +121,7 @@ enum TapHelperLink {
         }
     }
 
-    /// 钩子进程问：这次双击（三击）要不要吞掉。钩子过了时限就放行了，过时的询问不处理。
+    /// 钩子进程问：这次双击（三击）要不要拦下。钩子过了时限就放行了，过时的询问不处理。
     fileprivate static func answer(messageID: Int32, data: Data?) -> Bool {
         guard messageID == TapProtocol.askMessageID, let data, let request = TapRequest(data) else { return false }
         let now = CFAbsoluteTimeGetCurrent()

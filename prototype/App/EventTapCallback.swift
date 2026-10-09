@@ -56,7 +56,7 @@ func titlebarHitTest(at point: CGPoint) -> (error: AXError, element: AXUIElement
 /// 要不要拦下（标题栏双击收起、三击执行系统的双击标题栏动作，本来就要问那个应用程序），而且最多等 TapDecision.deadline。
 nonisolated(unsafe) var mouseDownTapPort: CFMachPort?
 
-/// 吞掉了一次按下，就把跟它配对的那次松开也吞掉：macOS 26 起，系统在第二次松开时执行“双击标题栏缩放”，
+/// 拦下了一次按下，就把跟它配对的那次松开也拦下：macOS 26 起，系统在第二次松开时执行“双击标题栏缩放”，
 /// 只吞按下的话窗口照样被放大，卷帘条截到的就是放大后的窗口。只在钩子线程上读写。
 nonisolated(unsafe) private var swallowNextMouseUp = false
 

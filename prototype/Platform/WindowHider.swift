@@ -115,7 +115,8 @@ final class WindowHider: @unchecked Sendable {
         }
     }
 
-    /// 可安全整体隐藏时隐藏整个应用程序；否则依次试 SkyLight 移到屏幕外、SkyLight 透明、停到屏幕角上，最后才最小化。
+    /// 可安全整体隐藏时隐藏整个应用程序；当前桌面上没有窗口能接手焦点、又是应用程序唯一的窗口时直接最小化；
+    /// 否则依次试 SkyLight 移到屏幕外、SkyLight 透明、停到屏幕角上，最后才最小化。
     /// 隐藏整个应用程序只在它没有其他可见窗口时使用：产品语义仍是“收起这一个窗口”。
     func fallbackHide(_ request: HideRequest, allowAppHide: Bool) -> HideMethod {
         let pid = request.pid
@@ -130,10 +131,10 @@ final class WindowHider: @unchecked Sendable {
             }
             control.log("    fallback hidden rejected（pid=\(pid), currentWindows=\(counts.visible), windows=\(counts.total)）")
         }
-        // 当前桌面上没有窗口能接手焦点，而这是应用程序唯一的窗口：直接最小化。移到屏幕外或停到角落时，
+        // 当前桌面上没有窗口能接手焦点，而这是应用程序唯一的窗口：直接最小化。移到屏幕外、设成透明或停到角落时，
         // 应用程序仍在前台、窗口仍算“开着”，点程序坞图标、选“窗口”菜单都不会让它回来；最小化之后，
         // 这两种操作都会取消最小化，WindowShade 跟着展开（场景 B06-alone）。应用程序有别的窗口时不这样做：
-        // 最小化当前窗口，系统会让同一应用程序的另一扇窗口接手，那扇在别的桌面上就会切换桌面。
+        // 最小化当前窗口，系统会让同一应用程序的另一扇窗口接手，那扇窗口在别的桌面上时，系统会切换桌面。
         if request.noFocusHeir && counts.total <= 1 {
             control.setMinimized(request.window, true)
             control.log("    no window on this desktop takes focus → minimized（pid=\(pid), windows=\(counts.total)）")

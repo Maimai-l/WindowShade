@@ -3,7 +3,7 @@
 // 主动钩子挡着全系统的点击和排在后面的按键。钩子放在 WindowShade 里时，WindowShade 一停住
 // （崩溃时系统生成报告会把它挂起、调试器暂停），点击就要等系统停用钩子才放行（场景 X11）；
 // 这时全系统的点击和快捷键都没有反应。
-// 这个进程只做一件事：单击直接放行；双击、三击问 WindowShade 要不要吞掉，最多等 TapProtocol.deadline，
+// 这个进程只做一件事：单击直接放行；双击、三击问 WindowShade 要不要拦下，最多等 TapProtocol.deadline，
 // 没回话就放行。不碰界面、不做辅助功能查询、不写文件。WindowShade 退出它就退出。
 //
 // 用法：WindowShadeTapHelper <WindowShade 的进程号> <端口名>
@@ -16,7 +16,7 @@ enum TapHelper {
     nonisolated(unsafe) static var portName: CFString = "" as CFString
     nonisolated(unsafe) static var tapPort: CFMachPort?
     nonisolated(unsafe) static var remotePort: CFMessagePort?
-    /// 吞掉了一次按下，就把跟它配对的松开也吞掉（见 App/EventTapCallback.swift）。只在钩子线程上读写。
+    /// 拦下了一次按下，就把跟它配对的松开也拦下（见 App/EventTapCallback.swift）。只在钩子线程上读写。
     nonisolated(unsafe) static var swallowNextMouseUp = false
     /// WindowShade 刚没回话时暂时不问（TapAskGate）。只在钩子线程上读写。
     nonisolated(unsafe) static var gate = TapAskGate()

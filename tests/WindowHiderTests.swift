@@ -1,4 +1,4 @@
-// 需求：F1、F3（docs/testing.md 第 3.1 节）。
+// 需求：F1、F3、R2（docs/testing.md 第 3.1 节）。
 // 第 2 层组件测试：WindowHider 在模拟窗口上按隐藏策略依次尝试各种方式（Platform/WindowHider.swift）。
 
 import CoreGraphics
@@ -149,7 +149,7 @@ struct WindowHiderTests {
             t.expect(hider.takeOriginalAlpha(id: 42) == 1 && hider.originalAlpha(id: 42) == nil, "取回后删除")
         }
 
-        t.section("F2", "当前桌面上没有窗口能接手焦点、这是应用程序唯一的窗口：最小化（点程序坞图标能取消最小化，场景 B06-alone）")
+        t.section("R2", "当前桌面上没有窗口能接手焦点：应用程序只有这一扇窗口时最小化，还有别的窗口时不最小化（场景 B06-alone）")
         do {
             let control = FakeWindowControl(position: start, size: size, allowedOrigins: anywhere)
             let hider = WindowHider(control: control)
