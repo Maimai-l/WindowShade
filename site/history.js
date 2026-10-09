@@ -83,7 +83,7 @@
  function preferenceMessage() {
   const {count, modifiers}=getPreference();
   const names={meta:'⌘',alt:'Option',ctrl:'Control'};
-  return count===0?t('已关闭。点击标题栏不会收起。','Off. Title-bar clicks will not collapse the window.'):
+  return count===0?t('已关闭。点击标题栏不会收起。','Off. Title-bar clicks will not roll up the window.'):
    t(`当前：${modifiers.length ? '按住 '+modifiers.map(k=>names[k]).join(' + ')+'，':''}连续点击 ${count} 次。`,`Current: ${modifiers.length ? 'hold '+modifiers.map(k=>names[k]).join(' + ')+' and ':''}click ${count} times in succession.`);
  }
  function toggleGesture() {

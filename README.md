@@ -57,25 +57,25 @@ Today’s WindowShade is an independent Swift / AppKit app: the old name and the
 
 Roll up, and a window stays where it was. Glance, and you see it without unrolling. The window you need stays where you know it is, with no round trip to get it.
 
-**Roll up.** Double-click a title bar or press `⌃⌘C` and the window rolls up into a thin bar; double-click the bar to unroll it. The bar can keep the window’s own look, or use one consistent title bar. While a bar is in front, `⌘W`, `⌘M`, `⌘H`, `⌘Q` and `⌘N` go to the window and app behind it; `⌘Q` puts the window back down first, so any “save changes?” question is where you can see it.
+**Roll up.** Double-click a title bar, or press the shortcut for “Roll up or unroll the current window”, and the window rolls up into a thin bar; double-click the bar to unroll it. After rolling up it can show the original title bar, a simplified title bar, or a thumbnail; choose in Settings → Roll up → Show after rolling up. While a bar is in front, Command-W, Command-M, Command-H, Command-Q and Command-N go to the window and app behind it; Command-Q unrolls the window first, so any “save changes?” question is where you can see it.
 
-**Glance.** Rest the pointer on the bar and a card drops down beneath it, showing the window's content at its own size; move away and it rolls back up. Click the card to unroll the window for real. The bar stays put and the card hangs just below it, so it reads as a preview, not the window itself. A glance never switches the app you’re in and never moves a window. A window that was minimized when it rolled up can’t be shown live, so you see how it looked then. Details are in the [glance notes](docs/glance.md).
+**Glance.** Rest the pointer on the bar and a card drops down beneath it, showing the window's content at its own size; move away and it rolls back up. Click the card to unroll the window for real. The bar stays put and the card hangs just below it, with a gap between them, so it’s clear the card isn’t the window itself. A glance never switches the app you’re in and never moves a window. Some windows can’t be shown live after rolling up; then the card shows the window as it was when it rolled up.
 
 ## Shortcuts
 
-New setups in 1.0.16 preset none of these ⌃⌘ combinations; record your own in Settings → Shortcuts. Setups upgraded from 1.0.15 or earlier keep the combinations below.
+From 1.0.16, a new installation of WindowShade presets no shortcuts. In Settings → Shortcuts you can record one for “Roll up or unroll the current window” and “Line up the bars”, and turn on “Unroll by number” (Control-Command-1 to 9). Installations upgraded from 1.0.15 or earlier keep the shortcuts below.
 
-| Shortcut (upgraded setups) | What it does |
+| Kept after upgrading | What it does |
 | --- | --- |
 | `⌃⌘C` | Roll up or unroll the current window |
 | `⌃⌘1…9` | Unroll a rolled-up window, in menu order |
 | `⌃⌘0` | Line up the bars; press again to put them back |
 
-Double-click a title bar to roll up; double-click the bar to unroll. Every shortcut can be changed or turned off in Settings, and if another app already uses a combination, WindowShade tells you once.
+“Roll up or unroll the current window” and “Line up the bars” can be changed or cleared in Settings, and “Unroll by number” can be turned off as a group; if another app already uses a combination, WindowShade tells you once.
 
 ## Download
 
-Get the latest ZIP from [Releases](https://github.com/surfine/WindowShade/releases/latest), unzip it, drag `WindowShade.app` into Applications and open it, then follow the permission prompts. It lives in the menu bar and stays out of your Dock.
+Get the latest ZIP from [Releases](https://github.com/surfine/WindowShade/releases/latest), unzip it, drag `WindowShade.app` into Applications and open it, then allow Accessibility and Screen Recording in System Settings when asked. Only its icon appears, in the menu bar; it stays out of your Dock.
 
 - **1.0.15 download:** 4.06 MB ZIP; the extracted app contains 7.98 MB of files (decimal MB; filesystem allocation may differ).
 - **Needs macOS 14 or later and Apple Silicon.** There’s no Intel build.
@@ -84,7 +84,7 @@ Get the latest ZIP from [Releases](https://github.com/surfine/WindowShade/releas
 
 ## Your windows stay on your Mac
 
-WindowShade asks for two permissions. **Accessibility**: finding, moving and restoring windows. **Screen Recording**: taking the window pictures used for previews. “Screen Recording” is just the name the system gives that permission — everything is processed on your Mac and nothing is uploaded. If the app ever quits unexpectedly, your windows go back to how they were.
+WindowShade uses two items in System Settings: **Accessibility**, to find, move, roll up and unroll windows; **Screen Recording**, because the original title bar, glance and thumbnails need pictures of the window. “Screen Recording” is just the name the system gives that item — everything is processed on your Mac and nothing is uploaded. If WindowShade ever quits unexpectedly, it puts rolled-up windows back the next time it opens.
 
 Regular windows all roll up. Stickies rolls up in its own system way; apps like Adobe’s that draw their own title bars are handled separately. Full screen, Split View, Stage Manager and multiple displays still have a few gaps — try it once with the apps you use. If something goes wrong, please [report it](https://github.com/surfine/WindowShade/issues) with your macOS version, the app, and the steps.
 
