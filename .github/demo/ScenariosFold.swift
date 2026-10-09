@@ -44,10 +44,14 @@ func standardWindow(of bundleID: String, launch: [String], timeout: Double = 10)
 /// 用真实的应用程序收起、展开一次；没有这个应用程序时记为跳过，不算失败。
 func realAppRoundTrip(_ bundleID: String, launch: [String], size: CGSize?, barY: CGFloat = 14,
                       quitAfter: Bool, _ harness: Harness) async {
+    // 场景开始前就开着的应用程序不结束：在自己的 Mac 上，A33-Terminal 会把运行测试的终端也关掉（2026-10-09）。
+    let wasRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
     guard let window = await standardWindow(of: bundleID, launch: launch) else {
         harness.result.notes["skipped"] = "\(bundleID) has no window on this machine"
         // 启动了但没有窗口（多半停在系统的确认框上）：结束它，确认框由下一个场景前的 clearSystemPopups 撤掉。
-        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).forEach { $0.forceTerminate() }
+        if !wasRunning {
+            NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).forEach { $0.forceTerminate() }
+        }
         return
     }
     if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
@@ -115,7 +119,7 @@ func realAppRoundTrip(_ bundleID: String, launch: [String], size: CGSize?, barY:
         await expectFrame({ firstWindow(of: bundleID) }, frame, harness, within: 4, bundleID)
         await expectNoStrip(harness, within: 2)
     }
-    if quitAfter, let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+    if quitAfter, !wasRunning, let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
         kill(app.processIdentifier, SIGTERM)
     }
 }

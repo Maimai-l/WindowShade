@@ -153,6 +153,7 @@ fi
 # 本机运行：开跑前确认两个程序都有权限、用户登录在桌面、屏幕没锁、有显示器。缺什么就说出来并停下（退出码 3）。
 if [ "$LOCAL" = "1" ]; then
   echo "==> preflight"
+  rm -f "$OUT/preflight.txt" "$OUT/preflight.log"   # open 往已有的文件后面追加：不删就会读到上一次的结果
   open -W --stdout "$OUT/preflight.txt" --stderr "$OUT/preflight.log" "$DRIVER" --args preflight
   driver_ok=$?
   cat "$OUT/preflight.txt" 2>/dev/null || true

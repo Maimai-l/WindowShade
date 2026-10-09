@@ -5,7 +5,7 @@
 
 import AppKit
 import ApplicationServices
-import AVFoundation
+@preconcurrency import AVFoundation
 import ScreenCaptureKit
 
 private let logClock: DateFormatter = {
@@ -87,7 +87,8 @@ func place(_ window: AXUIElement, origin: CGPoint, size: CGSize) {
 /// 自己把屏幕帧写进 AVAssetWriter（用户的 macOS 14.5 机器上 2026-10-09 编不过，见 docs/testing.md 第 5 节）。
 /// SDK 里有没有 SCRecordingOutput 由 record.sh 查头文件决定（DEMO_SDK_HAS_RECORDING_OUTPUT），
 /// 和 prototype/build.sh 判断玻璃接口的办法一样：旧 SDK 里连这个类型名都没有，只靠 #available 编不过。
-final class Recorder: NSObject, SCStreamDelegate, SCStreamOutput {
+/// 写录像的状态只在 writerQueue 上读写（macOS 14 的写法）。
+final class Recorder: NSObject, SCStreamDelegate, SCStreamOutput, @unchecked Sendable {
     private var stream: SCStream?
     private var finished: CheckedContinuation<Void, Never>?
     /// ReplayKit 报错时录像文件不完整（没有 moov），record.sh 据此重录一次。

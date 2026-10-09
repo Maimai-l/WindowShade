@@ -29,9 +29,15 @@ xcrun --find swiftc >/dev/null 2>&1 || stop "没有 Swift 编译器。运行 xco
 swift_version=$(xcrun swiftc --version 2>&1 | head -1)
 echo "$swift_version"
 echo "$swift_version" | grep -qE "Swift version ([6-9]|[1-9][0-9])\." || stop "需要 Swift 6 或更新的编译器（Xcode 26 或对应的命令行工具）。"
-if pgrep -x WindowShade >/dev/null; then
-  stop "WindowShade 正在运行。先从菜单栏退出它（会先展开全部收起的窗口），再运行。"
-fi
+# 测试包自己编的 WindowShade 还在运行（上一次没跑完）就结束它；别处装的 WindowShade 要用户自己先退出。
+for pid in $(pgrep -x WindowShade); do
+  case "$(ps -p "$pid" -o comm= 2>/dev/null)" in
+    */.build/demo/WindowShade.app/*) kill "$pid" 2>/dev/null ;;
+    *) stop "WindowShade 正在运行。先从菜单栏退出它（会先展开全部收起的窗口），再运行。" ;;
+  esac
+done
+pkill -x DemoDriver 2>/dev/null || true
+pkill -x ProbeApp 2>/dev/null || true
 command -v ffmpeg >/dev/null || echo "没有 ffmpeg：录像的逐帧检查（K05 等）会跳过，其余照常。"
 sw_vers
 sysctl -n hw.model
@@ -73,13 +79,23 @@ try_sign() {  # 用测试证书签一个临时文件，成功返回 0；失败�
   local probe_bin
   probe_bin=$(mktemp)
   cp /usr/bin/true "$probe_bin"
-  codesign --force --keychain "$KEYCHAIN" -s "$cert_hash" "$probe_bin"
+  codesign --force -s "$cert_hash" "$probe_bin"
   local result=$?
   rm -f "$probe_bin"
   return $result
 }
+# codesign 只在用户的钥匙串搜索列表里找签名身份（10-09 在用户的 Mac 上：只给 --keychain 时报
+# “The specified item could not be found in the keychain”）。测试期间把测试钥匙串加进列表，结束时去掉。
+ORIGINAL_KEYCHAINS=()
+while IFS= read -r line; do
+  line=${line#*\"}
+  line=${line%\"}
+  [ "$line" = "$KEYCHAIN" ] || ORIGINAL_KEYCHAINS+=("$line")
+done < <(security list-keychains -d user)
 if [ -f "$KEYCHAIN" ]; then
   security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+  security list-keychains -d user -s ${ORIGINAL_KEYCHAINS[@]+"${ORIGINAL_KEYCHAINS[@]}"} "$KEYCHAIN"
+  security find-identity -p codesigning "$KEYCHAIN"
   cert_hash=$(security find-certificate -c "$CERT_NAME" -Z "$KEYCHAIN" 2>/dev/null | awk '/SHA-1/ {print $NF}')
   if [ -n "$cert_hash" ] && try_sign; then
     SIGN_ID="$cert_hash"
@@ -102,6 +118,39 @@ if [ "$SIGN_ID" = "-" ]; then
 fi
 
 # 测试会改的系统设置：先记下原值，结束时（包括中途出错、按 Control-C）改回。
+# 记录放在 ~/WindowShadeTests 里，带运行的时刻：这一次被打断（终端被关掉、断电），下一次运行开头先改回。
+restore_saved() {  # $1：哪一次运行记下的（时刻）
+  local file="$RESULTS/.saved-settings-$1" plist="$RESULTS/.windowshade-defaults-$1.plist" look="$RESULTS/.appearance-$1"
+  [ -f "$file" ] || return 0
+  while IFS=$'\t' read -r domain key type value; do
+    if [ "$value" = ABSENT ]; then
+      defaults delete "$domain" "$key" 2>/dev/null || true
+      echo "  删除 ${domain} ${key}（原来没有）"
+    elif [ -n "$value" ]; then
+      defaults write "$domain" "$key" "-$type" "$value"
+      echo "  ${domain} ${key} = ${value}"
+    fi
+  done < "$file"
+  rm -f "$file"
+  if [ -f "$plist" ]; then
+    defaults import com.windowshade.prototype "$plist"
+    rm -f "$plist"
+  else
+    defaults delete com.windowshade.prototype 2>/dev/null || true
+  fi
+  if [ -f "$look" ] && [ -d "$ROOT/.build/demo/DemoDriver.app" ]; then
+    open -W "$ROOT/.build/demo/DemoDriver.app" --args appearance "$(cat "$look")" || true
+    echo "  外观 = $(cat "$look")"
+  fi
+  rm -f "$look"
+  killall Dock WindowManager 2>/dev/null || true
+}
+for leftover in "$RESULTS"/.saved-settings-*; do
+  [ -f "$leftover" ] || continue
+  say "上一次运行没跑完，先改回它改动的系统设置"
+  restore_saved "${leftover##*.saved-settings-}"
+done
+
 say "记下会被改动的系统设置"
 SAVED_FILE="$RESULTS/.saved-settings-$STAMP"
 : > "$SAVED_FILE"
@@ -121,8 +170,9 @@ remember com.apple.WindowManager EnableStandardClickToShowDesktop bool
 remember com.apple.CrashReporter DialogType string
 APPEARANCE=light
 [ "$(defaults read -g AppleInterfaceStyle 2>/dev/null)" = Dark ] && APPEARANCE=dark
-WS_DEFAULTS="$RESULTS/.windowshade-defaults-$STAMP.plist"
-defaults export com.windowshade.prototype "$WS_DEFAULTS" 2>/dev/null || rm -f "$WS_DEFAULTS"
+echo "$APPEARANCE" > "$RESULTS/.appearance-$STAMP"
+defaults export com.windowshade.prototype "$RESULTS/.windowshade-defaults-$STAMP.plist" 2>/dev/null \
+  || rm -f "$RESULTS/.windowshade-defaults-$STAMP.plist"
 cat "$SAVED_FILE"
 echo "外观：$APPEARANCE"
 
@@ -133,26 +183,8 @@ restore() {
   say "改回系统设置"
   pkill -x WindowShade 2>/dev/null || true
   pkill -x DemoDriver 2>/dev/null || true
-  while IFS=$'\t' read -r domain key type value; do
-    if [ "$value" = ABSENT ]; then
-      defaults delete "$domain" "$key" 2>/dev/null || true
-      echo "  删除 ${domain} ${key}（原来没有）"
-    elif [ -n "$value" ]; then
-      defaults write "$domain" "$key" "-$type" "$value"
-      echo "  $domain $key = $value"
-    fi
-  done < "$SAVED_FILE"
-  rm -f "$SAVED_FILE"
-  if [ -f "$WS_DEFAULTS" ]; then
-    defaults import com.windowshade.prototype "$WS_DEFAULTS"
-    rm -f "$WS_DEFAULTS"
-  else
-    defaults delete com.windowshade.prototype 2>/dev/null || true
-  fi
-  if [ -d "$ROOT/.build/demo/DemoDriver.app" ]; then
-    open -W "$ROOT/.build/demo/DemoDriver.app" --args appearance "$APPEARANCE" || true
-  fi
-  killall Dock WindowManager 2>/dev/null || true
+  restore_saved "$STAMP"
+  security list-keychains -d user -s ${ORIGINAL_KEYCHAINS[@]+"${ORIGINAL_KEYCHAINS[@]}"} 2>/dev/null || true
   [ -n "${CAFFEINATE:-}" ] && kill "$CAFFEINATE" 2>/dev/null
 }
 trap restore EXIT
@@ -162,7 +194,6 @@ CAFFEINATE=$!
 
 say "开始测试（RECORD_PART=${1:-all}）"
 WINDOWSHADE_LOCAL=1 WINDOWSHADE_TEST_SIGN_IDENTITY="$SIGN_ID" \
-  WINDOWSHADE_TEST_KEYCHAIN="$( [ "$SIGN_ID" = "-" ] || echo "$KEYCHAIN" )" \
   RECORD_PART="${1:-all}" bash .github/demo/record.sh
 status=$?
 
