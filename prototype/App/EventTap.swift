@@ -149,6 +149,12 @@ extension AppDelegate {
             DispatchQueue.main.async { [weak self] in _ = self?.unshade(pending) }
             return true
         }
+        // 点在一条卷帘条的范围里却没按上面处理：记下它当时的状态（3064c36 上 A36 的第二次双击收起了后面的访达）。
+        if let entry = shaded.first(where: { $0.value.overlay?.frame.contains(cocoaPoint) == true }),
+           let overlay = entry.value.overlay {
+            wlog("titlebar-double-click: strip id=\(entry.key) under the point visible=\(overlay.isVisible) "
+                 + "alpha=\(String(format: "%.2f", overlay.alphaValue)) onScreen=\(overlay.isOnActiveSpace)")
+        }
         // 先用 WindowServer 廉价排除内容区双击（选词等高频操作），
         // 避免在 tap 回调里对目标 app 做同步 AX 命中测试。
         guard pointMayLieInTitlebarBand(point) else { return false }
