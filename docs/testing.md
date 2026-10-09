@@ -196,6 +196,7 @@ CI 虚拟机只有一个显示器，R4 的多显示器情形只能由第 1 层�
 | 2026-10-09 | 测试包在用户的 macOS 14.5 上：驱动程序编不过，`run-on-this-mac.sh` 恢复设置时报 `key: unbound variable` | 驱动程序的录像用了 macOS 15 才有的 `SCRecordingOutput`；macOS 自带的 bash 3.2 把变量名后面紧跟的中文算作变量名的一部分 | CI 的 build-swift60 任务加编驱动程序和 ProbeApp；`run-shell-portability-tests.sh`（用旧的那一行验证过它会报出） | 已改：SDK 有 `SCRecordingOutput` 且系统是 macOS 15 以上时照旧，否则用 SCStream 加 AVAssetWriter 录（`Recorder`）；变量后面紧跟中文的改成带花括号。待用户在 macOS 14.5 上确认 |
 | 2026-10-09 | 用户的 macOS 14.5 上跑测试包：主场景组跑到一半，终端被关掉，测试中断，没有打包结果 | 场景 A33-Terminal 收起、展开终端后把终端结束；在用户的 Mac 上，运行测试的正是终端。另：测试证书在只给 `--keychain` 时 codesign 找不到；preflight.txt 被 `open` 追加，读到上一次的结果 | 本机运行 | 已改：场景只结束自己启动的应用程序；测试钥匙串在运行期间加进钥匙串搜索列表，并打出 `find-identity` 的结果；上一次被打断时，下一次运行开头先改回它改动的系统设置；preflight 前先删旧结果 |
 | 2026-10-09 | 随机操作 Q01 在用户的 macOS 14.5（M2，1680×1050）上第 277 步失败：拖动卷帘条 (12,25) 后，卷帘条比指针松开的位置少走了 7 点（应在 y=105，实际 98），检查容许 6 点 | 未查明：可能是拖动开始时越过拖动阈值的那一段没有算进去，也可能是检查程序的问题；CI 上没有出现过。这次没有 WindowShade 的日志 | 场景 Q01（种子 1387171147） | 未修复：用同一种子在 CI 上重跑，并在下一次本机结果里看日志 |
+| 2026-10-09 | CI 场景 A33-Safari（3fe4b01）：探测点击 1.08 秒才穿过钩子（I2） | WindowShade 的主线程处理一次双击时问访达等了 824 毫秒，钩子进程等满 0.4 秒放行（`tap-helper: pass: WindowShade did not answer in time status=-2`）；紧接着的探测双击排在它后面，又等一次 0.4 秒。每次询问各等一次时限，连着几次就叠起来 | `run-tap-protocol-tests.sh` 的 T6 | 已改：WindowShade 一次没回话，接下来 1 秒内的双击直接放行（`TapAskGate`），每次点击最多被挡一次时限。主线程等访达 824 毫秒本身仍未解决（I6，见主线程停顿各行） |
 
 ## 6. 录像检查的判定方法
 

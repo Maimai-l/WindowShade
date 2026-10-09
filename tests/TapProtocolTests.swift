@@ -40,6 +40,19 @@ struct TapProtocolTests {
         t.expect(!TapReply.swallow(Data([1, 1])), "长度不对：放行")
         t.expect(!TapReply.swallow(Data([2])), "不认识的值：放行")
 
+        t.section("T6", "WindowShade 一次没回话，接下来的双击不再等它（CI A33-Safari：两次等待叠起来，探测点击晚了 1.08 秒）")
+        var gate = TapAskGate()
+        t.expect(gate.shouldAsk(now: 100), "平时照常问")
+        gate.recordUnanswered(now: 100.4)
+        t.expect(!gate.shouldAsk(now: 100.5), "刚没回话：0.1 秒后的双击直接放行，不再等 0.4 秒")
+        t.expect(!gate.shouldAsk(now: 101.3), "1 秒之内都不问")
+        t.expect(gate.shouldAsk(now: 101.5), "过了 1 秒再问")
+        gate.recordUnanswered(now: 101.9)
+        gate.recordAnswered()
+        t.expect(gate.shouldAsk(now: 102.0), "回话了就恢复照常问")
+        t.expect(TapProtocol.sendTimeout + TapProtocol.replyTimeout + 0.05 < 1.0,
+                 "一次点击最多被挡一次等待的时间，加上余量也在 1 秒（I2）之内")
+
         t.section("T5", "两个 WindowShade 各用各的端口")
         t.expect(TapProtocol.portName(appPID: 100) != TapProtocol.portName(appPID: 101), "端口名带进程号")
         t.finish()

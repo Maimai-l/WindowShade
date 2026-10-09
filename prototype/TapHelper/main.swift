@@ -18,6 +18,8 @@ enum TapHelper {
     nonisolated(unsafe) static var remotePort: CFMessagePort?
     /// 吞掉了一次按下，就把跟它配对的松开也吞掉（见 App/EventTapCallback.swift）。只在钩子线程上读写。
     nonisolated(unsafe) static var swallowNextMouseUp = false
+    /// WindowShade 刚没回话时暂时不问（TapAskGate）。只在钩子线程上读写。
+    nonisolated(unsafe) static var gate = TapAskGate()
     static let logQueue = DispatchQueue(label: "tap-helper.log")
 
     /// 给 WindowShade 的日志（它读这个进程的标准输出）。写在后台队列上，标准输出设为不阻塞：
@@ -31,6 +33,10 @@ enum TapHelper {
 
     /// 问 WindowShade：这次双击（三击）要不要吞掉。送出最多 0.1 秒，等回话最多 0.4 秒；没回话、出错一律放行。
     static func ask(_ request: TapRequest) -> Bool {
+        guard gate.shouldAsk(now: CFAbsoluteTimeGetCurrent()) else {
+            say("pass: WindowShade did not answer a moment ago; not asking clicks=\(request.clicks)")
+            return false
+        }
         if remotePort.map({ !CFMessagePortIsValid($0) }) ?? true {
             remotePort = CFMessagePortCreateRemote(nil, portName)
         }
@@ -44,9 +50,11 @@ enum TapHelper {
                                               TapProtocol.replyMode as CFString, &reply)
         let data = reply.map { $0.takeRetainedValue() as Data }
         guard Int(status) == Int(kCFMessagePortSuccess) else {
+            gate.recordUnanswered(now: CFAbsoluteTimeGetCurrent())
             say("pass: WindowShade did not answer in time status=\(status) clicks=\(request.clicks)")
             return false
         }
+        gate.recordAnswered()
         return TapReply.swallow(data)
     }
 

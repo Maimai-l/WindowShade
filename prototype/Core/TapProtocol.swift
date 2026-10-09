@@ -36,6 +36,20 @@ enum TapProtocol {
     }
 }
 
+/// 要不要问 WindowShade。它一次没在时限内回话（主线程在等一个卡住的应用程序之类），接下来 quietPeriod
+/// 之内的双击直接放行，不再等：不然连着几次双击，每次都等满时限，后面的点击要等前面几次加起来的时间
+/// （2026-10-09 CI 场景 A33-Safari：探测点击晚了 1.08 秒）。这段时间里双击标题栏不收起。
+struct TapAskGate {
+    static let quietPeriod: TimeInterval = 1.0
+    private var quietUntil: CFAbsoluteTime = 0
+
+    init() {}
+
+    func shouldAsk(now: CFAbsoluteTime) -> Bool { now >= quietUntil }
+    mutating func recordUnanswered(now: CFAbsoluteTime) { quietUntil = now + Self.quietPeriod }
+    mutating func recordAnswered() { quietUntil = 0 }
+}
+
 /// 一次询问：点在哪里、第几下（2 是双击，3 是三击）、钩子发出的时刻。
 struct TapRequest: Equatable, Sendable {
     var point: CGPoint
