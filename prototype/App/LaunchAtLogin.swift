@@ -11,23 +11,27 @@ import ServiceManagement
 enum LaunchAtLoginState {
     /// 最近一次查到的状态。启动后在后台查第一次，查到之前开关显示为关。
     private(set) static var status: SMAppService.Status = .notRegistered
-    /// 正在查时又来的调用方：不另查一次，等这一次查完一起通知。
+    /// 这一次查完要通知的调用方，正在查时又来的也排在这里，不另查一次；结果没变、或查询期间改过登录项时不通知。
     private static var waiting: [@MainActor @Sendable () -> Void] = []
     private static var querying = false
+    /// 注册或取消开始时加一，做完时再加一。查询、注册或取消回来时这个数变了，说明期间改过登录项，
+    /// 回来的结果可能是改之前的，不写进 status。
+    private static var generation = 0
 
     /// 在后台查一次；结果变了才在主线程调用 changed。上一次还没查完时不重复查，
-    /// changed 等那一次查完再按它的结果调用。
+    /// changed 等那一次查完再按它的结果调用；查询期间改过登录项时结果作废，也不调用。
     static func refresh(changed: @escaping @MainActor @Sendable () -> Void) {
         waiting.append(changed)
         guard !querying else { return }
         querying = true
+        let startedAt = generation
         DispatchQueue.global(qos: .userInitiated).async {
             let latest = SMAppService.mainApp.status
             DispatchQueue.main.async {
                 querying = false
                 let callers = waiting
                 waiting = []
-                guard latest != status else { return }
+                guard startedAt == generation, latest != status else { return }
                 status = latest
                 callers.forEach { $0() }
             }
@@ -38,6 +42,8 @@ enum LaunchAtLoginState {
     /// 做完在主线程调用 done，失败时参数是错误说明，成功时是 nil。
     static func set(_ on: Bool, done: @escaping @MainActor @Sendable (String?) -> Void) {
         status = on ? .enabled : .notRegistered
+        generation += 1
+        let startedAt = generation
         DispatchQueue.global(qos: .userInitiated).async {
             let failure: String?
             do {
@@ -48,7 +54,8 @@ enum LaunchAtLoginState {
             }
             let latest = SMAppService.mainApp.status
             DispatchQueue.main.async {
-                status = latest
+                if startedAt == generation { status = latest }
+                generation += 1
                 wlog("launch-at-login: \(on ? "register" : "unregister") status=\(latest)")
                 done(failure)
             }
