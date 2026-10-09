@@ -30,9 +30,10 @@ extension AppDelegate {
         removeObserver(state)                          // 先停掉监听，避免下面的恢复动作反过来触发自己
         // 卷帘条可能被拖动过：窗口在卷帘条现在的位置展开（窗口的标题栏对齐卷帘条）。
         let pos: CGPoint
-        // 窗口是从屏幕外挪回来的：先让它回到原处，再撤卷帘条，中间不留空档。
-        // 最小化、隐藏的窗口要等系统把它放出来，照旧先撤。
-        let dismissAfterRestore = state.hide == .offscreen || state.hide == .privateOffscreen
+        // 窗口是从屏幕外移回来的，或者从程序坞放出来的（最小化）：先让它回到原处，再撤卷帘条，中间不留空档。
+        // 最小化的窗口从程序坞飞回来要 0.3 秒左右，先撤卷帘条的话，这段时间标题栏的位置是空的（CI 文本编辑录像，
+        // 3eb112c：空了 11 帧）。隐藏应用程序的窗口取消隐藏后立刻就在原处，照旧先撤。
+        let dismissAfterRestore = state.hide == .offscreen || state.hide == .privateOffscreen || state.hide == .minimized
         if let overlay = state.overlay {
             pos = axPosition(fromCocoaFrame: thumbnailHome ?? restoreReferenceFrame(id: id, overlay: overlay))
             if !dismissAfterRestore { dismissOverlay(overlay) }

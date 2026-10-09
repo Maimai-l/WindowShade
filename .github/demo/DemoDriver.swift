@@ -656,7 +656,9 @@ struct DemoDriver {
         }
         post(.leftMouseUp, at: titleBar)
         events["drag"] = ["grab": [Double(titleBar.x), Double(titleBar.y)], "path": dragPath]
-        await pause(1.0)
+        // 指针移开再回来双击：和没有拖动这一段时一样，展开的检查才可以和以前的结果对比。
+        await glide(to: CGPoint(x: origin.x + size.width + 120, y: origin.y + 260))
+        await pause(1.5)
 
         log("double-click the strip to unroll")
         await glide(to: titleBar)

@@ -215,7 +215,9 @@ extension AppDelegate {
                 guard let self else { return }
                 if dismissOverlayAfter, let overlay = held.value.overlay {
                     overlay.ignoresMouseEvents = true      // 窗口已经展开：等待期间卷帘条只是挡着，不再接点击
-                    self.dismissOverlayWhenSourceInFront(overlay, id: id, until: Date().addingTimeInterval(0.5))
+                    // 最小化的窗口要等它从程序坞飞回来，多给 0.3 秒。
+                    let wait = held.value.hide == .minimized ? 0.8 : 0.5
+                    self.dismissOverlayWhenSourceInFront(overlay, id: id, until: Date().addingTimeInterval(wait))
                 }
                 self.scheduleRestoreFollowUps(id: id, request: request, window: window, focusToken: focusToken,
                                               pinToken: pinToken, hide: held.value.hide, reason: reason)

@@ -89,6 +89,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     private var zoomMouseDown = false
     private var potentialWindowDrag = false
     private var didWindowDrag = false
+    /// 按下时指针在卷帘条里的位置（窗口坐标，取自按下事件本身）和卷帘条的大小：
+    /// 松开时大小变了，说明拖的是边缘（改宽度），不是移动。
+    private var pressPoint: NSPoint = .zero
+    private var pressSize: NSSize = .zero
     private var isClosingProgrammatically = false
     /// 卷帘条没聚焦时的红绿灯：照系统的样子画成三个灰点（标准按钮在这种状态下的样子和系统不一致）。
     private let inactiveLights = InactiveTrafficLightsView()
@@ -351,6 +355,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
            !pointHitsAnyStandardButton(event.locationInWindow) {
             potentialWindowDrag = true
             didWindowDrag = false
+            pressPoint = event.locationInWindow
+            pressSize = frame.size
         }
         if event.type == .leftMouseUp, zoomMouseDown {
             zoomMouseDown = false
@@ -370,6 +376,14 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             potentialWindowDrag = false
             didWindowDrag = false
             if dragged {
+                // 拖动由系统按住窗口背景移动：按下事件晚到时（主线程正忙，例如刚打开看一眼），系统开始移动也晚，
+                // 卷帘条少走的那一段一直补不回来（CI 文本编辑录像，3eb112c：拖回原处后差了 32 点）。
+                // 松开时按松开事件的指针位置和按下时的抓点，把卷帘条放到它应在的位置。
+                if frame.size == pressSize,
+                   let target = stripOrigin(releasedAt: event, pressPoint: pressPoint),
+                   abs(target.x - frame.origin.x) > 0.5 || abs(target.y - frame.origin.y) > 0.5 {
+                    setFrameOrigin(target)
+                }
                 onDragEnded?(frame)
                 return
             }
@@ -384,6 +398,14 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         }
         super.sendEvent(event)
     }
+}
+
+/// 松开事件那一刻指针所在的位置（Cocoa 屏幕坐标），减去按下时的抓点，就是卷帘条的原点。
+/// 用事件自带的位置，不用 NSEvent.mouseLocation：事件处理晚了，指针可能已经又移开了。
+func stripOrigin(releasedAt event: NSEvent, pressPoint: NSPoint) -> NSPoint? {
+    guard let location = event.cgEvent?.location,
+          let primaryHeight = NSScreen.screens.first?.frame.height else { return nil }
+    return NSPoint(x: location.x - pressPoint.x, y: primaryHeight - location.y - pressPoint.y)
 }
 
 /// 没聚焦的窗口的红绿灯：三个灰点，照系统的样子（浅色时浅灰、深色时深灰，带一圈细边）。
@@ -577,9 +599,9 @@ final class TitleStripView: NSImageView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard let window = window else { return }
-        let m = NSEvent.mouseLocation
-        dragOffset = CGPoint(x: m.x - window.frame.origin.x, y: m.y - window.frame.origin.y)
+        guard window != nil else { return }
+        // 抓点取自按下事件本身：事件处理晚了时，NSEvent.mouseLocation 已经是移动之后的位置。
+        dragOffset = event.locationInWindow
         didDrag = false
     }
     override func mouseDragged(with event: NSEvent) {
@@ -591,7 +613,10 @@ final class TitleStripView: NSImageView {
     override func mouseUp(with event: NSEvent) {
         if didDrag {
             didDrag = false
-            if let window { onMoveEnded?(window.frame) }
+            if let window {
+                if let target = stripOrigin(releasedAt: event, pressPoint: dragOffset) { window.setFrameOrigin(target) }
+                onMoveEnded?(window.frame)
+            }
             return
         }
         // 单击在松开时算，而且只算没拖动的：按下就算的话，拖卷帘条时看一眼会先闪出来。
