@@ -393,11 +393,19 @@ let systemScenarios: [Scenario] = [
         func newWindows() -> [[String: Any]] {
             onScreen().filter { !baseline.contains($0[kCGWindowNumber as String] as? Int ?? 0) }
         }
-        func describe(_ windows: [[String: Any]]) -> [String] {
-            windows.map { "\($0[kCGWindowOwnerName as String] as? String ?? "?") \"\($0[kCGWindowName as String] as? String ?? "")\" layer=\($0[kCGWindowLayer as String] as? Int ?? 0)" }
+        func bounds(_ info: [String: Any]) -> CGRect? {
+            (info[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }
         }
+        func describe(_ windows: [[String: Any]]) -> [String] {
+            windows.map { info in
+                let rect = bounds(info) ?? .zero
+                return "\(info[kCGWindowOwnerName as String] as? String ?? "?") \"\(info[kCGWindowName as String] as? String ?? "")\" "
+                    + "layer=\(info[kCGWindowLayer as String] as? Int ?? 0) \(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height))"
+            }
+        }
+        /// 新出现的窗口里最大的一扇（8858a32 上访达新出现了两扇第 3 层的窗口）。
         func qlWindow() -> CGRect? {
-            newWindows().compactMap { ($0[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } }.first
+            newWindows().compactMap(bounds).max { $0.width * $0.height < $1.width * $1.height }
         }
         run("/usr/bin/open", [folder.path])
         await pause(2)

@@ -4,6 +4,10 @@
 import Cocoa
 import Carbon.HIToolbox
 
+/// titlebarContains 最近一次没命中的原因（窗口编号、位置大小、标题栏高度），只给未命中的日志用；
+/// 这些值它已经读过，记下来不多花一次辅助功能查询。
+@MainActor var titlebarMissDetail = ""
+
 extension AppDelegate {
     func registerHotKey() {
         installHotKeyHandler()
@@ -208,15 +212,19 @@ extension AppDelegate {
         return overlay.frame.insetBy(dx: -28, dy: -28).contains(cocoaPoint)
     }
     func titlebarContains(point: CGPoint, in win: AXUIElement) -> (CGWindowID, pid_t)? {
-        guard let id = windowID(of: win), !isDesktopWidgetWindow(id: id) else { return nil }
-        if overlayIDs.contains(id) { return nil }
-        guard let pos = axPosition(win), let size = axSize(win) else { return nil }
+        guard let id = windowID(of: win) else { titlebarMissDetail = "no window id"; return nil }
+        guard !isDesktopWidgetWindow(id: id) else { titlebarMissDetail = "widget id=\(id)"; return nil }
+        if overlayIDs.contains(id) { titlebarMissDetail = "strip id=\(id)"; return nil }
+        guard let pos = axPosition(win), let size = axSize(win) else { titlebarMissDetail = "no frame id=\(id)"; return nil }
         var pid: pid_t = 0
         AXUIElementGetPid(win, &pid)
-        if isStickies(pid: pid) { return nil }
+        if isStickies(pid: pid) { titlebarMissDetail = "stickies id=\(id)"; return nil }
         let barH = titlebarHitHeight(of: win, id: id, winTop: pos.y, winSize: size, pid: pid)
         guard point.y >= pos.y, point.y <= pos.y + barH,
-              point.x >= pos.x, point.x <= pos.x + size.width else { return nil }
+              point.x >= pos.x, point.x <= pos.x + size.width else {
+            titlebarMissDetail = "outside id=\(id) frame=(\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))) barH=\(Int(barH))"
+            return nil
+        }
         return (id, pid)
     }
     func handleTitleBarTripleClick(at point: CGPoint, clickCount: Int64 = 3) -> Bool {
@@ -440,7 +448,8 @@ extension AppDelegate {
             // 窗口属于哪个应用程序是本地查询，不是 IPC；问错了应用程序时（场景 B16）从这里看得出来。
             var owner: pid_t = 0
             AXUIElementGetPid(win, &owner)
-            wlog("titlebar-double-click: miss source=\(source) app=\(appDisplayName(pid: owner)) at=(\(Int(point.x)),\(Int(point.y)))")
+            wlog("titlebar-double-click: miss source=\(source) app=\(appDisplayName(pid: owner)) at=(\(Int(point.x)),\(Int(point.y))) "
+                 + titlebarMissDetail)
             return false
         }
 
