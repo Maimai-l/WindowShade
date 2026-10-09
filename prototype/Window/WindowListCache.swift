@@ -200,6 +200,19 @@ func ordinaryWindowOwner(at point: CGPoint, in windows: [[String: Any]]) -> pid_
     return nil
 }
 
+/// 双击标题栏判定用的窗口外框：窗口服务器上画出来的位置。辅助功能报的位置大小一般与之相同；
+/// 访达的快速查看面板例外（CI 场景 A32：辅助功能报 (104,65 816x611)，画在 (126,119 703x472)），
+/// 按辅助功能的外框算，画出来的标题栏落在“标题栏”下面，双击收不起来。列表里没有这扇窗口时用辅助功能的外框。
+func titlebarHitFrame(axFrame: CGRect, windowID: CGWindowID, in windows: [[String: Any]]) -> CGRect {
+    for info in windows where (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID {
+        guard let raw = info[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: raw as CFDictionary),
+              bounds.width > 1, bounds.height > 1 else { break }
+        return bounds
+    }
+    return axFrame
+}
+
 func cgWindowInfo(_ id: CGWindowID) -> [String: Any]? {
     // 单窗口直连查询，不走 WindowListCache：watchdog 追踪窗口移动、折叠验证、
     // SLS alpha 读回都需要实时值，且这里每次只取一个窗口，本来就很廉价。

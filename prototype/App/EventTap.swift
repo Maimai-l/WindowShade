@@ -220,9 +220,15 @@ extension AppDelegate {
         AXUIElementGetPid(win, &pid)
         if isStickies(pid: pid) { titlebarMissDetail = "stickies id=\(id)"; return nil }
         let barH = titlebarHitHeight(of: win, id: id, winTop: pos.y, winSize: size, pid: pid)
-        guard point.y >= pos.y, point.y <= pos.y + barH,
-              point.x >= pos.x, point.x <= pos.x + size.width else {
-            titlebarMissDetail = "outside id=\(id) frame=(\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))) barH=\(Int(barH))"
+        let axFrame = CGRect(origin: pos, size: size)
+        let frame = titlebarHitFrame(axFrame: axFrame, windowID: id, in: WindowListCache.shared.onScreenWindows())
+        // 两种外框任一个的标题栏带里都算：画出来的位置不同于辅助功能的位置时（快速查看），也不丢掉原来能命中的点。
+        func inBar(_ rect: CGRect) -> Bool {
+            point.y >= rect.minY && point.y <= rect.minY + barH && point.x >= rect.minX && point.x <= rect.maxX
+        }
+        guard inBar(axFrame) || inBar(frame) else {
+            titlebarMissDetail = "outside id=\(id) frame=(\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))) "
+                + "ax=(\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))) barH=\(Int(barH))"
             return nil
         }
         return (id, pid)
