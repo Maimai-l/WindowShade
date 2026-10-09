@@ -857,6 +857,7 @@ let scenarios: [Scenario] = [
     Scenario(id: "A22", title: "1 秒内连续双击标题栏 5 次", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
+        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         let titleBar = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)

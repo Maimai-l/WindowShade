@@ -163,6 +163,7 @@ let systemScenarios: [Scenario] = [
              changesSettings: true) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
+        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
         await pause(0.6)
         guard let frame = axFrame(window), let pid = windowShadePID() else { return }
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -258,6 +259,7 @@ let systemScenarios: [Scenario] = [
     Scenario(id: "X09", title: "窗口拒绝被移动：仍能收起，展开后在原处", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
+        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
         await pause(0.6)
         probe.send("pin")
         await pause(0.3)
