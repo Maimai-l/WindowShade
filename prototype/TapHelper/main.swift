@@ -2,7 +2,7 @@
 //
 // 主动钩子挡着全系统的点击和排在后面的按键。钩子放在 WindowShade 里时，WindowShade 一停住
 // （崩溃时系统生成报告会把它挂起、调试器暂停），点击就要等系统停用钩子才放行（场景 X11）；
-// 2026-10-08 用户那次，点击和快捷键一直不响应，只能强制重启。
+// 这时全系统的点击和快捷键都没有反应。
 // 这个进程只做一件事：单击直接放行；双击、三击问 WindowShade 要不要吞掉，最多等 TapProtocol.deadline，
 // 没回话就放行。不碰界面、不做辅助功能查询、不写文件。WindowShade 退出它就退出。
 //
@@ -62,12 +62,12 @@ enum TapHelper {
         let pass = Unmanaged.passUnretained(event)
         switch type {
         case .tapDisabledByTimeout:
-            // 不该发生（每次最多等 deadline）；发生了就马上接着管，并记下来。
+            // 不该发生（每次最多等 deadline）；发生时立刻重新启用钩子，并记一行日志。
             if let tap = TapHelper.tapPort { CGEvent.tapEnable(tap: tap, enable: true) }
             TapHelper.say("tap: re-enabled after the system disabled it for a timeout")
             return pass
         case .tapDisabledByUserInput:
-            // 输入洪泛时系统停用钩子：立刻重开会和系统来回争，过一会儿再开。
+            // 输入过多时系统会停用钩子：立刻重新启用会被再次停用，等 1.5 秒再启用。
             DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) {
                 if let tap = TapHelper.tapPort { CGEvent.tapEnable(tap: tap, enable: true) }
             }

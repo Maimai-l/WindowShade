@@ -105,7 +105,7 @@ enum PaperSurfaceTests {
               + "\(SystemAppearancePolicy.fontSize(relativeToBody: -1))/"
               + "\(SystemAppearancePolicy.fontSize(relativeToBody: -2))")
 
-        // MARK: 悬停缩略图说明自己是哪个窗口（tooltip + VoiceOver）
+        // MARK: 悬停缩略图说明自己是哪个窗口（工具提示和旁白）
         let titledPeek = SafariStylePreviewView(frame: NSRect(x: 0, y: 0, width: 320, height: 200),
                                                 image: sampleImage,
                                                 windowTitle: "Safari — OpenAI")
@@ -114,8 +114,8 @@ enum PaperSurfaceTests {
         precondition(titledPeek.toolTip == "Safari — OpenAI",
                      "the peek preview offers the window name as a tooltip")
         titledPeek.configureWindowTitle("   ")
-        precondition((titledPeek.accessibilityLabel() ?? "") == "窗口预览"
-                        && titledPeek.toolTip == "窗口预览",
+        precondition((titledPeek.accessibilityLabel() ?? "") == "窗口画面"
+                        && titledPeek.toolTip == "窗口画面",
                      "an untitled preview falls back to a generic name")
 
         // MARK: 系统设置深链：按本机是否装了新隐私面板决定顺序
@@ -192,15 +192,15 @@ enum PaperSurfaceTests {
         // MARK: 卷帘条可访问性文案
 
         precondition(PaperSurfaceAccessibility.stripLabel(appName: "Safari", windowTitle: "OpenAI")
-                        == "WindowShade 卷帘：Safari — OpenAI",
+                        == "已收起的窗口：Safari — OpenAI",
                      "the strip announces app and window title")
         precondition(PaperSurfaceAccessibility.stripLabel(appName: "", windowTitle: "  ")
-                        == "WindowShade 卷帘：窗口",
+                        == "已收起的窗口：窗口",
                      "an untitled window still has a readable strip label")
         precondition(PaperSurfaceAccessibility.stripHelp().contains("双击展开"),
                      "the strip help explains how to unfold")
         precondition(PaperSurfaceAccessibility.previewLabel(windowTitle: "")
-                        == "窗口预览",
+                        == "窗口画面",
                      "an untitled preview falls back to a generic label")
         precondition(PaperSurfaceAccessibility.statusItemValue(foldedCount: 0)
                         == "没有收起的窗口",

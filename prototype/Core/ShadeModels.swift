@@ -1,9 +1,10 @@
-// 折叠相关的值类型：隐藏方式、生命周期、外框画像与 ShadeState。外观模式、隐藏策略和收起计划在 Domain/。
+// 收起相关的值类型：生命周期阶段、标题栏外形（AdobeChromeProfile、WindowChromeProfile）、ShadeState、
+// 收起时的调用选项。隐藏方式、外观模式、隐藏策略和收起计划在 Domain/。
 
 import Cocoa
 
 enum ShadeLifecycleStage: String {
-    case preparing   // 折叠事务已写入 durable recovery intent，但真实窗口尚未完成隐藏
+    case preparing   // 恢复记录已写入，原窗口还没隐藏完
     case folded
     case restoring
     case cleaned
@@ -48,11 +49,10 @@ struct WindowChromeProfile {
     }
 }
 
-// MARK: - 折叠状态
+// MARK: - 收起状态
 
-// ShadeState follows one real window, not one app. The stored CGWindowID and
-// geometry are the continuity contract: unfold should restore the same window
-// identity and the strip's current spatial anchor whenever macOS allows it.
+// ShadeState 跟的是一扇真实的窗口，不是一个应用程序。存下的 CGWindowID 和几何信息是展开的依据：
+// 只要系统允许，展开时就放回同一扇窗口，并对齐卷帘条当前的位置。
 struct ShadeState {
     let foldTransactionID = UUID()
     let element: AXUIElement
@@ -63,7 +63,7 @@ struct ShadeState {
     let sourceSpaceID: UInt64?
     let overlay: NSWindow?
     let overlayID: CGWindowID?
-    var hide: HideMethod         // 真窗口的隐藏方式：不隐藏 / 挪屏外 / 整体隐藏 / 最小化（延迟验证补救时可改写）
+    var hide: HideMethod         // 原窗口实际被移开的方式（见 HideMethod）；延迟验证补救时可能改写
     let pid: pid_t
     let bundleID: String
     let appName: String
@@ -73,7 +73,7 @@ struct ShadeState {
     var previewImage: NSImage?
     let quickLookReopenURL: URL?
     let ignoreAppRevealUntil: Date
-    var observer: AXObserver?    // 监听窗口被外部唤回（折叠后下一轮 runloop 才注册）
+    var observer: AXObserver?    // 监听窗口被外部唤回（收起后下一轮 RunLoop 才注册）
 }
 
 struct ShadeInvocationOptions {

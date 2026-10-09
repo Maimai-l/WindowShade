@@ -30,9 +30,8 @@ func needsControlPaddedChrome(pid: pid_t) -> Bool {
     fixedNonstandardChromeHeight(pid: pid) != nil
 }
 
-// WeChat / Elpass 这类非标准窗口的诀窍是按“第一层可操作 chrome band”裁，
-// 只保留交通灯、搜索框、标题/工具按钮和它们自己的上下 padding。
-// 下面的列表行、选中条、账号卡即使只露一点，也会让折叠条失去标题栏语义。
+// 微信、Elpass 这类自绘标题栏，按“第一层可操作的控件”裁切：只保留红绿灯、搜索框、标题和工具按钮，
+// 以及它们上下的留白。下面的列表行、选中条、账号卡哪怕只露出一点，卷帘条看起来也就不像标题栏了。
 func fixedNonstandardChromeHeight(pid: pid_t) -> CGFloat? {
     appProfile(for: pid).fixedChromeHeight.map { CGFloat($0) }
 }

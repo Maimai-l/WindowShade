@@ -2,9 +2,9 @@
 //
 // macOS 26 在“正被流式捕获的窗口”的红绿灯处画一个蓝紫色胶囊（带录屏图标）。单张截图
 // 本身不会触发它，但只要这扇窗上还开着一条捕获流（看一眼的实时画面），
-// 流里的每一帧、以及同时截的单张图里都有它；在帧里它取代了红绿灯，灯根本不在画面上。
+// 流里的每一帧、以及同时截的单张图里都有它；在帧里它盖住了红绿灯，画面上看不到红绿灯。
 //
-// 修法是抹平：用胶囊两侧的标题栏像素逐行填回去。原貌卷帘条上面叠着真实的 AppKit 按钮，
+// 处理办法是抹平：用胶囊两侧的标题栏像素逐行填回去。显示原标题栏的卷帘条上面叠着真实的 AppKit 按钮，
 // 看一眼的卡片又从标题栏以下开始，抹平就够了。
 //
 // 只在确实检测到胶囊时才动：位置在左上角红绿灯区域、颜色是指示器的蓝紫色、形状像
@@ -18,7 +18,7 @@ import Foundation
 import ScreenCaptureKit
 
 enum CaptureIndicatorRemoval {
-    /// 检测区域：内容左上角 170 × 64 pt，覆盖各种标题栏高度下的红绿灯组。
+    /// 检测区域：内容左上角 170 × 64 点，覆盖各种标题栏高度下的红绿灯组。
     static let searchSize = CGSize(width: 170, height: 64)
 
     struct Detection: Equatable {
@@ -48,7 +48,7 @@ enum CaptureIndicatorRemoval {
     // MARK: 捕获流的一帧（原地修改）
 
     /// 在一帧 32BGRA 缓冲上原地修补。`content` 是窗口内容在缓冲里的像素矩形（SCK 可能
-    /// 在四周留白），`scale` 是每 pt 的像素数。返回是否改动。
+    /// 在四周留白），`scale` 是每点的像素数。返回是否改动。
     @discardableResult
     static func clean(_ buffer: CVPixelBuffer, content: CGRect, scale: CGFloat) -> Bool {
         guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
@@ -86,7 +86,7 @@ enum CaptureIndicatorRemoval {
     // MARK: 检测与抹平
 
     static func detect(in view: PixelView, origin: CGPoint, scale: CGFloat) -> Detection? {
-        // 缩略图每 pt 可能不到 1 个像素；按实际比例换算尺寸，只挡住离谱的值。
+        // 缩小过的截图每点可能不到 1 个像素；按实际比例换算尺寸，只挡住离谱的值。
         let scale = max(0.25, scale)
         let x0 = Int(origin.x), y0 = Int(origin.y)
         let width = min(view.width - x0, Int(searchSize.width * scale))
@@ -104,7 +104,7 @@ enum CaptureIndicatorRemoval {
         guard count > 0 else { return nil }
         let box = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
         let points = CGSize(width: box.width / scale, height: box.height / scale)
-        // 形状：胶囊宽约 60–120 pt、高约 16–34 pt；左缘贴近窗口左边；
+        // 形状：胶囊宽 36–140 点、高 12–36 点，左缘离窗口左边不超过 24 点；
         // 不能碰到检测区域的右/下边（那说明是整片紫色的工具栏）。
         guard (36...140).contains(points.width),
               (12...36).contains(points.height),
@@ -113,7 +113,7 @@ enum CaptureIndicatorRemoval {
         // 胶囊里有图标（卷帘条样本里还有灯），紫色不会铺满外接矩形，但也不会只是零星几点。
         let fill = Double(count) / Double(box.width * box.height)
         guard fill >= 0.25 else { return nil }
-        // 胶囊外圈有一层淡淡的光晕（饱和度低，不算“紫色”），多扩 3 pt 一并盖住。
+        // 胶囊外圈有一层淡淡的光晕（饱和度低，不算“紫色”），多扩 3 点一并盖住。
         let pad = ceil(3 * scale)
         let padded = box.offsetBy(dx: CGFloat(x0), dy: CGFloat(y0)).insetBy(dx: -pad, dy: -pad)
             .intersection(CGRect(x: 0, y: 0, width: view.width, height: view.height))

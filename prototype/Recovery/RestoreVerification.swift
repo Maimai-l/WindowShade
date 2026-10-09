@@ -26,7 +26,7 @@ func observeRestoredWindow(_ window: WindowHandle, id: CGWindowID, pid: pid_t, e
   return tolerates(ax) && tolerates(bounds) ? .visible : .pending
 }
 
-/// Journal acknowledgement after the original window is back.
+/// 原窗口回来以后，确认恢复记录可以删除。
 extension AppDelegate {
   func verifyRestoredWindow(
     _ state: ShadeState, to position: CGPoint, completion: ((Bool) -> Void)?
@@ -35,7 +35,7 @@ extension AppDelegate {
     let token = UUID()
     restoreVerificationTokens[id] = token
     markShadeJournalStage(id: id, .restoring, reason: "awaiting-restore-verification")
-    // Keep the last durable position current even when the strip was dragged.
+    // 卷帘条被拖动过也要更新，恢复记录里始终是最新的放回位置。
     updateShadeJournal(id: id, reason: "restore-target") { entry in
       let safe = safeRestorePosition(for: state, desired: position)
       entry["originalX"] = Double(safe.x)

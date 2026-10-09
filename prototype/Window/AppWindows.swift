@@ -1,8 +1,8 @@
-// 应用窗口枚举（事务级备忘、并发枚举）、应用元数据与窗口显示标题。
+// 应用程序窗口枚举（收起和展开期间的备忘）、应用程序信息与窗口显示标题。
 
 import Cocoa
 
-// app 当前有几个窗口（用于决定：单窗口可整体隐藏，多窗口只能最小化单个）
+// 应用程序当前有几个窗口。
 func appWindowCount(_ pid: pid_t) -> Int {
     appWindows(pid: pid).count
 }
@@ -16,9 +16,9 @@ func appCurrentUserWindowCount(_ pid: pid_t) -> Int {
     }.count
 }
 
-// Adobe AE/Premiere 的 AX 树把工作区窗口的 role 报成 AXLayoutArea（非标准），
-// 但它们是货真价实的窗口（有 layer-0 CGWindow 背书）。仅对 Adobe app 放行该
-// 角色，避免把其他 app 的布局容器误当窗口。
+// Adobe After Effects、Premiere 的辅助功能树把工作区窗口的角色报成 AXLayoutArea（不标准），
+// 但它们确实是窗口（窗口服务器里有对应的第 0 层窗口）。只对 Adobe 应用程序放行这个角色，
+// 免得把其他应用程序的布局容器当成窗口。
 func isWindowLikeRole(_ role: String?, pid: pid_t) -> Bool {
     if role == kAXWindowRole as String { return true }
     return role == "AXLayoutArea" && isAdobeApp(pid: pid)
@@ -26,15 +26,15 @@ func isWindowLikeRole(_ role: String?, pid: pid_t) -> Bool {
 
 // kAXWindowsAttribute 是这条链路上最贵的一次调用：实测约 20ms，比把全系统
 // 窗口列一遍（CGWindowList 全量 3.3ms）还贵 6 倍，而单个属性读只要 0.1ms。
-// 计数用于定位「一次折叠到底枚举了多少遍」，只在主线程累加。
+// 计数用于定位“一次收起到底枚举了多少遍”，只在主线程累加。
 nonisolated(unsafe) var axWindowListEnumerations = 0
 
-// 折叠内部的分段耗时累计。单次折叠每段都只有几十毫秒，逐次打日志会淹掉日志，
-// 所以累计起来，按需要做差报出一次折叠的分段。
+// 收起各阶段的累计耗时。一次收起每段只有几十毫秒，每次都记日志会让日志太长，
+// 所以先累计，需要时做差，报出一次收起的各段耗时。
 nonisolated(unsafe) var foldPhaseTotals: [String: Double] = [:]
 
-/// 只在主线程上用（折叠流程）。标成主线程：闭包和调用方同在主线程，Swift 6.0 不把闭包里用到的
-/// 收起状态算作送到了别处（见 ShadeController.swift 的 transactionID）。
+/// 只在主线程上用（收起流程）。标成主线程：闭包和调用方同在主线程，Swift 6.0 就不会把闭包里用到的
+/// 收起状态当作已转移给别的并发域（见 ShadeController.swift 的 transactionID）。
 @MainActor @discardableResult
 func foldPhase<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
     let started = CFAbsoluteTimeGetCurrent()
@@ -43,7 +43,7 @@ func foldPhase<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
 }
 
 /// foldPhase 的不带闭包写法：调用方自己记开始时刻，做完了记一笔。闭包里要用收起状态时用它
-/// （Swift 6.0 把闭包捕获收起状态当作送了出去，之后再用就报数据竞争）。
+/// （Swift 6.0 会把闭包捕获的收起状态当作已经转移出去，之后再用就报数据竞争）。
 @MainActor
 func foldPhaseRecord(_ name: String, since started: CFAbsoluteTime) {
     foldPhaseTotals[name, default: 0] += CFAbsoluteTimeGetCurrent() - started
@@ -55,9 +55,9 @@ func foldPhaseReport() -> String {
         .joined(separator: " · ")
 }
 
-// 事务级备忘，不是带 TTL 的缓存：只在显式开启的区间内生效（一次折叠/展开事务），
-// 区间结束立刻丢弃。一次折叠里同一个 App 的窗口列表会被问三四遍——刷新元素、
-// 找焦点继承者、数窗口数决定隐藏策略——而事务内这个列表不会变。
+// 一次收起或展开期间的备忘，不是带过期时间的缓存：只在显式开启的区间内生效，
+// 区间结束立刻丢弃。一次收起里同一个应用程序的窗口列表会被问三四遍——刷新元素、
+// 找接手焦点的窗口、数窗口数决定隐藏策略——而这期间这个列表不会变。
 nonisolated(unsafe) private var appWindowsMemo: [pid_t: [AXUIElement]]?
 
 func beginAppWindowsMemo() -> [pid_t: [AXUIElement]]? {

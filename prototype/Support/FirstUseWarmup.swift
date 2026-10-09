@@ -1,11 +1,8 @@
-// 第一次打开设置窗口时的一次性准备，启动后先在后台做掉。
+// 第一次打开设置窗口时要做的一次性准备，启动后先在后台做完。
 //
-// CI 场景 C15、H01：第一次按 Command-逗号时主线程停了 550 至 870 毫秒。三张采样分别停在：
-// SwiftUI 第一次排文字时 Foundation 按需加载属性范围（dlopen）；NSWindowController.showWindow 第一次加载
-// QuickLookUI（已改为直接放到最前面，见 SettingsWindow.swift）；系统字体的字形第一次画（libhvf、FontParser）。
-// 第一段和第三段跟窗口无关，在后台线程上做一遍，主线程第一次用到时就是现成的。
-// e4e3c42 上 H01 的采样又停在 libhvf 第一次读 SF Symbols 的矢量数据（HVF::LoaderHVGL::loadPartAtIndex）：
-// 设置窗口的分页图标、按键符号、“已授权”的勾，也在后台先画一遍。
+// 第一次打开设置窗口时，主线程会停 0.5 秒以上（CI 场景 C15、H01）：Foundation 按需加载属性范围、
+// 系统字体第一次画字形、第一次读 SF Symbols 的矢量数据（设置窗口的分页图标、按键符号、“已允许”的勾）。
+// 这几件事和窗口无关，启动后在后台先做一遍，主线程第一次用到时就是现成的。
 
 import AppKit
 import CoreText

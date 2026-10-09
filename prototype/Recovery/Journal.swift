@@ -1,10 +1,9 @@
-// 恢复日志（Recovery Journal）：折叠状态的持久化、匹配与生命周期标记。
-// 数据层为 AppDelegate 扩展方法；离屏救援编排在 Recovery/Rescue.swift。
+// 恢复记录（Recovery Journal）：收起状态的持久化、匹配与生命周期标记。
+// 数据层为 AppDelegate 扩展方法；找回屏幕外窗口的流程在 Recovery/Rescue.swift。
 //
-// crash consistency：任何可能让窗口长期不可见的操作之前，调用方必须先写一条
-// stage=preparing 的 durable intent（recordShadeRecoveryIntent），隐藏动作成功
-// 并验证后再更新为 stage=folded（recordShadeJournal）。这样进程在「已隐藏但
-// journal 未记录」的窗口期被杀，重启后的 rescue 仍能根据 intent 找回窗口。
+// 崩溃后也能找回：任何可能让窗口长时间看不见的操作之前，调用方先写一条 stage=preparing 的恢复记录
+// （recordShadeRecoveryIntent）；隐藏成功并验证后，再改成 stage=folded（recordShadeJournal）。
+// 这样即使进程在“已隐藏、记录还没更新”时被结束，重启后仍能按这条记录找回窗口。
 
 import Cocoa
 
@@ -41,7 +40,7 @@ extension AppDelegate {
     }
 
     nonisolated func journalID(_ entry: [String: Any]) -> CGWindowID? {
-        // Persisted values are untrusted data: do not truncate, clamp, or trap.
+        // 读回的值不可信：不截断、不强行改到有效范围，也不触发崩溃。
         if let value = entry["id"] as? NSNumber,
            CFGetTypeID(value) == CFBooleanGetTypeID() { return nil }
         guard let raw = journalNumber(entry, "id"),
@@ -71,6 +70,7 @@ extension AppDelegate {
                                     stage: ShadeLifecycleStage,
                                     sourceDisplayID: CGDirectDisplayID?,
                                     sourceSpaceID: UInt64?) {
+        // 自己的窗口和已关掉的快速查看窗口不需要恢复记录；最小化、隐藏整个应用程序的仍然要记。
         guard hide != .quickLookClosed && hide != .ownWindowOrderedOut else {
             clearShadeJournal(id: id)
             return
@@ -78,9 +78,8 @@ extension AppDelegate {
         // D21：新写入不再存窗口标题。参数仍留给旧调用方；旧档里已有的 title 继续可读。
         _ = title
 
-        // 折叠事务的正常落点：provisional intent（preparing）已被调用方在隐藏
-        // 前写入；这里把同一条 entry 更新为真正的隐藏方式与停车位置，而不是
-        // 新建，保留 createdAt 以维持 14 天过期语义。
+        // 收起的正常结果：调用方在隐藏前已经写了一条 preparing 记录；这里改写同一条记录的
+        // 隐藏方式和停放位置，保留 createdAt，14 天过期仍从第一次写入算起。
         let parked = cgWindowInfo(id)
             .flatMap { cgWindowBounds($0) }
             .map { CGPoint(x: $0.minX, y: $0.minY) }
@@ -119,9 +118,8 @@ extension AppDelegate {
         wlog("journal: record \(hide.rawValue) id=\(id) app=\(appName) parked=(\(Int(parked.x)),\(Int(parked.y)))")
     }
 
-    // 折叠动作前的 durable intent：在窗口可能被移到屏幕外/设透明之前落盘，
-    // 供崩溃后 rescue 恢复。隐藏成功后会由 recordShadeJournal 更新为 folded；
-    // 最小化及隐藏也保留记录；仅本进程窗口和有意关闭的 Quick Look 无需跨进程救援。
+    // 收起前的恢复记录：在窗口可能被移到屏幕外或设成透明之前写盘，崩溃后据此找回。
+    // 隐藏成功后由 recordShadeJournal 改成 folded。
     func recordShadeRecoveryIntent(id: CGWindowID, pid: pid_t, bundleID: String,
                                    appName: String, title: String,
                                    originalPosition: CGPoint, originalSize: CGSize,
@@ -226,8 +224,7 @@ extension AppDelegate {
         let expectedBundle = journalString(entry, "bundleID")
         if !expectedBundle.isEmpty, app.bundleIdentifier != expectedBundle { return false }
 
-        // A title is not an identity: two documents/tabs can have the same title.
-        // The creating process and exact CGWindowID must still match before rescue.
+        // 标题不能证明是同一扇窗口：两个文档或标签页可能同名。找回之前，创建记录的进程和 CGWindowID 都必须一致。
         if let expectedID = journalID(entry), let currentID = windowID(of: win), expectedID == currentID {
             return true
         }

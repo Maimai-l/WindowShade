@@ -1,15 +1,18 @@
 // WindowShade 主文件：全局常量与 AppDelegate 骨架（启动、观察者、生命周期）。
 //
 // 功能按目录拆分，文件级基础设施也各有归属：
-//   App/        折叠入口、事务、出口、事件 tap、菜单、偏好、悬停预览、权限
-//   Capture/    截图缓存、图像分析、SCShareableContent 缓存
-//   Compatibility/  各 app 窗口策略与按应用的判断
-//   Core/       折叠状态机与折叠相关的值类型
-//   Overlay/    覆盖层窗口与视图
-//   Private/    SkyLight 私有 API 隔离层
-//   Recovery/   恢复日志与离屏救援
-//   Support/    日志、主线程活动标记与卡顿哨兵
-//   Window/     AX 辅助、窗口列表、外框画像、坐标换算
+//   App/        收起和展开的流程、鼠标钩子、菜单、设置、看一眼、权限
+//   Capture/    截图及其缓存、图像分析
+//   Core/       收起相关的值类型和大多不依赖系统的逻辑（状态机、看一眼的指针判断、钩子问答、缩略图几何）
+//   Domain/     应用程序配置表与收起计划
+//   Overlay/    卷帘条和看一眼的窗口与视图
+//   Platform/   移开、放回原窗口，交出焦点，转发红绿灯
+//   Private/    SkyLight 私有接口
+//   Recovery/   恢复记录与找回屏幕外的窗口
+//   Support/    日志、卡顿记录、跨线程包装等基础设施
+//   TapHelper/  鼠标钩子进程（单独编译）
+//   Window/     辅助功能读写、窗口列表、标题栏外形、坐标换算
+//   Vendor/     第三方框架
 //
 // 编译与运行见 prototype/build.sh（自动收集源文件，签名身份走环境变量）。
 
@@ -31,7 +34,7 @@ let adobeTabbedDocumentChromeHeight: CGFloat = 84
 let adobeFloatingDocumentChromeHeight: CGFloat = 44
 // 实测裁切（2026-07，本机截图对照）：通用 112pt 会切进面板内容。
 // AE = 细标题栏 + 工具条两排，止于 Project/Effect Controls 面板标签行之前。
-// Premiere = 一体化单条标题栏（交通灯与 Import/Edit/Export 同排），
+// Premiere = 一体化单条标题栏（红绿灯与 Import/Edit/Export 同排），
 // 其下的面包屑/侧栏是内容。
 let afterEffectsWorkspaceChromeHeight: CGFloat = 56
 let premiereWorkspaceChromeHeight: CGFloat = 40
@@ -56,9 +59,9 @@ let shadeTranslucentAlpha: CGFloat = 0.82
 let axFullScreenAttribute = "AXFullScreen"
 /// 一次辅助功能调用最多等多久（秒）。
 let axMessagingTimeout: Float = 1.0
-// AX 子树遍历预算：限制「顶部控件扫描」（collectTopChromeControlSamples）和
+// AX 子树遍历预算：限制“顶部控件扫描”（collectTopChromeControlSamples）和
 // firstToolbar 在最坏情况下的同步 IPC 数量。复杂窗口（浏览器等）的 AX 树可达
-// 数千节点，无界遍历会让折叠/双击判定在忙 app 上长时间卡住主线程。
+// 数千节点，不限数量地遍历，会让收起和双击判定在忙的应用程序上让主线程长时间等待。
 let axTraversalNodeBudget = 150
 let axTraversalMaxChildrenPerNode = 40
 let hoverPreviewMaxPixelSize = CGSize(width: 720, height: 480)
@@ -68,11 +71,11 @@ let shadeDefaultFoldSound = "Purr"
 let shadeDefaultUnfoldSound = "Pop"
 let shadeSoundChoices: [(label: String, name: String)] = [
     ("柔和（Purr）", "Purr"),
-    ("低调（Submarine）", "Submarine"),
+    ("低沉（Submarine）", "Submarine"),
     ("轻吹（Blow）", "Blow"),
-    ("细微轻响（Tink）", "Tink"),
-    ("玻璃（Glass）", "Glass"),
-    ("弹开（Pop）", "Pop")
+    ("轻响（Tink）", "Tink"),
+    ("清脆（Glass）", "Glass"),
+    ("弹响（Pop）", "Pop")
 ]
 /// main.swift 启动时在主线程写一次，之后只读。
 nonisolated(unsafe) var appDelegate: AppDelegate?
@@ -116,8 +119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let deadline: Date
     }
 
-    // reconcile 需要知道真实窗口是否仍存在/最小化，但这些 AX 读取可能被忙 app
-    // 阻塞数秒。每个 app 最多一个在途读取，全局同时最多 4 个；主线程只应用已经返回的结果。
+    // reconcile 需要知道原窗口是否仍存在、是否已最小化，但这些 AX 读取可能被忙的应用程序
+    // 阻塞数秒。每个应用程序最多一个在途读取，全局同时最多 4 个；主线程只应用已经返回的结果。
     struct ReconcileAXTarget {
         let id: CGWindowID
         let pid: pid_t
@@ -134,8 +137,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let isMinimized: Bool?
     }
 
-    // 救援扫描产出的待写回动作：扫描（AX 读取）在后台，写回在主线程。
-
     var statusItem: NSStatusItem!
     var statusMenu: NSMenu!
     var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
@@ -149,18 +150,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var scaleMinimizeActive = false           // 临时把最小化动画改成 scale（退出还原用户原设置）
     private var originalDockMinimizeEffect: String?   // nil = 原本没有设置 mineffect
     private var dockMinimizeEffectChanged = false
-    // Dock 会话逻辑的后台串行队列：defaults 读写和 killall Dock 都是子进程同步
-    // 调用，不该占用主线程（启动/菜单切换都走这里）。实例状态在后台算好、回主
-    // 线程应用；退出用 dockWorkQueue.sync 兜底，按持久化的 session 键恢复，
-    // 天然抗「启用/恢复」在途操作交错。
+    // Dock 设置用的后台串行队列：读写 defaults 和 killall Dock 都要同步等子进程，不该占用主线程
+    // （启动、菜单切换都走这里）。状态在后台算好、回主线程应用；退出时用 dockWorkQueue.sync
+    // 等这些操作做完，再按存盘的会话键恢复，启用和恢复交错进行时结果也正确。
     private let dockWorkQueue = DispatchQueue(label: "WindowShade.dock", qos: .utility)
     private var dockOperationInFlight = false         // 主线程专用：防重复入队启用
-    // 截图像素分析（chrome 高度扫描、健康检查、圆角镜像）用的后台队列：纯 CPU
-    // 计算（4K Retina 全宽可达数 MB 缓冲），挪出主线程避免折叠瞬间卡 UI。
+    // 截图像素分析（标题栏高度扫描、原标题栏卷帘条的完整性检查、圆角镜像）用的后台队列：纯计算，
+    // 4K Retina 全宽的缓冲可达数 MB，放在主线程上会让收起时界面停顿。
     let pixelAnalysisQueue = DispatchQueue(label: "WindowShade.pixels", qos: .userInitiated)
-    // 救援扫描的后台队列：journal 逐 app AX 枚举和广域兜底扫描可能被忙 app 拖住
-    // 数秒，必须离开主线程。窗口位置写回统一在主线程执行，写回前复查 shaded
-    // 是否为空，避免与正在进行的折叠操作交错。
+    // 找回屏幕外窗口用的后台队列：逐个应用程序枚举辅助功能窗口、全量扫描停放位置，
+    // 遇到忙的应用程序可能要等好几秒，不能放在主线程上。窗口位置统一在主线程写回，
+    // 写回前再查一次 shaded 是否为空，避免和正在进行的收起交错。
     let rescueWorkQueue = DispatchQueue(label: "WindowShade.rescue", qos: .utility)
     var isRescuingOffscreenWindows = false
     var isRescueQueued = false
@@ -181,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 展开、转发卷帘条上的按钮、回读原窗口（Platform/WindowRestorer.swift）：辅助功能调用在各应用程序自己的队列上，
     /// 主线程不等其他应用程序（R5）。
     let windowRestorer = WindowRestorer(control: RestoreControlSystem())
-    /// 正在后台回读位置、看原窗口是否已被唤回的卷帘条：同一扇窗口同时只读一次，应用程序卡住时不越积越多。
+    /// 正在后台回读位置、看原窗口是否已被唤回的卷帘条：同一扇窗口同时只读一次，应用程序无响应时不越积越多。
     var pendingVisibilityChecks: Set<CGWindowID> = []
     var restoreVerificationTokens: [CGWindowID: UUID] = [:]
     var restoreFocusTokens: [CGWindowID: UUID] = [:]
@@ -193,8 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 浅深色切换的 KVO 令牌（系统外观刷新用）。
     var appearanceObservation: NSKeyValueObservation?
     var pendingSpaceReturns: [CGWindowID: PendingSpaceReturn] = [:]
-    // 菜单悬停的「意图」追踪：跨异步懒截图等待期，防止用户已经移开后
-    // 慢截图才回来还弹出一个不相干窗口的预览。
+    // 记下菜单里指针停在哪一项：截图要异步等，结果回来时指针已经移开，就不再弹出不相干窗口的预览。
     var menuPreviewHoverID: CGWindowID?
     var menuPreviewAnchor: NSRect?
     var shadeOperationIDs: Set<CGWindowID> = []
@@ -207,9 +206,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var hoverPreviewSuppressedUntil: [CGWindowID: Date] = [:]
     var statusNoticeWorkItem: DispatchWorkItem?
     var onboardingWindow: NSWindow?
-    // 等折叠终态的回调（标题栏三击要等收起真正完成）：键 = 原窗口 ID，值 = token -> 回调。
-    // 折叠事务是异步的（立即验证 / 延迟验证 / 回滚），只在真实终态到达时才回调；
-    // token 保证旧请求不会误结算新请求。
+    // 等收起结束的回调（标题栏三击要等收起真正完成）：键是原窗口 ID，值是 token → 回调。
+    // 收起是异步的（立即验证 / 延迟验证 / 回滚），只在最终结果出来时回调；
+    // token 保证旧请求的结果不会交给新请求。
     var foldWaiters: [CGWindowID: [UUID: (Bool) -> Void]] = [:]
     var foldWaiterTransactions: [UUID: UUID] = [:]
     var foldObserverSerial: UInt = 0
@@ -288,9 +287,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         wlog("=== session start pid=\(getpid()) at \(sessionFormatter.string(from: Date())) ===")
         // 权限状态写进日志：没有权限时的表现（欢迎窗口、简化标题栏）要能和权限对上。
         wlog("permissions: accessibility=\(AXIsProcessTrusted()) screenRecording=\(hasScreenRecordingPermission())")
-        // 永久退出 App Nap：本进程持有全局 CGEventTap（回调在主 RunLoop 执行），
-        // 被 nap 后每次双击都会拖慢全系统鼠标事件直到 tap 被系统超时禁用；
-        // 计时器（reconcile/watchdog/菜单刷新）也会被合并推迟数十秒。
+        // 一直不进入 App Nap：鼠标钩子（在钩子进程里，或钩子进程启动失败时在 WindowShade 自己的线程上）
+        // 遇到双击、三击要问主线程；主线程被节流后回答变慢，每次双击都要等满时限才放行
+        // （TapDecision.deadline、TapProtocol.deadline）。定时器（如 Reconcile 的定时核对）也会被推迟几十秒。
         appNapActivity = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
             reason: "WindowShade owns a global event tap; App Nap stalls system-wide mouse input")
@@ -304,7 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logIfSlow("launch hotKey", threshold: 0.1) { registerHotKey() }
         logIfSlow("launch ensureAX", threshold: 0.1) { _ = ensureAccessibility() }
         // 把本进程所有同步 AX 调用的超时从系统默认 6s 收紧到 axMessagingTimeout。
-        // 目标 app 无响应时，主线程最多被拖这么久；正常 app 的 AX 属性读取都在毫秒级，不受影响。
+        // 目标应用程序无响应时，主线程最多等这么久；正常应用程序的 AX 属性读取都在毫秒级，不受影响。
         logIfSlow("launch axTimeout", threshold: 0.1) {
             AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axMessagingTimeout)
         }
@@ -336,7 +335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                name: NSApplication.didChangeScreenParametersNotification,
                                                object: nil)
         // 系统外观开关（减少透明度 / 提高对比度 / 减少动态效果）变化时，
-        // 已打开的卷帘条和悬停缩略图立即跟着刷新。
+        // 已打开的卷帘条和菜单悬停预览立即跟着刷新。
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(systemAppearanceOptionsChanged(_:)),
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
@@ -362,20 +361,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 辅助功能外观变化：只刷新材质/边线/阴影，不动窗口状态、不触发任何捕获。
     @objc func systemAppearanceOptionsChanged(_ note: Notification) {
         dispatchPrecondition(condition: .onQueue(.main))
-        // 同上：外观开关的通知回调也要能在卡顿归因里看出名字。
+        // 外观开关的通知回调也要加标记，卡顿日志里才看得出是它。
         MainThreadActivity.push("system: 外观开关变化")
         defer { MainThreadActivity.pop() }
         let capabilities = SystemAppearanceCapabilities.current
         wlog("appearance: system options changed reduceTransparency="
              + "\(capabilities.reduceTransparency) increaseContrast=\(capabilities.increaseContrast) "
              + "reduceMotion=\(capabilities.reduceMotion)")
-        // 卷帘条：截图条只需刷新可访问性/边线。
+        // 卷帘条：全部重画；原标题栏的卷帘条另外刷新边线。
         for state in shaded.values {
             guard let content = state.overlay?.contentView else { continue }
             content.needsDisplay = true
             (content as? TitleStripView)?.applySystemAppearance(capabilities: capabilities)
         }
-        // 临时悬停缩略图。
+        // 菜单悬停预览。
         (activePreview?.window.contentView as? SafariStylePreviewView)?
             .applySystemAppearance(capabilities: capabilities)
     }
@@ -419,11 +418,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 
 
-    /// 每次按下鼠标：可能是双击标题栏的第一下，先在后台预热截图要用的窗口清单。
+    /// 每次按下鼠标：可能是双击标题栏的第一下，先在后台取好截图要用的窗口清单。
     private func setupMouseDownMonitor() {
         mouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
             // NSEvent 全局 monitor 在主线程回调；连 WindowServer 的标题栏预过滤
-            // 也可能很慢。预热整体放到后台，连续点击至多留一份工作，过时结果直接丢弃。
+            // 也可能很慢。这些准备整体放到后台，连续点击至多留一份工作，过时结果直接丢弃。
             if #available(macOS 14.0, *) {
                 self?.scheduleTitlebarPrefetch()
             }
@@ -481,10 +480,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         contentView.setAccessibilityCustomActions(actions)
     }
 
-    // 动态翻转折叠项标题，与 ⌃⌘C 实际行为一致。这里绝不能为菜单文案同步读
-    // focusedWindow：忙 app 的 AX timeout 会把每一次菜单重建卡住。只看本应用自己的窗口；
-    // 认不出时宁可显示保守的“收起”。
-
+    /// 当前操作的是哪条卷帘条：先看本应用的当前窗口，再看指针下的卷帘条。
+    /// ⌃⌘C（toggle）和菜单标题（foldToggleMenuTitle）都用它，菜单里的“收起当前窗口 / 展开当前窗口”
+    /// 因此和快捷键的实际行为一致。不读其他应用程序的焦点窗口：忙的应用程序会让每次菜单重建都等到辅助功能超时。
+    /// 认不出时返回 nil，菜单显示“收起当前窗口”。
     func currentShadedOverlayID() -> CGWindowID? {
         let activeWindows = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
         for window in activeWindows {
@@ -620,9 +619,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.clearDockMinimizeEffectSession()
             }
             let verified = self.writeDockMinimizeEffect("scale", reason: "session-start")
-            // Even when defaults already says "scale", the running Dock process may
-            // still be using Genie until it reloads preferences. Restarting Dock here
-            // makes WindowShade's minimize fallback match the product metaphor.
+            // 即使偏好里已经是 scale，正在运行的 Dock 在重读偏好之前可能仍用“神奇效果”。
+            // 这里重启 Dock，让最小化（其他方式都不行时才用的收起方式）的动画和收起的样子一致。
             self.killDock()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -635,8 +633,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func restoreDockMinimizeEffect() {
-        // 恢复基于持久化的 session 键而不是实例状态：与在途的 enable 在同一个
-        // 串行队列上按 FIFO 执行，天然得到「先启用后还原」的正确顺序。
+        // 按存盘的会话键恢复，不看实例状态：和进行中的启用在同一个串行队列上按先后执行，
+        // 顺序一定是“先启用、后恢复”。
         dockWorkQueue.async { [weak self] in
             guard let self else { return }
             self.recoverStaleDockMinimizeEffectSessionIfNeeded()
@@ -717,14 +715,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.terminate(nil)
     }
 
-    // MARK: 全局快捷键
-
-
-
-
     // MARK: 双击标题栏（CGEventTap）
 
-    // tap 创建需要辅助功能权限；权限可能晚于启动才授予，所以轮询到授权后再装。
     /// 启动时在后台画好正在运行的普通应用程序的图标（见 Support/AppIconCache.swift）。
     func prepareAppIcons() {
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
@@ -732,6 +724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // 装鼠标钩子需要辅助功能权限；权限可能在启动以后才给，所以每 2 秒查一次，有了再装。
     func setupEventTapWhenTrusted() {
         if setupEventTap() {
             rescueOffscreenWindows(silent: true)
@@ -749,12 +742,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // tap 因输入洪泛被系统禁用时退避重启用，避免反复禁用/启用和系统打架。
-
     /// 全系统的鼠标钩子装好了：在钩子进程里，或者在 WindowShade 自己这里。
     var hasGlobalTap: Bool { eventTap != nil || TapHelperLink.isRunning }
 
-    /// 先用钩子进程（App/TapHelperLink.swift）：WindowShade 停住、卡住时不挡全系统的点击。
+    /// 先用钩子进程（App/TapHelperLink.swift）：WindowShade 停住、无响应时不挡全系统的点击。
     /// 钩子进程用不了才在自己这里装钩子。
     @discardableResult
     func setupEventTap() -> Bool {
@@ -772,7 +763,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                           callback: eventTapCallback, userInfo: nil) else { return false }
         eventTap = tap
         mouseDownTapPort = tap
-        // 钩子跑在自己的线程上：主线程卡住时，全系统的单击不用等它（见 eventTapCallback）。
+        // 钩子跑在自己的线程上：主线程卡顿时，全系统的单击不用等它（见 eventTapCallback）。
         let thread = Thread {
             let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
@@ -796,7 +787,7 @@ enum PrivateSLSMemo {
         UserDefaults.standard.string(forKey: key(kind)) == systemVersion
     }
 
-    /// 写偏好要和 cfprefsd 同步往返，CI 上实测在主线程卡过 446ms：放到后台写，下次启动才读。
+    /// 写偏好要和 cfprefsd 同步往返，CI 上实测在主线程上等过 446 毫秒：放到后台写，下次启动才读。
     static func markIneffective(_ kind: String) {
         let version = systemVersion
         let defaultsKey = key(kind)
@@ -805,8 +796,8 @@ enum PrivateSLSMemo {
 }
 
 extension AppDelegate {
-    /// 启动一秒后在后台截 1 像素：窗口截图第一次调用要先热身（实测可达 0.7 秒），
-    /// 不预热的话这段时间会落在第一次收起上。
+    /// 启动一秒后在后台截 1 像素：截图接口第一次调用要先加载（实测可达 0.7 秒），
+    /// 不提前做，这段时间就会算到第一次收起上。
     func prewarmFastCapture() {
         guard hasScreenRecordingPermission() else { return }
         let selfPID = ProcessInfo.processInfo.processIdentifier

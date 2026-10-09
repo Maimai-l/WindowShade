@@ -1,6 +1,6 @@
 import Cocoa
 
-/// Shared edge and shadow measurements for the paper surfaces.
+/// 纸面表面共用的边线和阴影尺寸。
 enum PaperSurfaceStyle {
     /// 纸面阴影：提高对比度时阴影更深、更明确（系统外观策略统一决定）。
     static func shadow(capabilities: SystemAppearanceCapabilities = .current) -> NSShadow {
@@ -11,13 +11,13 @@ enum PaperSurfaceStyle {
         return shadow
     }
 
-    /// 细线按 backing scale 对齐；提高对比度时加粗并去掉顶部高光。
+    /// 细线按屏幕的像素倍率对齐；提高对比度时加粗并去掉顶部高光。
     static func drawEdge(in bounds: NSRect, scale: CGFloat,
                          capabilities: SystemAppearanceCapabilities = .current) {
         let width = SystemAppearancePolicy.edgeWidth(capabilities)
         NSColor.separatorColor.setStroke()
-        // 卷帘条是“被卷起的窗口顶部”：上面两角跟系统窗口一样是连续曲率的 13 pt，
-        // 下边缘是直切口，和截图条的窗口 chrome 对齐。
+        // 卷帘条是收起后留下的窗口顶部：上面两角和系统窗口一样，是 13 点的连续曲率圆角；
+        // 下边是直边，和原标题栏的卷帘条里的窗口标题栏对齐。
         let radius = SystemCornerRadius.surfaceRadius(forHeight: bounds.height)
         let border = SystemCornerPath.path(in: bounds.insetBy(dx: width / 2, dy: width / 2),
                                            radius: radius, corners: .top)
@@ -33,11 +33,9 @@ enum PaperSurfaceStyle {
     }
 }
 
-/// A mouse-transparent child supplies the explicit paper shadow without changing
-/// the parent window's frame (which is also the source-window alignment contract).
-/// Child ordering follows the parent through hide/show, moves and Space changes.
+/// 画纸面阴影的视图，放在不接收鼠标的子窗口（PaperShadowPanel）里，不改父窗口的外框（外框要和原窗口对齐）。
 private final class PaperShadowView: NSView {
-    /// 面板四角都要圆；卷帘条只有上面两角圆（下边缘是被卷起后的直切口）。
+    /// 面板四角都要圆；卷帘条只有上面两角圆（下边是收起后留下的直边）。
     var corners: SystemCornerPath.Corners = .all {
         didSet { needsDisplay = true }
     }
@@ -60,13 +58,14 @@ private final class PaperShadowView: NSView {
     }
 }
 
-/// 纸面阴影子窗口：完全鼠标穿透，且永远不能成为 key/main——它只是影子，
-/// 不该因为被 ordered front 而让所属 app 被激活或抢走键盘焦点。
+/// 纸面阴影子窗口：不接收鼠标，也不能成为主窗口或键盘焦点窗口。它只用来画阴影，
+/// 移到前面时不该激活所属的应用程序，也不该抢走键盘焦点。
 private final class PaperShadowPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
+/// 隐藏、显示、移动、换桌面时，阴影子窗口的前后顺序都跟着父窗口。
 @MainActor
 private final class PaperWindowShadow: NSObject {
     private weak var parent: NSWindow?

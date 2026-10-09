@@ -1,5 +1,5 @@
 // 展开（docs/design.md 第 5.5 节第 2 步）：把原窗口放回收起前的位置和大小，再交还焦点。
-// 对其他应用程序的辅助功能调用都放在该应用程序自己的串行队列上（R5、第 5.8 节）：应用程序卡住时，
+// 对其他应用程序的辅助功能调用都放在该应用程序自己的串行队列上（R5、第 5.8 节）：应用程序无响应时，
 // 只有它自己的队列在等辅助功能超时，主线程和别的应用程序的展开不受影响。
 // 底层操作经由 RestoreControl：App 里是辅助功能、SkyLight 调用（RestoreControlSystem），
 // 测试里是模拟实现。只依赖 Foundation，测试直接编译。
@@ -26,7 +26,7 @@ protocol RestoreControl: Sendable {
     func log(_ message: String)
 }
 
-/// 一次放回所需的全部输入。position 已经由调用方夹到屏幕可见范围内。
+/// 一次放回所需的全部输入。position 已经由调用方限制在屏幕可见范围内。
 struct RestoreRequest: Sendable {
     let window: WindowHandle
     let id: CGWindowID

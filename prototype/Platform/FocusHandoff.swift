@@ -1,7 +1,7 @@
 // 收起时把键盘焦点交给原窗口后方的窗口（docs/design.md 第 5.4 节第 8 步）。
 //
-// 对焦点所在的应用程序或窗口执行隐藏、最小化时，macOS 按全局最近使用顺序自行挑选继承者，不限当前桌面：
-// 继承者在别的桌面就会切换桌面。所以由 WindowShade 先在当前桌面上选好继承者：
+// 对焦点所在的应用程序或窗口执行隐藏、最小化时，macOS 按全局最近使用顺序自己挑下一个接手焦点的窗口，
+// 不限当前桌面：选中的窗口在别的桌面上，就会切换桌面。所以 WindowShade 先在当前桌面上选好接手的窗口：
 // 同一应用程序在当前桌面上的其他窗口（菜单栏不变）→ 当前桌面最上层的其他普通应用程序窗口 → 无处交接。
 // 无处交接时隐藏整个应用程序不安全，调用方改用别的方式移开原窗口。
 // 底层操作经由 FocusControl：App 里是辅助功能和窗口服务器的调用，测试里是模拟实现。只依赖 Foundation。
@@ -73,7 +73,7 @@ struct FocusHandoff: Sendable {
                   let cid = control.windowNumber(candidate), cid != request.id,
                   !request.foldedIDs.contains(cid), onScreenIDs.contains(cid) else { continue }
             // 截图时 WindowShade 为让原窗口画成非活跃态暂居前台：这时只设置焦点窗口，应用程序仍在后台，
-            // 继承的窗口成不了当前窗口，键盘落到 WindowShade 上。所以先把应用程序激活回来。
+            // 接手的窗口成不了当前窗口，键盘落到 WindowShade 上。所以先把应用程序激活回来。
             if request.frontmostPID != request.pid { control.activate(pid: request.pid) }
             control.focus(candidate, pid: request.pid)
             control.log("focus: handoff strategy=same-app heir=\(cid) id=\(request.id)")

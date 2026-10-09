@@ -2,10 +2,9 @@ import Foundation
 
 enum RestoreObservation { case pending, visible, closed }
 
-/// Separates restore acknowledgement from the platform mutation. Clock, observation and journal
-/// acknowledgement are injected so timeouts, cancellation and retry use the same production logic.
-/// Observation answers through a callback: it reads the other app's window off the main thread (R5),
-/// and the next check is scheduled only after the answer, so a frozen app never piles up reads.
+/// 把“确认放回成功”和“放回窗口”分开。时钟、观察和确认都由外部传入，超时、取消、重试走的是和正式代码相同的逻辑。
+/// 观察通过回调给出结果：它在主线程以外读另一个应用程序的窗口（R5），拿到结果后才安排下一次检查，
+/// 应用程序无响应时读取也不会越积越多。
 final class RestoreVerifier {
   typealias Schedule = (TimeInterval, @escaping () -> Void) -> Void
   typealias Observe = (@escaping (RestoreObservation) -> Void) -> Void

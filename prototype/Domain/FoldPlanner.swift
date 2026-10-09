@@ -44,7 +44,7 @@ struct FoldFacts: Sendable {
 /// 和这次收起有关的用户设置与权限。
 struct FoldSettings: Sendable {
     var appearance = ShadeAppearanceMode.nativeScreenshot
-    /// 调用方指定的样子；为 nil 时按用户设置，并在截不了图时退回统一样式的标题栏。
+    /// 调用方指定的样子；为 nil 时按用户设置，并在截不了图时退回简化标题栏。
     var forcedAppearance: ShadeAppearanceMode?
     var screenRecordingGranted = true
     /// macOS 14 及以上才有 ScreenCaptureKit 的单张截图。
@@ -85,7 +85,7 @@ enum FoldPlanner {
             mode = .proxyTitleBar
             reason = "screencapturekit-unavailable"
         }
-        // Adobe 的标题栏是自绘的，统一样式的标题栏画不出它：有截图权限时一律用截图。
+        // Adobe 的标题栏是自绘的，简化标题栏画不出它：有截图权限时一律用截图。
         if facts.adobeKind != .none, mode == .proxyTitleBar,
            settings.screenRecordingGranted, settings.screenCaptureKitAvailable {
             mode = .nativeScreenshot

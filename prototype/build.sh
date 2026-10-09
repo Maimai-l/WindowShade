@@ -10,7 +10,7 @@
 # 应用内更新（docs/update.md）：主程序链接 prototype/Vendor/Sparkle.framework（2.10.0，已删 XPCServices），
 # 用 Sparkle 的标准流程和界面。嵌套代码从里往外逐个签，全部用同一个身份，不用 --deep。
 # --check 与应用一样编译并链接 Sparkle；
-# 缺少该依赖时检查失败，不能把条件编译跳过接口误写成完整链接通过。
+# 缺少 Sparkle 时检查直接失败，不会把“跳过了 Sparkle 接口的编译”当成完整链接通过。
 # 日常 ./build.sh 出来的开发版不写 SUFeedURL，更新器不启动，不会被线上版本换掉。
 #
 # 签名身份（二选一）：
@@ -25,7 +25,7 @@ cd "$(dirname "$0")"
 stage_only=0
 if [ "${1:-}" = "--stage" ]; then stage_only=1; fi
 OPTIMIZATION_FLAGS=(-O -whole-module-optimization)
-# Toolchain version is not the language mode. Keep all four Swift builds identical.
+# 工具链版本不等于语言模式。四次 Swift 编译都用同一组语言参数。
 SWIFT_LANGUAGE_FLAGS=(-swift-version 6 -strict-concurrency=complete -warnings-as-errors)
 if [ "${1:-}" = "--local-parallel" ]; then OPTIMIZATION_FLAGS+=(-num-threads 4); fi
 APP="WindowShade.app"
@@ -40,8 +40,8 @@ MODULE_CACHE="$(cd .. && pwd)/.build/module-cache"
 FEED_URL="https://windowshade.aaronlau.me/appcast.xml"
 EXPECTED_ED_KEY="D/MZytH+oxawqKQsskoXBdwbvoPentrqfaj7Tj2pnkw="
 SPARKLE_FRAMEWORK="$(pwd)/Vendor/Sparkle.framework"
-# macOS 自带 bash 3.2：`set -u` 下展开空数组会直接致命，而且有 EXIT trap 时还会以 0 退出，
-# 让 --check 在缺少 Vendor/Sparkle.framework 时「什么都不编也返回成功」。下面一律用 + 展开形式。
+# macOS 自带的 bash 3.2 在 `set -u` 下展开空数组会报错退出，有 EXIT trap 时退出码还是 0，
+# 于是缺少 Vendor/Sparkle.framework 时 --check 什么都没编也返回成功。可能为空的数组（SPARKLE_FLAGS）用 + 展开形式。
 SPARKLE_FLAGS=()
 if [ -d "$SPARKLE_FRAMEWORK" ]; then SPARKLE_FLAGS=(-F "$(pwd)/Vendor"); fi
 
@@ -106,8 +106,7 @@ if [ -f "$(xcrun --show-sdk-path --sdk macosx)/System/Library/Frameworks/AppKit.
   GLASS_DEFINE="-DWINDOWSHADE_SDK_HAS_GLASS"
 fi
 ARCH="${WINDOWSHADE_ARCH:-$(uname -m)}"
-# Compile one coherent source snapshot. Edits made while a long optimized build runs
-# cannot invalidate the Swift inputs of the signed bundle.
+# 先复制一份源码快照再编译：长时间的优化编译期间改动文件，也不会影响签名包里的程序。
 mkdir -p "$(cd .. && pwd)/.build"
 WORK="$(mktemp -d "$(cd .. && pwd)/.build/build.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
@@ -118,7 +117,7 @@ for source in $SOURCES; do
   COMPILE_SOURCES+=("$WORK/$source")
 done
 # 鼠标钩子进程（docs/design.md 第 5.9 节）：只有 TapHelper/main.swift 和两边共用的 Core/TapProtocol.swift，
-# 只链接 Foundation 和 CoreGraphics。编译参数和主程序相同。
+# 只链接 Foundation 和 CoreGraphics。语言参数和主程序相同。
 HELPER_NAME="WindowShadeTapHelper"
 compile_tap_helper() {
   mkdir -p "$WORK/TapHelper" "$WORK/helper-tmp"
@@ -130,7 +129,7 @@ compile_tap_helper() {
 }
 if [ "$check_only" = "1" ]; then
   # 和发布构建用同一套编译参数（-O -whole-module-optimization），只把产物写到临时目录、不签名、
-  # 不碰 app bundle。只做 -typecheck 看不到整模块优化下才报的隔离/所有性问题。
+  # 不碰 app bundle。只做 -typecheck 看不到整模块优化下才报的隔离、所有权问题。
   echo "==> 编译验证（--check，和发布构建同样的优化参数；不签名、不修改 app bundle）"
   mkdir -p "$MODULE_CACHE"
   env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
@@ -165,9 +164,9 @@ if [ ! -f "$SPARKLE_FRAMEWORK/Versions/B/Sparkle" ]; then
   exit 1
 fi
 
-# 没有现成 bundle 时，用仓库里的 Info.plist + app icon bootstrap 一个最小 bundle。
-# 全新 clone 没有旧 TCC 权限需要保护，所以不必要求先下载一份预编译 binary；
-# 已有 bundle 则继续原地替换 Mach-O，保留 TCC 身份。
+# 没有现成的 app bundle 时，用仓库里的 Info.plist 和应用图标搭一个最小的 bundle。
+# 新克隆的仓库没有旧的 TCC 授权需要保护，所以不必先下载一份编译好的程序；
+# 已有 bundle 时，仍原地替换 Mach-O，保留 TCC 身份。
 if [ ! -d "$APP/Contents/MacOS" ]; then
   echo "==> 未找到现有 ${APP}，从源码仓库资源 bootstrap 最小 bundle"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -201,10 +200,8 @@ cp "$WORK/$HELPER_NAME" "$APP/Contents/MacOS/$HELPER_NAME"
 rm -f "$APP/Contents/Resources/Duo.metallib"
 rm -f "$APP/Contents/Resources/LockOverlay-LICENSE.txt"
 rm -rf "$APP/Contents/Resources/ThirdParty"
-# The released bundle historically carries the Swift concurrency runtime in
-# Contents/Frameworks. Preserve that runtime in isolated stage builds too;
-# otherwise the stage zip differs from the known-good app bundle and can fail
-# before application code starts on systems without the matching toolchain.
+# 发布包一直在 Contents/Frameworks 里带着 Swift 并发运行时。隔离的发布构建也保留它；
+# 否则发布包和已验证过的 app bundle 不一致，在没有对应工具链的系统上，可能在程序代码运行之前就失败。
 SOURCE_FRAMEWORKS="$(pwd)/WindowShade.app/Contents/Frameworks"
 if [ "$stage_only" = "1" ] && [ -d "$SOURCE_FRAMEWORKS" ]; then
   mkdir -p "$APP/Contents/Frameworks"
@@ -236,15 +233,15 @@ for lproj in "$EMBED_FW/Versions/B/Resources/"*.lproj; do
 done
 echo "==> Sparkle.framework：${SPARKLE_KB_BEFORE} KB → $(du -sk "$EMBED_FW" | cut -f1) KB（写进发布说明草稿）"
 
-# Info.plist in the source tree owns release versions; synchronize only these
-# fields so existing bundle identity and local resources remain intact.
+# 版本号以源码树里的 Info.plist 为准；只同步这两项，保留现有 bundle 的身份和本地资源。
 for version_key in CFBundleShortVersionString CFBundleVersion; do
   release_value=$(/usr/libexec/PlistBuddy -c "Print $version_key" Info.plist)
   /usr/libexec/PlistBuddy -c "Set :$version_key $release_value" "$APP/Contents/Info.plist"
 done
-# 更新器的设置同样以源码树为准（SUFeedURL 除外：只有 --stage 写，开发版不写就不启动更新器）。
+# 删掉旧版本留下的 Apple 事件、相机用途说明（源码树的 Info.plist 里已经没有这两项）。
 plutil -remove NSAppleEventsUsageDescription "$APP/Contents/Info.plist" 2>/dev/null || true
 plutil -remove NSCameraUsageDescription "$APP/Contents/Info.plist" 2>/dev/null || true
+# 更新器的设置同样以源码树为准（SUFeedURL 除外：只有 --stage 写，开发版不写就不启动更新器）。
 for su_key in SUPublicEDKey SUVerifyUpdateBeforeExtraction SURequireSignedFeed SUEnableAutomaticChecks \
   SUScheduledCheckInterval SUAllowsAutomaticUpdates SUAutomaticallyUpdate SUEnableSystemProfiling; do
   su_value=$(plutil -extract "$su_key" xml1 -o - Info.plist)
@@ -263,7 +260,7 @@ echo "==> 用 Apple Development 证书签名（TCC 授权可跨重编保留）"
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW/Versions/B/Autoupdate"
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW/Versions/B/Updater.app"
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW"
-# 以前的版本在这里放过更新看护；原地替换的开发包里可能还留着，删掉。
+# 旧版本在这里放过 WindowShadeUpdateGuard.app；原地替换的开发版里可能还留着，删掉。
 rm -rf "$APP/Contents/Helpers/WindowShadeUpdateGuard.app"
 rmdir "$APP/Contents/Helpers" 2>/dev/null || true
 # 鼠标钩子进程和主程序一样不加 hardened runtime：它由 WindowShade 启动，辅助功能授权算在 WindowShade 身上。

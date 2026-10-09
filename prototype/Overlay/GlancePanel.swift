@@ -1,8 +1,8 @@
-// 看一眼的画面：一张单独的卡片，和真窗口分得开。
-// 收起的窗口：原貌卷帘条不动，卡片挂在它下面、隔一道缝，显示标题栏以下的内容。
-// 缩略图：卡片就是整扇窗口，从缩略图长回原来的大小，移开时缩回去（grow / shrink）。
-// 卡片四个角都用真窗口的圆角（从截图里量），带自己的投影；有画面时不铺底色。
-// 被隐藏的 App 临时在原处取消隐藏时，缝和圆角缺口底下垫一张真实背景，真窗口露不出来。
+// 看一眼的画面：一张单独的卡片，和原窗口分开。
+// 收起的窗口：显示原标题栏的卷帘条不动，卡片挂在它下面、隔一道缝，显示标题栏以下的内容。
+// 缩略图：卡片就是整扇窗口，从缩略图放大到原来的大小，移开时缩回去（grow / shrink）。
+// 卡片四个角都用原窗口的圆角（从截图里量），带自己的投影；有画面时不铺底色。
+// 被隐藏的 App 临时在原处取消隐藏时，缝和圆角缺口底下垫一张真实背景，原窗口露不出来。
 // 面板不激活 WindowShade、不抢键盘焦点；单击卡片才真正打开那扇窗。
 
 import AVFoundation
@@ -102,12 +102,12 @@ final class GlanceContentView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel("看一眼：\(accessibilityTitle)")
-        setAccessibilityHelp("单击打开这个窗口")
+        setAccessibilityHelp("单击展开这个窗口")
     }
 
     required init?(coder: NSCoder) { nil }
 
-    /// 卡片接卷帘条时往上多盖的一道（点）：盖住卷帘条下沿和圆角上那道细边，真窗口上没有这道线。
+    /// 卡片接卷帘条时往上多盖的一道（点）：盖住卷帘条下沿和圆角上那道细边，原窗口上没有这道线。
     static let stripEdgeCover: CGFloat = 2
 
     /// 接在卷帘条下的卡片形状（卡片层坐标，原点在左下，卡片上沿在 size.height）：下面两角圆，
@@ -174,7 +174,7 @@ final class GlanceContentView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        // 用 bounds + position 摆，不用 frame：缩略图的看一眼长大、缩回时这两层带着变换，
+        // 用 bounds + position 摆，不用 frame：缩略图的看一眼放大、缩回时这两层带着变换，
         // 那时写 frame 会被变换折算错。没有变换时两种写法一样。
         shadowLayer.bounds = CGRect(origin: .zero, size: bounds.size)
         shadowLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
@@ -191,7 +191,7 @@ final class GlanceContentView: NSView {
         CATransaction.commit()
     }
 
-    /// 真窗口临时在底下时：把那块区域原本的背景垫在卡片下面（缝与圆角缺口里看到的就是它）。
+    /// 原窗口临时在底下时：把那块区域原本的背景垫在卡片下面（缝与圆角缺口里看到的就是它）。
     func setBackdrop(_ image: CGImage, frame: NSRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -231,7 +231,7 @@ final class GlanceContentView: NSView {
         needsLayout = true
     }
 
-    /// 卡片的底色与细边只在什么画面都没有时出现：窗口画面自带边缘，多一层会在角上露出月牙。
+    /// 卡片的底色与细边只在什么画面都没有时出现：窗口画面自带边缘，多一层边，圆角处会露出一道弧形细边。
     func applySystemAppearance(capabilities: SystemAppearanceCapabilities = .current) {
         let bare = !hasSnapshot && !isLive
         cardLayer.borderWidth = bare ? SystemAppearancePolicy.edgeWidth(capabilities) : 0
@@ -288,7 +288,7 @@ final class GlanceContentView: NSView {
         CATransaction.commit()
     }
 
-    // MARK: 从缩略图长回原大小 / 缩回缩略图
+    // MARK: 从缩略图放大到原大小 / 缩回缩略图
 
     /// 卡片（连同投影）缩在 rect（本视图坐标）里的样子：把卡片外框映到 rect 上的变换。
     private func shrunkTransform(for target: CALayer, into rect: NSRect) -> CATransform3D {
@@ -301,7 +301,7 @@ final class GlanceContentView: NSView {
         return CATransform3DConcat(CATransform3DMakeScale(kx, ky, 1), CATransform3DMakeTranslation(tx, ty, 0))
     }
 
-    /// 缩略图上停够了：卡片从缩略图（rect，本视图坐标）长回窗口原来的大小，弹簧 0.3 / 不回弹。
+    /// 缩略图上停够了：卡片从缩略图（rect，本视图坐标）放大到窗口原来的大小，弹簧 0.3 / 不回弹。
     /// 返回多久之后卡片整张盖住原处（被隐藏的 App 要等到那时才在下面取消隐藏）。
     @discardableResult
     func grow(from rect: NSRect) -> CFTimeInterval {

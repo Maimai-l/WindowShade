@@ -47,7 +47,7 @@ struct HideRequest: Sendable {
     var otherFoldedWindows = 0
 }
 
-/// 移到屏幕外时依次试的位置。
+/// 移到屏幕外时第一个试的位置（其余几个见 offscreenSpots）。
 let offscreenParkingPoint = CGPoint(x: -32000, y: -32000)
 
 final class WindowHider: @unchecked Sendable {
@@ -105,8 +105,8 @@ final class WindowHider: @unchecked Sendable {
                 return fallbackHide(request, allowAppHide: true)
             }
             if let hide = offscreenHide(request) { return hide }
-            // 被钳制回可见区。不记成“这个应用挪不出去”：能否挪出屏幕取决于窗口大小、
-            // 位置与显示器布局，下次仍先试挪屏外——它比最小化更接近“收起”。
+            // 被系统限制回可见区。不记成“这个应用程序移不出去”：能不能移出屏幕取决于窗口大小、
+            // 位置和显示器布局，下次仍先试移到屏幕外——它比最小化更接近“收起”。
             let hide = fallbackHide(request, allowAppHide: allowAppHide && request.appHideSafe)
             control.log("    挪屏外被钳制 → \(hide)（pid=\(pid), allowAppHide=\(allowAppHide && request.appHideSafe)）")
             return hide
@@ -186,7 +186,7 @@ final class WindowHider: @unchecked Sendable {
         }
         control.log("    private SLS offscreen did not park id=\(id) pid=\(request.pid) reason=fallback")
         if moved {
-            // 调用说挪了，窗口却没动：跨进程改动被系统静默忽略（SIP），之后不再尝试。
+            // 调用返回成功，窗口却没有移动：系统忽略了跨进程的改动（SIP），之后不再尝试。
             lock.withLock { skyLightMoveIneffective = true }
             rememberIneffective("offscreen")
             control.log("    private SLS offscreen 在本机无效（很可能是 SIP 限制），本会话不再尝试")
@@ -221,7 +221,7 @@ final class WindowHider: @unchecked Sendable {
         return .privateAlpha
     }
 
-    /// 挪到所在屏幕的下角外面，只留一像素：没有最小化缩进程序坞的动画，展开时挪回原位即可。
+    /// 挪到所在屏幕的下角外面，只留一像素：没有最小化缩进 Dock 的动画，展开时挪回原位即可。
     private func cornerParkingHide(_ request: HideRequest) -> HideMethod? {
         guard let screen = request.layout.screen(containing: request.position, size: request.size) else { return nil }
         let others = request.layout.screens.filter { $0 != screen }

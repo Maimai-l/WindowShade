@@ -1,8 +1,8 @@
-// 离屏窗口救援：折叠异常退出后的 journal 恢复与广域停车点扫描。
+// 找回屏幕外的窗口：WindowShade 在收起期间异常退出后，先按恢复记录放回窗口，再扫描还停在停放位置上的窗口。
 // 扫描在后台队列、写回在主线程；作为 AppDelegate 扩展实现。
 //
-// 恢复纪律：找到 journal entry → 尝试恢复 → 验证成功 → 才清掉这条 entry。
-// 验证失败的 entry 保留到下一轮 rescue 重试，绝不先删线索再恢复。
+// 顺序：找到记录 → 放回窗口 → 验证成功 → 才删除记录。
+// 验证失败的记录留到下一轮重试；不能先删记录再放回窗口。
 
 import Cocoa
 
@@ -25,17 +25,15 @@ extension AppDelegate {
     struct JournalRescueResult {
         var actions: [OffscreenRescueAction] = []
         var alphaRestores: [JournalAlphaRestore] = []
-        // preparing intent 且窗口当前可见：事务没有真正走到隐藏，无需救援，
-        // 可以直接清理这条 intent（安全，因为窗口本身完好可见）。
+        // 记录还停在 preparing、窗口仍然可见：收起没走到隐藏这一步，窗口完好，直接删掉这条记录。
         var resolvedIDs: Set<CGWindowID> = []
     }
 
-    // WindowShade 自己的停车点（见 Platform/WindowHider.swift 的 offscreenSpots，
-    // livePreviewParkingSpots）：主点 (-32000,-32000)，备选 (-12000, y)/
-    // (x, -12000)/(-12000,-12000)。判据只匹配这些停车带：
-    // - 两轴都在停车带（主点 / (-12000,-12000)），或
-    // - 单轴在停车带、另一轴是"像普通窗口坐标"的值（备选点），
-    // 避免误救其他 app 自己放到极远坐标（如 -100000）的窗口。
+    // WindowShade 自己的停放位置（见 Platform/WindowHider.swift 的 offscreenParkingPoint 和 offscreenSpots）：
+    // 主点 (-32000,-32000)，备选 (-12000, y)、(x, -12000)、(-12000,-12000)。只匹配这些位置附近（±96 点）：
+    // - 两个坐标都在停放位置附近（主点或 (-12000,-12000)），或
+    // - 一个坐标在停放位置附近，另一个像普通窗口的坐标（备选点）。
+    // 这样不会误动其他应用程序自己放到极远处（如 -100000）的窗口。
     nonisolated func isAtWindowShadeParkingSpot(_ pos: CGPoint) -> Bool {
         func onParkingBand(_ v: CGFloat) -> Bool {
             abs(v + 12000) <= 96 || abs(v + 32000) <= 96
@@ -56,8 +54,7 @@ extension AppDelegate {
         guard !entries.isEmpty else { return }
         var rescued = 0
 
-        // 救援扫描原本对每个运行中的进程都发一次 AX 枚举，
-        // 启动期这条路径直接决定「launch」有多慢。
+        // 只枚举有窗口的进程：对每个运行中的进程都做一次辅助功能枚举，启动会明显变慢。
         let pidsOwningWindows = WindowListCache.shared.pidsWithWindows()
 
         for app in NSWorkspace.shared.runningApplications {
@@ -82,8 +79,8 @@ extension AppDelegate {
                    journalString(entry,"hide") != HideMethod.minimized.rawValue,
                    journalString(entry,"hide") != HideMethod.hidden.rawValue,
                    journalString(entry,"hide") != HideMethod.privateAlpha.rawValue {
-                    // preparing intent 且窗口仍可见：事务没走到隐藏这一步（进程在
-                    // 写 intent 后、隐藏前被杀），窗口完好，无需救援，安全清理。
+                    // 记录还停在 preparing、窗口仍然可见：收起没走到隐藏这一步（进程在写记录之后、
+                    // 隐藏之前被结束），窗口完好，直接删掉这条记录。
                     if journalString(entry, "stage") == ShadeLifecycleStage.preparing.rawValue {
                         result.resolvedIDs.insert(id)
                         wlog("journal: preparing intent resolved (window visible) id=\(id)")
@@ -104,7 +101,7 @@ extension AppDelegate {
                     safeTarget = target
                 } else {
                     let frame = cocoaFrame(fromAXPosition: target, size: originalSize)
-                    // 优先恢复到折叠时所在显示器，避免多显示器布局变化后救错屏。
+                    // 优先放回收起时所在的显示器，避免多显示器布局变化后放错屏幕。
                     let displayID = journalNumber(entry, "displayID").map { CGDirectDisplayID($0) }
                     safeTarget = axPosition(fromCocoaFrame: clampedFrame(frame, margin: 16,
                                                                           preferredDisplayID: displayID))
@@ -171,7 +168,7 @@ extension AppDelegate {
 
             for win in windows {
                 guard let pos = axPosition(win), let size = axSize(win) else { continue }
-                // 只救我们自己的停车点附近、且确实不在任何屏幕可见区的窗口。
+                // 只找回停在 WindowShade 停放位置附近、而且不在任何屏幕可见区域里的窗口。
                 guard isAtWindowShadeParkingSpot(pos) else { continue }
                 guard !windowIsVisible(pos: pos, size: size) else { continue }
                 actions.append(OffscreenRescueAction(
@@ -217,7 +214,7 @@ extension AppDelegate {
             guard let self else { return }
             guard AXIsProcessTrusted() else {
                 DispatchQueue.main.async { self.showPermissionOnboardingIfNeeded(force: true) }
-                finish(silent ? nil : "需要权限")
+                finish(silent ? nil : "要先允许辅助功能")
                 return
             }
             var result = JournalRescueResult()
@@ -227,9 +224,8 @@ extension AppDelegate {
                 rescued += self.collectParkedWindowRescueActions(targetTopLeft: targetTopLeft,
                                                                  into: &result.actions)
             }
-            // 写回统一在主线程：若扫描期间用户折了窗口（shaded 非空），放弃这批
-            // 写回，避免把刚停车的窗口又挪回可见区；journal 清理也回主线程写，
-            // 避免与 shade 的 journal 写入竞争。
+            // 写回统一在主线程：扫描期间用户收起了窗口（shaded 不为空）时，放弃这一批写回，
+            // 免得把刚移开的窗口又放回可见区；删除记录也在主线程做，避免和收起时写记录冲突。
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if !self.shaded.isEmpty {
@@ -271,7 +267,7 @@ extension AppDelegate {
                 }
                 self.pruneRescuedJournalEntries(rescuedIDs: verifiedIDs)
                 wlog("rescueOffscreenWindows: rescued=\(rescued)")
-                finish(rescued == 0 && !silent ? "没有需要救援的窗口" : nil)
+                finish(rescued == 0 && !silent ? "没有在屏幕外的窗口" : nil)
             }
         }
     }

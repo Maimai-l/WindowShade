@@ -4,7 +4,7 @@ import ScreenCaptureKit
 
 /// 看一眼的实时画面：一扇窗口的一条捕获流，帧直接喂给 `videoLayer`。
 ///
-/// @unchecked Sendable：流、代数、帧计数都在 `stateLock` 里。`filter`、`configuration`
+/// @unchecked Sendable：流、流的序号、帧计数都在 `stateLock` 里。`filter`、`configuration`
 /// 不在锁里，依赖调用方从主线程串行地开流、停流（同一时刻不会有两个 start）。
 final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @unchecked Sendable {
     let videoLayer = AVSampleBufferDisplayLayer()
@@ -17,10 +17,10 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
     private var configuration = SCStreamConfiguration()
     private let stateLock = NSLock()
     private var _isStopped = false
-    // 流代数：每次 start 自增。异步 stop/flush/帧回调都要确认自己仍属于
-    // 当前代数，否则旧流的 flush 会把新流刚显示的画面清掉。
+    // 流的序号：每次 start 加一。异步 stop/flush/帧回调都要确认自己仍属于
+    // 当前序号，否则旧流的 flush 会把新流刚显示的画面清掉。
     private var _captureGeneration: UInt64 = 0
-    // 每路 capture 一条串行帧队列：SCStreamOutput 的采样帧在这里修补与投递。
+    // 每条捕获流一条串行帧队列：采样帧在这里修补、投递。
     private let frameQueue = DispatchQueue(label: "WindowShade.glance-frames", qos: .userInteractive)
     /// 带像素的帧：画面没变化时系统也会送来不带图像的状态帧，“已经是实时画面”只看这个。
     private var _pixelFrameCount: UInt64 = 0
@@ -45,7 +45,7 @@ final class WindowStreamCapture: NSObject, SCStreamDelegate, SCStreamOutput, @un
         try await startStream(filter: newFilter)
     }
 
-    /// keepingLastFrame：画面停在最后一帧，不清掉（看一眼展开时卡片要留到真窗口回来）。
+    /// keepingLastFrame：画面停在最后一帧，不清掉（看一眼展开时卡片要留到原窗口回来）。
     /// completion 在系统真正停下这条流之后、在主线程上调用一次。
     func stop(keepingLastFrame: Bool = false, completion: (@MainActor () -> Void)? = nil) {
         stateLock.lock()

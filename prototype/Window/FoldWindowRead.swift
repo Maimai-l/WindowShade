@@ -1,5 +1,5 @@
-// 收起前读窗口（docs/design.md 第 5.4 节第 1、2 步）：位置、大小、角色、标题、外框、全屏、最小化。
-// 全部是对另一个进程的同步辅助功能调用，对方忙时一次要等几百毫秒（访达的外框解析实测 274ms），
+// 收起前读窗口（docs/design.md 第 5.4 节第 1、2 步）：位置、大小、角色、标题、标题栏外形、全屏、最小化。
+// 全部是对另一个进程的同步辅助功能调用，对方忙时一次要等几百毫秒（访达的外形解析实测 274 毫秒），
 // 所以在后台队列上做；主线程只等结果。
 
 import Cocoa
@@ -31,8 +31,8 @@ func readWindowForFold(_ win: AXUIElement, id: CGWindowID, pid: pid_t, layout: S
                        localChromeHeight: CGFloat?, preparedProfile: WindowChromeProfile?) -> FoldWindowReadout? {
     guard let pos = axPosition(win), let size = axSize(win) else { return nil }
     let role = axRole(win)
-    // Adobe AE/Premiere 工作区窗口的 role 是 AXLayoutArea：有 layer-0 真实
-    // CGWindow 背书时按窗口放行（见 isWindowLikeRole），其余非窗口角色照旧拒绝。
+    // Adobe After Effects、Premiere 工作区窗口的角色是 AXLayoutArea：窗口服务器里有对应的第 0 层窗口时
+    // 按窗口处理（见 isWindowLikeRole），其他非窗口角色仍然拒绝。
     let isWindow = role == kAXWindowRole as String
         || (isWindowLikeRole(role, pid: pid) && cgWindowLayer(id) == 0)
     let title = axTitle(win)

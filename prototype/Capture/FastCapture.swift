@@ -1,6 +1,6 @@
 // 快速截图：CGWindowListCreateImage。
 //
-// ScreenCaptureKit 的单张截图（SCScreenshotManager）每次要临时起一条流，实测 200–584ms，
+// ScreenCaptureKit 的单张截图（SCScreenshotManager）每次要临时起一条流，实测 200–584 毫秒，
 // 是双击收起时最慢的一段。CGWindowListCreateImage 被 Apple 标为废弃，但仍可用（按符号
 // 动态取，SDK 里不直接引用），同样只在有屏幕录制权限时工作，实测几十毫秒。
 // 拿不到、或者窗口还没合成出画面（整张全透明）时返回 nil，调用方退回 ScreenCaptureKit。
@@ -36,7 +36,7 @@ enum FastCapture {
         return image
     }
 
-    /// 截屏幕左上角 1 像素：只为让截图接口先热身，不针对任何窗口。
+    /// 截屏幕左上角 1 像素，只为提前加载截图接口，不针对任何窗口。
     static func warmUp() -> Bool {
         guard !disabled, let createImage else { return false }
         return createImage(CGRect(x: 0, y: 0, width: 1, height: 1), .optionOnScreenOnly,

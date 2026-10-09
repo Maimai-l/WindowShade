@@ -16,9 +16,8 @@ func copyAXValue(_ element: AXUIElement, _ attr: String) -> AXValue? {
     return (v as! AXValue)
 }
 
-// AX 布尔属性可能是 CFBoolean，也可能是 toll-free 桥接的 NSNumber；都接受。
-// CFBoolean 与 NSNumber 是 toll-free 桥接，统一走 NSNumber 读 boolValue，
-// 不需要任何强转；第三方 app 返回其它类型时按 nil/false 处理。
+// 辅助功能的布尔属性可能是 CFBoolean，也可能是 NSNumber；两者是 toll-free 桥接的，
+// 统一按 NSNumber 读 boolValue，其他类型返回 nil。
 func cfBooleanValue(_ value: CFTypeRef) -> Bool? {
     (value as? NSNumber)?.boolValue
 }
@@ -154,14 +153,13 @@ func focusAXWindow(_ win: AXUIElement, pid: pid_t) {
     AXUIElementSetAttributeValue(win, kAXFocusedAttribute as CFString, kCFBooleanTrue)
 }
 
-// 三个交通灯在折叠条（view 坐标，左下原点，高 barH）里的命中区
 /// 露出一块看得见的部分才算可见；停在屏幕角上只剩一像素的窗口不算（见 Core/CornerParking.swift）。
 func windowIsVisible(pos: CGPoint, size: CGSize) -> Bool {
     let winRect = cocoaFrame(fromAXPosition: pos, size: size)
     return rectIsVisible(winRect, onScreens: NSScreen.screens.map(\.frame))
 }
 
-/// 卷帘条还够得着：某块屏幕的可用区域里露出它完整的高度和至少 120 点宽（整条更窄时就是整条）。
+/// 卷帘条还在可操作的范围内：某块屏幕的可用区域里露出它完整的高度和至少 120 点宽（整条不到 120 点时要求整条）。
 /// 原来的窗口就伸出屏幕边时，卷帘条跟着伸出去是对的，不用拉回来。
 func overlayIsReachable(_ frame: NSRect) -> Bool {
     let needWidth = min(frame.width, 120)
@@ -230,14 +228,12 @@ func publicWindowID(of e: AXUIElement) -> CGWindowID? {
 
     let axFrame = CGRect(origin: pos, size: size)
     let title = cleanDisplayTitle(axTitle(e))
-    // Compare all Spaces, including transparent windows. A visible sibling must
-    // not win merely because the source window is hidden or off the current Space.
+    // 在所有桌面的窗口里比，透明窗口也算：原窗口被隐藏或不在当前桌面时，不能因此选中另一扇可见的窗口。
     let candidates = WindowListCache.shared.allWindows(ofPID: pid).filter { info in
         guard let bounds = cgWindowBounds(info) else { return false }
         return frameDistance(bounds, axFrame) <= 96
     }
-    // Geometry is only a compatibility fallback. Rank ordering cannot establish
-    // identity when more than one window has a plausible frame.
+    // 按几何位置匹配只是兼容做法：不止一扇窗口位置相近时，前后顺序说明不了是哪一扇。
     guard candidates.count == 1, let info = candidates.first,
           let number = info[kCGWindowNumber as String] as? NSNumber,
           number.uint32Value != 0 else { return nil }
@@ -250,12 +246,10 @@ func windowID(of e: AXUIElement) -> CGWindowID? {
     var id: CGWindowID = 0
     let error = _AXUIElementGetWindow(e, &id)
     if error == .success, id != 0 { return id }
-    // Some otherwise healthy AX windows report success with a zero ID. Keep
-    // the compatibility path for that case; publicWindowID now accepts only
-    // a unique, title-compatible WindowServer candidate, so it cannot silently
-    // replace an ambiguous window.
+    // 有些辅助功能窗口一切正常，却报告成功并给出 0。这种情况仍走兼容匹配：
+    // publicWindowID 只接受唯一一扇、标题相符的窗口，不会悄悄换成另一扇。
     if error == .success { return publicWindowID(of: e) }
-    // A failed/stale target must not be replaced by a lookalike window.
+    // 读取失败或元素已失效时，不能用外形相似的窗口代替。
     guard error != .invalidUIElement, error != .cannotComplete else { return nil }
     return publicWindowID(of: e)
 }
@@ -272,7 +266,7 @@ func axSubrole(_ e: AXUIElement) -> String? {
     return v as? String
 }
 
-// 从「点中的元素」往上找它所属的窗口
+// 从“点中的元素”往上找它所属的窗口
 func containingWindow(_ el: AXUIElement) -> AXUIElement? {
     if axRole(el) == (kAXWindowRole as String) { return el }
     var winRef: CFTypeRef?
@@ -312,11 +306,10 @@ func isChromeControlRole(_ role: String?) -> Bool {
     }
 }
 
-// 双击/三击标题栏时"不抢"的控件：只保护有真实双击语义的（地址栏/输入框选词、
-// 按钮、滑块等）。标签例外——Safari 等浏览器对标签及标签条的双击没有任何行为
-// （实测确认，2026-07），而标签条在空间语义上就是标题栏，放行给折叠。
-// 误伤防线：命中点仍需通过 titlebarContains 的标题栏带校验，
-// 对话框内容区里的真单选按钮不会走到折叠。
+// 双击、三击标题栏时，哪些控件自己要用双击：地址栏和输入框（双击选词）、按钮、滑块等，
+// 点在它们上面时不收起。标签和标签条除外：Safari 等浏览器双击标签没有反应（2026-07 实测），
+// 而标签条所在位置就是标题栏，所以照常收起。点击位置还要通过 titlebarContains 的标题栏范围检查，
+// 对话框内容区里的单选按钮不会触发收起。
 func stealsTitlebarDoubleClick(_ role: String?) -> Bool {
     switch role ?? "" {
     case "AXRadioButton", "AXTabGroup", "AXRadioGroup":
@@ -350,7 +343,7 @@ func collectTopChromeControlSamples(_ el: AXUIElement, winTop: CGFloat, winSize:
         }
     }
 
-    // 每节点最多展开前 40 个子节点：顶部 chrome 控件（交通灯、搜索框、工具栏
+    // 每节点最多展开前 40 个子节点：顶部 chrome 控件（红绿灯、搜索框、工具栏
     // 按钮）几乎总在子列表最前，越界展开只会把预算浪费在内容区深层节点上。
     for c in axChildren(el).prefix(axTraversalMaxChildrenPerNode) {
         collectTopChromeControlSamples(c, winTop: winTop, winSize: winSize,
@@ -395,8 +388,8 @@ func firstTopChromeControlCluster(of win: AXUIElement, winTop: CGFloat, winSize:
     return clusters.first
 }
 
-// 自绘/toolbar-less 窗口常把搜索框、标题、按钮藏在 AXSplitGroup/AXGroup 内部。
-// 若顶部确实有控件，保留到控件底边，并补上与顶部相同的下 margin，避免截断控件。
+// 自绘或没有工具栏的窗口，常把搜索框、标题、按钮放在 AXSplitGroup、AXGroup 里面。
+// 顶部确实有控件时，保留到控件底边，再补一段和顶部留白相当的下边距（4–28 点），不截断控件。
 func topChromeControlsHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize,
                              titleBarBottom: CGFloat?,
                              allowBelowTitleBar: Bool = false) -> CGFloat? {
@@ -436,9 +429,9 @@ func hasContentControlsBelowTitleBar(_ win: AXUIElement, winTop: CGFloat, winSiz
     return e.minTop >= titleBarBottom - 2
 }
 
-// 用原生交通灯按钮推算标题栏高度：交通灯在标题栏里垂直居中，
+// 用原生红绿灯按钮推算标题栏高度：红绿灯在标题栏里垂直居中，
 // 所以 高度 ≈ 2 ×（按钮中心到窗口顶的距离）。Electron 等自绘标题栏也适用，
-// 因为交通灯始终是 macOS 原生绘制、AX 可读。
+// 因为红绿灯始终是 macOS 原生绘制、AX 可读。
 func trafficLightHeight(of win: AXUIElement, winTop: CGFloat) -> CGFloat? {
     guard let btn = axButtonElement(win, kAXCloseButtonAttribute as String) else { return nil }
     guard let bp = axPosition(btn), let bs = axSize(btn) else { return nil }
@@ -454,8 +447,9 @@ func trafficLightPaddedHeight(of win: AXUIElement, winTop: CGFloat) -> CGFloat? 
     return bottom + min(top, 28)
 }
 
-// 折叠后要保留的 AX 下限：取「写死默认 / 交通灯推算 / 工具栏底边 / 顶部 AX 控件」最大值，
-// 宁可略多保留一点内容，也不要把标题栏切断。
+// 收起后保留的标题栏高度：固定高度、Adobe、只要标准标题栏的窗口各有各的规则；
+// 其余取默认值、红绿灯推算、工具栏底边、顶部控件四者中最大的，最多 300 点。
+// 宁可多保留一点，也不切断标题栏。
 func chromeHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize? = nil, pid: pid_t? = nil) -> CGFloat {
     let trafficH = trafficLightPaddedHeight(of: win, winTop: winTop) ??
                    trafficLightHeight(of: win, winTop: winTop)
@@ -512,8 +506,7 @@ func titlebarHitHeight(of win: AXUIElement, id: CGWindowID,
     return measuredTitlebarHitHeight(of: win, winTop: winTop, winSize: winSize, pid: pid)
 }
 
-/// 不看缓存、当场量。只有辅助功能查询，不碰只在主线程读写的 ChromeProfileCache，可以在后台线程上做。
-/// 。
+/// 不看缓存、当场量。只有辅助功能查询，不读写 ChromeProfileCache，可以在后台线程上做。
 func measuredTitlebarHitHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize, pid: pid_t) -> CGFloat {
     let visualHeight = chromeHeight(of: win, winTop: winTop, winSize: winSize, pid: pid)
     if isAdobeApp(pid: pid) {
@@ -522,5 +515,3 @@ func measuredTitlebarHitHeight(of win: AXUIElement, winTop: CGFloat, winSize: CG
     }
     return visualHeight
 }
-
-// MARK: - 诊断日志（写到 ~/Library/Logs/WindowShade/windowshade.log，只有本人可读，不写窗口标题）

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Atomic local recovery record. The injected URL lets tests exercise write failures and restart recovery.
+/// 本机的恢复记录，整个文件原子写入。URL 由外部传入，测试可以模拟写入失败和重启后的恢复。
 struct DurableShadeJournal {
   let url: URL
   static var application: DurableShadeJournal {

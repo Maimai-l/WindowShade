@@ -1,4 +1,4 @@
-// 覆盖层视图：卷帘条窗口（截图条/代理标题栏）与预览视窗。视图只通过闭包回调动作，不直接持有 AppDelegate。
+// 覆盖层视图：卷帘条窗口（原标题栏 / 简化标题栏）与预览视窗。视图只通过闭包回调动作，不直接持有 AppDelegate。
 
 import Cocoa
 import QuartzCore
@@ -76,7 +76,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var onFrameMoved: ((NSRect) -> Void)?
 
     /// 卷帘条要正好盖在原来的标题栏上：原窗口伸出屏幕边，卷帘条也跟着伸出去，不让 AppKit 推回屏幕里
-    /// （推回来以后展开位置跟着变，窗口就不在原处了）。够不着时由 overlayIsReachable 的调用方拉回。
+    /// （推回来以后展开位置跟着变，窗口就不在原处了）。卷帘条在可用区域里露出的部分不够操作时（见 overlayIsReachable），由调用方移回来。
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     var onDragEnded: ((NSRect) -> Void)?
     var fixedTitlebarHeight: CGFloat = proxyTitleBarHeight
@@ -129,7 +129,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         inactiveLights.isHidden = showSystem
     }
 
-    /// 灰点画在系统按钮的位置上（截图条的按钮对齐原窗口的灯，代理标题栏的按钮按固定排版）。
+    /// 灰点画在系统按钮的位置上（原标题栏的卷帘条按钮对齐原窗口的灯，简化标题栏的按钮按固定排版）。
     /// 位置在画的时候现取，按钮被挪动时重画（见 InactiveTrafficLightsView）。
     private func layoutInactiveLights() {
         guard let content = contentView else { return }
@@ -339,8 +339,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         if event.type == .mouseExited {
             // 离开的可能是按钮，也可能是卷帘条上别的跟踪区域：按离开时指针在哪里算。
             updatePointerOverLights(event.locationInWindow)
-            // AppKit must also deliver the exit to content tracking areas so
-            // the paper title's hover hint can disappear.
+            // 离开事件还要交给 AppKit 发到内容视图的跟踪区域，标题上的“双击展开”提示才会消失。
         }
         if event.type == .leftMouseDown,
            allowsWindowManagement,
@@ -423,7 +422,7 @@ final class InactiveTrafficLightsView: NSView {
         let fill = dark ? NSColor(white: 0.36, alpha: 1) : NSColor(white: 0.82, alpha: 1)
         let edge = dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)
         for rect in dots {
-            // 截图条下面是原窗口带颜色的灯，灰点要把它整个盖住。
+            // 原标题栏的卷帘条下面是原窗口带颜色的灯，灰点要把它整个盖住。
             let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.75, dy: 0.75))
             fill.setFill()
             circle.fill()
@@ -553,7 +552,7 @@ final class TitleStripView: NSImageView {
         layer?.borderColor = SystemAppearancePolicy.cgColor(NSColor.separatorColor, for: self)
     }
 
-    /// 截图卷帘条：画面来自真实窗口截图，VoiceOver 读出标题并提供展开动作。
+    /// 原标题栏的卷帘条：画面来自原窗口的截图，VoiceOver 读出标题并提供展开动作。
     func configureAccessibility(appName: String, windowTitle: String) {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -565,7 +564,7 @@ final class TitleStripView: NSImageView {
                 self?.accessibilityPerformPress() ?? false
             }
         ])
-        // 截图条可能被裁短，鼠标悬停时给出完整标题。
+        // 原标题栏的卷帘条可能被裁短，鼠标悬停时给出完整标题。
         let clean = windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         toolTip = clean.isEmpty ? appName : "\(appName) — \(clean)"
     }
@@ -601,8 +600,8 @@ final class TitleStripView: NSImageView {
     }
 }
 
-// 盖在真交通灯上的透明命中区。
-// 视觉完全来自系统真实渲染后的截图；这里只负责把点击转发给真窗口。
+// 盖在真红绿灯上的透明命中区。
+// 视觉完全来自系统真实渲染后的截图；这里只负责把点击转发给原窗口。
 final class TrafficLightsView: NSView {
     private let lights: [(CGRect, TrafficAction)]
     var onAction: ((TrafficAction) -> Void)?
@@ -611,7 +610,7 @@ final class TrafficLightsView: NSView {
     init(frame: NSRect, lights: [(CGRect, TrafficAction)]) {
         self.lights = lights
         super.init(frame: frame)
-        // 只是盖在真交通灯上的透明命中区，VoiceOver 读到的是源窗口自己的按钮。
+        // 只是盖在真红绿灯上的透明命中区，VoiceOver 读到的是原窗口自己的按钮。
         setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { fatalError() }

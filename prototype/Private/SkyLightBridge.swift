@@ -1,11 +1,5 @@
-// SkyLight 私有 API 隔离层。
-//
-// 把 _AXUIElementGetWindow 与 SLS 符号封装移出主实现，统一经由
-// PrivateSLSWindowMover 访问；所有调用方只依赖这一个入口，
-// 私有符号不可用时由内部 fallback 返回失败，调用方自行降级
-// （AX 移动 → hide/minimize）。
-//
-// 编译单元：prototype/Private/SkyLightBridge.swift
+// SkyLight 私有接口集中在这里：PrivateSLSWindowMover 包装 SLS 函数，_AXUIElementGetWindow 单独声明。
+// 符号取不到时各方法返回失败或 nil，由调用方改用别的方式移开窗口（见 Platform/WindowHider.swift）。
 
 import Cocoa
 import ApplicationServices

@@ -1,5 +1,5 @@
-// AX 辅助：交通灯、QuickLook 重开、系统标题栏双击设置、窗口管理能力、
-// 外部唤回回调与调试转储。
+// 辅助功能相关的函数：红绿灯、快速查看窗口重新打开、系统的标题栏双击设置、窗口管理能力、
+// 外部唤回回调和调试输出。
 
 import Cocoa
 import Carbon.HIToolbox
@@ -42,8 +42,7 @@ func proxyTrafficLightConfiguration(of win: AXUIElement, pid: pid_t) -> ProxyTra
     let minimizeExists = axButtonFrame(win, kAXMinimizeButtonAttribute as String) != nil
     let zoomExists = axButtonFrame(win, kAXZoomButtonAttribute as String) != nil
 
-    // AX can occasionally hide all three buttons for transient system panels.
-    // In that case, keep the normal AppKit trio instead of creating a buttonless proxy.
+    // 临时出现的系统面板偶尔三个按钮都读不到：这时仍用 AppKit 的三个标准按钮，不做没有按钮的简化标题栏。
     guard closeExists || minimizeExists || zoomExists else { return .standard }
 
     var configuration = ProxyTrafficLightConfiguration(
@@ -208,16 +207,16 @@ func realWindowManagementCapability(_ win: AXUIElement) -> WindowManagementCapab
     return .none
 }
 
-// Refcon is a never-reused registration number, not a window ID or heap pointer.
+// refcon 是一个不复用的登记号，不是窗口号，也不是指针。
 let axWindowCallback: AXObserverCallback = { _, _, notification, refcon in
     guard let refcon, Thread.isMainThread else { return }
     let routeID = UInt(bitPattern: refcon)
     let note = notification as String
-    // The only installation site attaches this source to CFRunLoopGetMain.
+    // 唯一注册这个回调的地方把它挂在主线程的 RunLoop 上。
     MainActor.assumeIsolated { appDelegate?.receiveFoldAXNotification(routeID: routeID, notification: note) }
 }
 
-// 取窗口某个标准按钮（关闭/最小化/缩放）的屏幕坐标 frame
+// 原窗口三个标准按钮（关闭、最小化、缩放）在卷帘条里的位置：以窗口左上角为准换算，左下原点，高 barH。
 func trafficLightRects(_ win: AXUIElement, winTopLeft pos: CGPoint, barH: CGFloat) -> [(CGRect, TrafficAction)] {
     let specs: [(String, TrafficAction)] = [
         (kAXCloseButtonAttribute as String, .close),
