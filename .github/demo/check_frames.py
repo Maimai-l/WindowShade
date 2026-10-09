@@ -6,7 +6,7 @@ Usage: check_frames.py VIDEO EVENTS_JSON APP_LOG
 VIDEO        recording written by DemoDriver (only changed frames are stored)
 EVENTS_JSON  written by DemoDriver: window frame, screen size, scale and the
              times (seconds from the start of the recording) of the fold and
-             unfold double-clicks
+             unfold double-clicks, and the drag (grab point and pointer path)
 APP_LOG      WindowShade's log for the same run
 
 Exits 1 when any check fails. Needs only python3 and ffmpeg/ffprobe.
@@ -140,7 +140,7 @@ def best_offset(template, signal, low, high):
 
 
 def check_drag(video, events, times, scale, screen_w):
-    """Section 6.5: while the strip is dragged it follows the pointer without lag, stalls or jumping back."""
+    """Section 6.5: while the strip is dragged it follows the pointer: it trails by at most DRAG_LAG points, does not stall and does not jump back."""
     drag = events.get("drag")
     if not drag or not drag.get("path"):
         return [], "no drag recorded"

@@ -365,7 +365,7 @@ status=0
 if $RECORDINGS; then
 test -s "$OUT/demo.mp4" && test -s "$OUT/demo-finder.mp4"
 
-# 逐帧检查（docs/testing.md 第 6 节）：空帧、被别的窗口盖住、录屏指示器、展开后的位置和大小。
+# 逐帧检查（docs/testing.md 第 6 节）：空帧、被别的窗口盖住、录屏指示器、展开后的位置和大小、拖动是否跟手。
 if command -v ffmpeg >/dev/null; then
 echo "==> check the frame check (K05)"
 bash tests/run-frame-check-selftest.sh || status=1

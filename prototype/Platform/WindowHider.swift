@@ -115,7 +115,7 @@ final class WindowHider: @unchecked Sendable {
         }
     }
 
-    /// 可安全整体隐藏时隐藏整个应用程序；当前桌面上没有窗口能接手焦点、又是应用程序唯一的窗口时直接最小化；
+    /// 可安全整体隐藏时隐藏整个应用程序；当前桌面上没有窗口能接手焦点、原窗口又是应用程序唯一的窗口时直接最小化；
     /// 否则依次试 SkyLight 移到屏幕外、SkyLight 透明、停到屏幕角上，最后才最小化。
     /// 隐藏整个应用程序只在它没有其他可见窗口时使用：产品语义仍是“收起这一个窗口”。
     func fallbackHide(_ request: HideRequest, allowAppHide: Bool) -> HideMethod {

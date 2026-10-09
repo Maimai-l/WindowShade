@@ -57,7 +57,7 @@ func titlebarHitTest(at point: CGPoint) -> (error: AXError, element: AXUIElement
 nonisolated(unsafe) var mouseDownTapPort: CFMachPort?
 
 /// 拦下了一次按下，就把跟它配对的那次松开也拦下：macOS 26 起，系统在第二次松开时执行“双击标题栏缩放”，
-/// 只吞按下的话窗口照样被放大，卷帘条截到的就是放大后的窗口。只在钩子线程上读写。
+/// 只拦下按下的话，窗口照样被放大，卷帘条截到的就是放大后的窗口。只在钩子线程上读写。
 nonisolated(unsafe) private var swallowNextMouseUp = false
 
 func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
