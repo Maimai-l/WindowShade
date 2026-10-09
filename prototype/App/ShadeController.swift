@@ -417,11 +417,14 @@ extension AppDelegate {
                     self.shaded[id]?.observer = registered
                 }
             }
-            foldPhase("Space 回归调度") { scheduleSourceSpaceReturnIfNeeded(id: id, state: state) }
+            // 这两段要用 state，不放进 foldPhase 的闭包（见 foldPhaseRecord）。
+            let returnStarted = CFAbsoluteTimeGetCurrent()
+            scheduleSourceSpaceReturnIfNeeded(id: id, state: state)
+            foldPhaseRecord("Space 回归调度", since: returnStarted)
             if hideVerifiedNow, shaded[id]?.foldTransactionID == state.foldTransactionID, admissionCurrent() {
-                let spaceInvariantHeld = foldPhase("Space 不变量") {
-                    enforceOverlaySpaceInvariant(id: id, state: state, reason: "install")
-                }
+                let invariantStarted = CFAbsoluteTimeGetCurrent()
+                let spaceInvariantHeld = enforceOverlaySpaceInvariant(id: id, state: state, reason: "install")
+                foldPhaseRecord("Space 不变量", since: invariantStarted)
                 if spaceInvariantHeld {
                     foldPhase("显示卷帘条") { revealPreparedOverlay(overlay, fade: mode == .thumbnail) }
                 }

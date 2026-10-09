@@ -42,6 +42,13 @@ func foldPhase<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
     return try body()
 }
 
+/// foldPhase 的不带闭包写法：调用方自己记开始时刻，做完了记一笔。闭包里要用收起状态时用它
+/// （Swift 6.0 把闭包捕获收起状态当作送了出去，之后再用就报数据竞争）。
+@MainActor
+func foldPhaseRecord(_ name: String, since started: CFAbsoluteTime) {
+    foldPhaseTotals[name, default: 0] += CFAbsoluteTimeGetCurrent() - started
+}
+
 func foldPhaseReport() -> String {
     foldPhaseTotals.sorted { $0.value > $1.value }
         .map { "\($0.key) \(Int($0.value * 1000))ms" }
