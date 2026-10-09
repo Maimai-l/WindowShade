@@ -1,5 +1,5 @@
 #!/bin/bash
-# 快捷键：新装的不占、升级的照旧，录制规则和菜单上的按键（纯逻辑，不碰用户的设置和窗口）。
+# 快捷键：新安装时不设置快捷键，升级时保留原有快捷键；录制规则和菜单上的按键（纯逻辑，不碰用户的设置和窗口）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/quiet-defaults-tests

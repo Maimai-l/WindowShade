@@ -43,7 +43,7 @@ enum StandardMenuTests {
         expect(about.action == #selector(NSApplication.orderFrontStandardAboutPanel(_:))
                 || about.action != nil,
                "关于 is wired to an action (custom panel or the system default)")
-        // 折叠窗口的菜单分区：前 9 个内联带 ⌃⌘1…9，其余进“更多”子菜单。
+        // 收起窗口的菜单分区：前 9 个内联带 ⌃⌘1…9，其余进“更多”子菜单。
         let few = (1...3).map { $0 }
         let fewSplit = StandardMenu.splitFoldedWindows(few)
         expect(fewSplit.inline == few && fewSplit.overflow.isEmpty,
@@ -122,8 +122,7 @@ enum StandardMenuTests {
         window.isReleasedWhenClosed = false
 
         // 行为验证：菜单必须认领 ⌘V 并把动作指向响应链的 paste:（真正落到文本框
-        // 的端到端验证在独立进程里做，见 scripts/check-standard-menu.sh：
-        // 同一份构建里“无主菜单 → 不粘贴、有主菜单 → 粘贴成功”）。
+        // 的端到端验证还没有自动化）。
         expect(paste.action == #selector(NSText.paste(_:)),
                "粘贴 is wired to the standard paste: action")
         expect(copyItem?.action == #selector(NSText.copy(_:)),

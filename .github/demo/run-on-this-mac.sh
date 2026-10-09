@@ -8,9 +8,10 @@
 #   bash run.sh shard:0/3   只跑主场景组的三分之一（同 CI 的 RECORD_PART）
 # 结果：~/WindowShadeTests/results-<时刻>.zip，把它发回给 Claude。
 #
-# 第一次运行会停在“权限”这一步：按提示在系统设置里打开开关，再运行一次。以后换新的测试包也不用再给，
-# 因为两个程序都用同一张测试证书签名（放在单独的钥匙串 windowshade-test.keychain-db 里，不碰登录钥匙串）。
-# 测试会改几项系统设置（双击标题栏的动作、程序坞位置、台前调度、深浅色外观等），跑完按原值改回。
+# 第一次运行会停在“权限”这一步：按提示在系统设置里打开开关，再运行一次。以后换新的测试包也不用再打开权限：
+# 程序固定编到 ~/WindowShadeTests/build，优先用这台 Mac 上固定的证书签名，没有固定证书时才用单独钥匙串
+# windowshade-test.keychain-db 里的测试证书（不改动登录钥匙串）。
+# 测试会改几项系统设置（双击标题栏的动作、程序坞位置、台前调度、深浅色外观等），运行结束后按原值改回。
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
@@ -29,10 +30,10 @@ say "检查这台 Mac"
 [ "$(uname)" = Darwin ] || stop "这个脚本只能在 macOS 上运行。"
 console_user=$(stat -f %Su /dev/console)
 [ "$console_user" = "$(id -un)" ] || stop "桌面上登录的是 ${console_user}，不是 $(id -un)。测试要操作桌面上的窗口：用屏幕共享以 $(id -un) 登录一次，并在“系统设置 → 用户与群组”里设为自动登录。"
-xcrun --find swiftc >/dev/null 2>&1 || stop "没有 Swift 编译器。运行 xcode-select --install，或安装 Xcode 26。"
+xcrun --find swiftc >/dev/null 2>&1 || stop "没有 Swift 编译器。运行 xcode-select --install 安装命令行工具（需要 Swift 6.0 或更新）。"
 swift_version=$(xcrun swiftc --version 2>&1 | head -1)
 echo "$swift_version"
-echo "$swift_version" | grep -qE "Swift version ([6-9]|[1-9][0-9])\." || stop "需要 Swift 6 或更新的编译器（Xcode 26 或对应的命令行工具）。"
+echo "$swift_version" | grep -qE "Swift version ([6-9]|[1-9][0-9])\." || stop "需要 Swift 6.0 或更新的编译器（macOS 14 上用命令行工具 16.2）。"
 # 测试包自己编的 WindowShade 还在运行（上一次没跑完）就结束它；别处装的 WindowShade 要用户自己先退出。
 for pid in $(pgrep -x WindowShade); do
   case "$(ps -p "$pid" -o comm= 2>/dev/null)" in
@@ -96,7 +97,7 @@ CNF
     && security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN" \
     && security import "$work/id.p12" -k "$KEYCHAIN" -P "$KEYCHAIN_PASSWORD" -T /usr/bin/codesign >/dev/null \
     && security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null \
-    || echo "建测试证书失败，改用临时签名。"
+    || echo "创建测试证书失败，改用临时签名。"
   rm -rf "$work"
 fi
 try_sign() {  # 用测试证书签一个临时文件，成功返回 0；失败时把 codesign 的原话打出来
@@ -108,7 +109,7 @@ try_sign() {  # 用测试证书签一个临时文件，成功返回 0；失败�
   rm -f "$probe_bin"
   return $result
 }
-# codesign 只在用户的钥匙串搜索列表里找签名身份（10-09 在用户的 Mac 上：只给 --keychain 时报
+# codesign 只在用户的钥匙串搜索列表里找签名身份（2026-10-09 在用户的 Mac 上：只给 --keychain 时报
 # “The specified item could not be found in the keychain”）。测试期间把测试钥匙串加进列表，结束时去掉。
 while IFS= read -r line; do
   line=${line#*\"}
@@ -126,7 +127,7 @@ if [ -f "$KEYCHAIN" ]; then
   elif [ -n "$cert_hash" ]; then
     # 自签名证书要先被信任（只用于代码签名），codesign 才肯用。改信任设置时系统会在屏幕上要一次本机登录密码：
     # 用屏幕共享输入。只在这台 Mac 上做一次，以后的测试包都不再问。
-    echo "测试证书还没被信任。屏幕上会弹出“修改证书信任设置”的密码框，用屏幕共享输入一次本机登录密码。"
+    echo "系统还不信任测试证书。屏幕上会弹出“修改证书信任设置”的密码框，用屏幕共享输入一次本机登录密码。"
     cert_file=$(mktemp)
     security find-certificate -c "$CERT_NAME" -p "$KEYCHAIN" > "$cert_file"
     security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$cert_file"
@@ -139,7 +140,7 @@ if [ "$SIGN_ID" != "-" ]; then
 fi
 fi   # 没有固定证书时的测试证书
 if [ "$SIGN_ID" = "-" ]; then
-  echo "测试证书用不了，改用临时签名：每换一个测试包，都要在系统设置里重新给一次权限。"
+  echo "无法使用测试证书，改用临时签名：每换一个测试包，都要在系统设置里重新打开一次权限。"
 fi
 
 # 测试会改的系统设置：先记下原值，结束时（包括中途出错、按 Control-C）改回。
@@ -176,7 +177,7 @@ restore_saved() {  # $1：哪一次运行记下的（时刻）
 }
 for leftover in "$RESULTS"/.saved-settings-*; do
   [ -f "$leftover" ] || continue
-  say "上一次运行没跑完，先改回它改动的系统设置"
+  say "上一次运行没有结束，先改回它改动的系统设置"
   restore_saved "${leftover##*.saved-settings-}"
 done
 
@@ -240,7 +241,7 @@ for path in sorted(glob.glob(sys.argv[1] + "/*.json")):
 print(",".join(ids))
 PY
 )
-    [ -n "$ids" ] || stop "上一次的结果里没有没通过的场景（或者结果已经被删掉）。"
+    [ -n "$ids" ] || stop "上一次的场景全部通过，或者结果已被删除。"
     PART="only:$ids" ;;
   *) PART="only:$(IFS=,; echo "$*")" ;;
 esac
@@ -252,7 +253,7 @@ rm -f "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png "$DEMO_OUT"/*.txt "
 # 给权限时打开的系统设置窗口会留在别的桌面上：场景 A33 激活它，后面的场景都换到那个桌面上跑，
 # 收起时焦点交给它、再被别的应用程序抢走，桌面来回切换（2026-10-09 本机运行 B03、B09、B11、B17、B18）。
 if pgrep -x "System Settings" >/dev/null; then
-  echo "退出系统设置（权限已经给好，测试里会自己打开它）"
+  echo "退出系统设置（权限已经打开，测试需要时会自行打开系统设置）"
   pkill -x "System Settings" || true
   sleep 1
 fi
@@ -270,7 +271,7 @@ if [ "$status" = 3 ]; then
   open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null || true
   cat <<MSG
 
-权限还没给全。在“系统设置 → 隐私与安全性”里，给下面两个程序打开这三项的开关：
+还有权限没有打开。在“系统设置 → 隐私与安全性”里，为下面两个程序打开这三项：
   辅助功能、输入监控、录屏与系统录音
     $DEMO_OUT/DemoDriver.app
     $DEMO_OUT/WindowShade.app

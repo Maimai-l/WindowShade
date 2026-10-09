@@ -1,6 +1,6 @@
 # WindowShade 开发指南
 
-面向开发者的构建、签名、模块结构、调试与发布流程。用户向内容见 [README](README_CN.md)。
+面向开发者的构建、签名、模块结构、调试与发布流程。面向用户的内容见 [README](README_CN.md)。
 
 ## 环境要求
 
@@ -17,26 +17,34 @@ prototype/
 ├── ScreenCaptureBridge.swift         # SCStream 捕获（看一眼的实时画面）
 ├── App/                              # AppDelegate 扩展（按功能拆分的控制器）
 │   ├── MenuBarController.swift       # 状态栏图标、菜单重建与菜单代理回调
-│   ├── Reconcile.swift               # 折叠会话监控（reconcile 定时核对/并行快照）
+│   ├── Reconcile.swift               # 收起会话监控（reconcile 定时核对/并行快照）
 │   ├── EventTap.swift                # 全局快捷键、事件 tap、标题栏双击/三击
 │   ├── EventTapCallback.swift        # 进程内钩子的 C 回调（钩子进程用不了时）与标题栏带预过滤
 │   ├── TapHelperLink.swift           # 启动鼠标钩子进程、回答它的询问、它退出后重新启动
 │   ├── Permissions.swift             # 权限检测与隐私设置跳转
 │   ├── StatusBarIcon.swift           # 状态栏模板图标
-│   ├── SettingsWindow.swift          # 设置窗口（侧边栏与分页）
-│   ├── Preferences.swift             # 设置各分页的内容与引导页
-│   ├── GlobalShortcuts.swift         # 全局快捷键的设置与默认值；HotKey.swift 是一个组合的录制规则与显示名
+│   ├── SettingsWindow.swift          # 设置窗口（工具栏分页）
+│   ├── SettingsView.swift            # 设置窗口的四页（系统分组表单）与文案 SettingsCopy
+│   ├── Preferences.swift             # 设置和欢迎窗口背后的动作：改设置、打开窗口、权限刷新
+│   ├── Welcome.swift                 # 欢迎窗口：两项授权
+│   ├── GlobalShortcuts.swift         # 全局快捷键的设置与默认值
+│   ├── HotKey.swift                  # 一个快捷键组合的录制规则与显示名
+│   ├── StandardMenu.swift            # 标准最小主菜单（文本编辑快捷键与 ⌘W 依赖它）
+│   ├── StripKeys.swift               # 卷帘条上的 ⌘N / ⌘H / ⌘M / ⌘Q / ⌘W 转给原窗口的应用程序
 │   ├── Glance.swift                  # 看一眼：指针停在卷帘条上时的画面卡片
 │   ├── Thumbnail.swift               # 收成缩略图的外观
 │   ├── SnapshotFlight.swift          # 展开时截图飞回原位
+│   ├── Motion.swift                  # 弹簧令牌与“减少动态效果”时的替代动效
+│   ├── ShadeSoundPlayer.swift        # 收起 / 展开的音效（在后台队列播放）
 │   ├── OverlayPresentation.swift     # 覆盖层展示与 Space 不变量
-│   ├── HoverPreview.swift            # 悬停预览（peek / 菜单悬停）
-│   ├── OverlayFactory.swift          # 覆盖层窗口工厂（截图条/代理标题栏）
+│   ├── HoverPreview.swift            # 菜单悬停预览
+│   ├── OverlayFactory.swift          # 覆盖层窗口工厂（截图条 / 简化标题栏）
 │   ├── ArrangeController.swift       # 卷帘条整理
-│   ├── FoldTransaction.swift         # 折叠事务辅助（隐藏/恢复/验证/转发/通知）
-│   ├── FoldCompletion.swift          # 等折叠终态的回调（标题栏三击）
-│   ├── ShadeController.swift         # 折叠入口（shade/toggle/折叠计划/截图）
-│   ├── FoldExit.swift                # 折叠出口（unshade/清理/交通灯/QuickLook）
+│   ├── FoldTransaction.swift         # 收起事务辅助（隐藏/恢复/验证/转发/通知）
+│   ├── FoldCompletion.swift          # 等收起终态的回调（标题栏三击）
+│   ├── FoldCallbackGuard.swift       # 在任意线程上判断原窗口是否被唤回（按屏幕快照）
+│   ├── ShadeController.swift         # 收起入口（shade/toggle/收起计划/截图）
+│   ├── FoldExit.swift                # 收起出口（unshade/清理/红绿灯/QuickLook）
 │   └── Updater.swift                 # 应用内更新：Sparkle 标准控制器、菜单项（docs/update.md）
 ├── Private/
 │   └── SkyLightBridge.swift          # SkyLight 私有 API 隔离层（全部有 fallback）
@@ -47,33 +55,58 @@ prototype/
 │   ├── ScreenLayout.swift            # 屏幕几何快照（辅助功能坐标）
 │   ├── WindowHider.swift             # 移开原窗口的顺序；WindowControl 协议
 │   ├── FocusHandoff.swift            # 收起时把焦点交给哪个窗口；FocusControl 协议
+│   ├── WindowRestorer.swift          # 展开时放回原窗口、交还焦点，在该应用程序的队列上执行
+│   ├── TrafficForwarder.swift        # 卷帘条上的红绿灯转给原窗口（只用辅助功能，不合成输入）
 │   └── WindowControlSystem.swift     # WindowControl、FocusControl 的真实实现（辅助功能、SkyLight）
 ├── Core/
 │   ├── TapProtocol.swift             # 钩子进程和 WindowShade 之间的询问与时限（两边都编进去）
-│   ├── WindowState.swift             # 折叠操作状态机（非法转换拒绝）
-│   └── ShadeModels.swift             # 折叠相关值类型（ShadeState、策略、外框画像）
+│   ├── TapDecision.swift             # 进程内钩子问主线程要不要拦下双击、三击，带固定时限
+│   ├── TitlebarTripleClickIntent.swift # 第三下点击和收起确认先后到达时合成一次三击
+│   ├── WindowState.swift             # 收起操作状态机（非法转换拒绝）
+│   ├── ShadeModels.swift             # 收起相关值类型（ShadeState、策略、外框画像）
+│   ├── FoldCallbackStamp.swift       # 一次收起在异步回调里的身份，过期的回调丢弃
+│   ├── FoldVerifier.swift            # 检查一次已完成的收起
+│   ├── AXReadGate.swift              # 跨应用程序的辅助功能读取名额
+│   ├── CornerParking.swift           # 原窗口停到屏幕角落的几何计算
+│   ├── GlanceIntent.swift            # 看一眼的指针意图（纯逻辑）
+│   ├── ThumbnailLayout.swift         # 缩略图的尺寸、位置和整理时的排列
+│   └── ShadeTranslucency.swift       # 卷帘条、缩略图的透明度设置
 ├── Capture/
-│   ├── WindowSnapshotCache.swift     # 折叠截图 500ms 短 TTL 缓存
+│   ├── FastCapture.swift             # 快速截图（CGWindowListCreateImage）
+│   ├── CaptureIndicatorRemoval.swift # 抹掉画面里的录屏指示器
+│   ├── WindowSnapshotCache.swift     # 收起截图 500ms 短 TTL 缓存
 │   ├── PreviewRenderer.swift         # 渲染与图像分析（chrome 扫描、圆角镜像、条制备）
 │   └── ShareableContentCache.swift   # SCShareableContent 短 TTL 缓存
 ├── Overlay/
 │   ├── ShadeStripPool.swift          # 简单卷帘条窗口池（OverlayWindow 复用）
-│   └── ShadeStrip.swift              # 覆盖层视图（截图条/代理标题栏/预览窗）
+│   ├── ShadeStrip.swift              # 覆盖层视图（截图条 / 简化标题栏 / 预览窗）
+│   ├── GlancePanel.swift             # 看一眼的画面卡片
+│   ├── PreviewSurfaces.swift         # 悬停 / 菜单缩略图的表面视图
+│   ├── PaperSurfaceStyle.swift       # 纸面表面共用的边线和阴影
+│   └── SystemAppearance.swift        # 全应用共享的系统外观策略
 ├── Window/
 │   ├── WindowRegistry.swift          # app 元数据（名称/bundleID）短 TTL 缓存
 │   ├── AXWindow.swift                # AX 辅助（几何/ID 解析/chrome 探测/按钮交互）
-│   ├── AXHelpers.swift               # 交通灯、QuickLook 重开、系统标题栏设置、唤回回调
+│   ├── AXHelpers.swift               # 红绿灯、QuickLook 重开、系统标题栏设置、唤回回调
 │   ├── AppWindows.swift              # 应用窗口枚举（事务备忘/并发）与显示标题
 │   ├── AppProfileLookup.swift        # 按进程取应用程序配置
 │   ├── FoldWindowRead.swift          # 收起前在后台读窗口
+│   ├── QuickLookSource.swift         # 访达快速查看面板显示的是哪个文件
 │   ├── ChromeProfile.swift           # 窗口外框画像与缓存
 │   ├── Coordinates.swift             # AX / Cocoa 坐标换算与屏幕归属
 │   └── WindowListCache.swift         # WindowServer 窗口列表缓存与单窗口查询
 ├── Support/
-│   └── Diagnostics.swift             # 日志、主线程活动标记、慢调用日志、卡顿哨兵
+│   ├── Diagnostics.swift             # 日志、主线程活动标记、慢调用日志、卡顿哨兵
+│   ├── SecureLogFile.swift           # 日志文件写入器（只在日志队列里使用）
+│   ├── MainThreadWork.swift          # 跨线程交接用的包装类型和辅助函数
+│   ├── SendableSystemHandles.swift   # 系统句柄的 Sendable 声明
+│   ├── AppIconCache.swift            # 应用程序图标的位图缓存（在后台画好）
+│   └── FirstUseWarmup.swift          # 第一次打开设置窗口前在后台做的准备
 ├── Recovery/
 │   ├── Journal.swift                 # 恢复日志数据层（持久化/匹配/生命周期标记）
+│   ├── DurableShadeJournal.swift     # 恢复记录文件（整个文件原子写入）
 │   ├── RestoreVerifier.swift         # 展开后确认窗口真的回来了，没回来就留着恢复记录
+│   ├── RestoreVerification.swift     # 确认原窗口回到记录的位置（在应用程序自己的队列上）
 │   └── Rescue.swift                  # 离屏窗口救援编排（后台扫描 + 主线程写回）
 ├── TapHelper/
 │   └── main.swift                    # 鼠标钩子进程 WindowShadeTapHelper（docs/design.md 第 5.9 节），单独编译
@@ -159,6 +192,14 @@ cd prototype
 | 纸面组件与系统外观 | `bash tests/run-paper-tests.sh` |
 | 快捷键默认值与录制规则 | `bash tests/run-quiet-defaults-tests.sh` |
 | 日志写入、卡顿采样 | `bash tests/run-secure-log-tests.sh`、`bash tests/run-stall-sampler-tests.sh` |
+| 设置窗口的分页与文案（`run-appkit-tests.sh` 的一部分） | `bash tests/run-settings-tests.sh` |
+| 截图里的录屏指示器清除 | `bash tests/run-capture-indicator-tests.sh` |
+| 鼠标钩子问主线程的时限、钩子进程与 WindowShade 之间的询问 | `bash tests/run-tap-decision-tests.sh`、`bash tests/run-tap-protocol-tests.sh` |
+| 卷帘条红绿灯转给原窗口（模拟窗口） | `bash tests/run-traffic-forwarder-tests.sh` |
+| 访达快速查看面板显示的文件 | `bash tests/run-quicklook-source-tests.sh` |
+| 输入安全的源码检查（不合成输入、等待都有时限） | `bash tests/run-input-safety-lint.sh` |
+| 脚本在 macOS 自带的 bash 3.2 上可用 | `bash tests/run-shell-portability-tests.sh` |
+| 录像逐帧检查的自检（K05，需要 ffmpeg） | `bash tests/run-frame-check-selftest.sh`；不在 `ci.yml` 里，由 `.github/demo/record.sh` 在 `demo.yml` 的 recordings 任务里运行 |
 
 ## 调试
 
@@ -171,12 +212,12 @@ cd prototype
 - 代理应用的主菜单：WindowShade 是 `LSUIElement`，不显示菜单栏，但文本编辑快捷键与 ⌘W 依赖主菜单的 key equivalent，菜单由 `prototype/App/StandardMenu.swift` 生成。
 - 激活应用统一用 `NSApp.activate()`（macOS 14+ 协作式），不要再用 `activate(ignoringOtherApps:)`。
 
-用户向说明见 [docs/glance.md](docs/glance.md)。
-动手优化性能之前先读 [docs/performance.md](docs/performance.md)：那里记了实测的调用成本、已走通的手法和已经证伪的方向。
+面向用户的说明见 [docs/glance.md](docs/glance.md)。
+动手优化性能之前先读 [docs/performance.md](docs/performance.md)：那里记了实测的调用成本、已验证有效的做法和已经证伪的方向。
 
 ## 发布前测试清单
 
-在以下应用上验证折叠 / 展开、双击标题栏、看一眼、菜单管理、`⌃⌘1...9`、`⌃⌘0`：
+在以下应用上验证收起 / 展开、双击标题栏、看一眼、菜单栏菜单、`⌃⌘1…9`、`⌃⌘0`：
 
 - Finder
 - Safari
@@ -190,13 +231,13 @@ cd prototype
 
 异常场景：
 
-- 杀掉 WindowShade 进程后，journal 能把停车窗口救回（启动后自动救援）。
-- 无录屏权限时原貌卷帘降级为代理标题栏，不崩溃。
+- 结束 WindowShade 进程后，恢复记录能把停在屏幕角落的窗口放回原处（启动后自动处理）。
+- 没有录屏权限时改用简化标题栏，不崩溃。
 - 快速连续双击 / 快捷键不破坏窗口状态（状态机拒绝非法转换）。
 
 ## 发布流程
 
-带更新器以后，每个公开的包都会被已装的 App 当成新版本，所以规则比以前严：
+加入应用内更新后，已安装的 App 会把每个公开的包当成新版本，因此：
 
 1. **每个公开的包都升 `CFBundleVersion`**（`prototype/Info.plist`，同时升 `CFBundleShortVersionString`）。不再移动已发布的 tag，不再 `--clobber`；
    换包就升一个小版本。以前的“同一版本重新发布”一节作废。
@@ -237,9 +278,10 @@ cd prototype
    ```
 
 6. **清单**（`scripts/make-appcast.sh` 还没写，先手动）：`sign_update dist/WindowShade-v${VERSION}.zip` 得到 `sparkle:edSignature` 和
-   `length`，在 `site/public/appcast.xml` 加一条（保留最近三条，写法见 docs/update.md“发布流程”里的条目样子），改动说明取
-   `docs/releases/v<版本>.md` 开头最多三行；再给整个清单签名，`npm run deploy`，最后 `curl` 一次线上的清单。
-   先上传包、后发清单，反过来他会先看到新版本却下载不到。
+   `length`，在 `site/public/appcast.xml` 加一条。
+   仓库里还没有这个文件，第一次发布时新建。清单保留最近三条，写法见 docs/update.md“发布流程”里的条目样子。
+   改动说明取 `docs/releases/v<版本>.md` 开头最多三行；再给整个清单签名，`npm run deploy`，最后 `curl` 一次线上的清单。
+   先上传包，再发清单；顺序相反时，用户会先看到新版本却无法下载。
 7. **分批推送**：条目带 `sparkle:phasedRolloutInterval` 86400。**撤回一版**：从清单删掉那一条再部署。
 
 `prototype/dist/` 已在 `.gitignore` 中，发布产物不会污染工作区。默认构建架构为本机架构；发布说明须标明实际架构。Apple Development 签名不等于公证，不宣称已经 notarized。
@@ -250,7 +292,7 @@ cd prototype
   `sign_update` 从钥匙串读它；Sparkle 的命令行工具在 Sparkle 2.10.0 发布包的 `bin/` 里（`sign_update`、`generate_appcast`）。
 - 公钥 `D/MZytH+oxawqKQsskoXBdwbvoPentrqfaj7Tj2pnkw=` 写在 `prototype/Info.plist` 的 `SUPublicEDKey`，`build.sh` 的 `EXPECTED_ED_KEY`
   也记了一份，`--stage` 时比对。
-- 私钥丢了没有兜底：所有人要手动装一次带新公钥的版本。换密钥要单独发一版（用旧私钥签、Info.plist 换新公钥），这一版不能同时换证书。
+- 私钥丢失后无法补救：所有人要手动装一次带新公钥的版本。换密钥要单独发一版（用旧私钥签、Info.plist 换新公钥），这一版不能同时换证书。
 
 ### 证书续期（开发证书 2027-06-14 到期，2027 年 5 月前做）
 

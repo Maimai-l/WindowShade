@@ -45,7 +45,7 @@ let stripScenarios: [Scenario] = [
         await pause(0.8)
         h.expect(stripFrames().count == 1, "C01: the window unfolded after a drag")
     },
-    Scenario(id: "C02", title: "把卷帘条拖到屏幕下边外：被拉回够得着的位置", options: []) { probe, h in
+    Scenario(id: "C02", title: "把卷帘条拖到屏幕下边外：被移回屏幕可用区域内", options: []) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
         let screen = CGDisplayBounds(CGMainDisplayID())
         await drag(from: folded.titleBar, to: CGPoint(x: folded.titleBar.x, y: screen.maxY + 150))
@@ -141,7 +141,7 @@ let stripScenarios: [Scenario] = [
         await pressOnStrip(folded, 45, .maskCommand, h)   // N
         h.expect(await eventually(3) { probe.count("new-window") == 1 }, "C13: Command-N made \(probe.count("new-window")) windows")
     },
-    Scenario(id: "C14", title: "有未保存内容时在卷帘条上按 Command-Q：窗口先回来，再问一次", options: ["--sheet-on-close"]) { probe, h in
+    Scenario(id: "C14", title: "有未保存内容时在卷帘条上按 Command-Q：窗口先展开，“是否保存”只出现一次，选“删除”后退出", options: ["--sheet-on-close"]) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
         await pressOnStrip(folded, 12, .maskCommand, h)   // Q
         await expectRestored(probe, folded.frame, h, within: 4)

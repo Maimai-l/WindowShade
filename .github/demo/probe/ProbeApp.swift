@@ -1,4 +1,4 @@
-// 故障注入用的测试应用程序（docs/test-catalog.md 第 10 节）。只在 CI 里编译，不进 WindowShade。
+// 故障注入用的测试应用程序（docs/test-catalog.md 第 10 节）。只在 CI 和本机测试包（run-on-this-mac.sh）里编译，不进 WindowShade。
 //
 // 启动参数（--键=值）：
 //   --events=路径        把收到的每件事写成一行 JSON（驱动程序据此检查不变式）
@@ -12,7 +12,7 @@
 // 运行中接受分布式通知 com.windowshade.probe.command，内容是命令：
 //   freeze:秒   主线程停这么久          quit / crash      正常退出 / 立即崩溃
 //   alert       弹出独立的提示框         sheet             在第一扇窗口上挂一个对话框
-//   move:x,y    把第一扇窗口移到（屏幕坐标，左上原点）        pin    之后不再接受移动
+//   move:x,y    把第一扇窗口移到 (x,y)（屏幕坐标，原点在左上）  pin    之后不再接受移动
 //   fullscreen  第一扇窗口进入全屏       close             关掉第一扇窗口（不经过确认）
 //   new-window  新开一扇窗口             hide / minimize   隐藏应用程序 / 最小化第一扇窗口
 

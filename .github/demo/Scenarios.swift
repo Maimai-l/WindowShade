@@ -1,6 +1,6 @@
 // 不变式检查器和逐条场景（docs/test-catalog.md 第 1、10 节）。与 DemoDriver.swift 一起编译。
 //
-// 每个场景结束时检查全部不变式：
+// 每个场景结束时检查 I3、I5、I6、I9，各场景再按需要检查 I1、I2、I4：
 //   I1 不丢窗口   I2 不挡输入（探测点击 1 秒内穿过所有钩子）   I3 不合成输入（没有来自 WindowShade 进程的事件）
 //   I4 不可撤销的动作至多一次   I5 状态转换合法   I6 主线程单次阻塞不超过 500 毫秒   I9 WindowShade 没有退出
 // 结果写进 scenarios.json，record.sh 据此判定 CI 是否通过。
@@ -167,7 +167,7 @@ final class Probe {
     func count(_ event: String) -> Int { events().filter { $0["event"] as? String == event }.count }
 
     /// 命令只发给这一个 ProbeApp：通知是广播的，不带进程号时同时运行的 ProbeApp 都会执行
-    /// （2026-10-08 P07 让一个卡住，结果两个都卡住了）。
+    /// （2026-10-08 场景 P07 让一个停住，结果两个都停住了）。
     func send(_ command: String) {
         DistributedNotificationCenter.default().postNotificationName(
             Notification.Name("com.windowshade.probe.command"), object: command,
@@ -185,7 +185,8 @@ final class Probe {
     func forceQuit() { kill(pid, SIGKILL) }
 
     /// 让 ProbeApp 成为当前应用程序、第一扇窗口在最上面：前面的场景留下的文本编辑、访达窗口可能盖在它上面，
-    /// 双击会落到别的窗口上。用辅助功能设置（驱动程序是后台应用程序，激活别的应用程序可能被系统拒绝）。
+    /// 双击会落到别的窗口上；盖在探测点上的窗口还会被探测点击带到前面（2026-10-09 场景 A35 因此收起了访达）。
+    /// 用辅助功能设置（驱动程序是后台应用程序，激活别的应用程序可能被系统拒绝）。
     func bringToFront() async {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
@@ -329,8 +330,8 @@ final class Harness {
         if let violation = Self.onceViolation(what, count) { result.violations.append(violation) }
     }
 
-    /// 场景结束时都要成立的不变式：I3、I5、I6、I9。
-    /// 场景让 WindowShade 停住过（X11）：到此为止日志里的主线程停顿不是 WindowShade 自己卡住，I6 不看这一段；I5 照看。
+    /// 每个场景结束时都检查的不变式：I3、I5、I6、I9；I1、I2、I4 由各场景按需要检查。
+    /// 场景让 WindowShade 停住过（X11）：到此为止日志里的主线程停顿不是 WindowShade 自己停顿，I6 不看这一段；I5 照常检查。
     private var excusedStallLines = 0
     func excuseStallsBeforeNow() { excusedStallLines = log.lines().count }
 
@@ -777,7 +778,7 @@ struct Scenario {
 }
 
 let scenarios: [Scenario] = [
-    Scenario(id: "X01", title: "应用程序卡住 3 秒时双击卷帘条展开", options: []) { probe, h in
+    Scenario(id: "X01", title: "应用程序无响应 3 秒时双击卷帘条展开", options: []) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
         probe.send("freeze:3")
         await pause(0.3)
@@ -787,7 +788,7 @@ let scenarios: [Scenario] = [
         await expectRestored(probe, folded.frame, h, within: 6)
         await expectNoStrip(h, within: 2)
     },
-    Scenario(id: "X02", title: "应用程序一直卡住时展开，然后被强制结束", options: []) { probe, h in
+    Scenario(id: "X02", title: "应用程序一直无响应时展开，然后被强制结束", options: []) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
         probe.send("freeze:60")
         await pause(0.3)
@@ -869,7 +870,7 @@ let scenarios: [Scenario] = [
     Scenario(id: "A22", title: "1 秒内连续双击标题栏 5 次", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         let titleBar = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)

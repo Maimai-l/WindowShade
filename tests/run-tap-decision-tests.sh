@@ -1,5 +1,5 @@
 #!/bin/bash
-# 全局鼠标钩子问主线程的硬时限：注入卡住的主线程（纯逻辑，不装钩子）。
+# 全局鼠标钩子问主线程的固定时限：注入停住的主线程（纯逻辑，不装钩子）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/tap-decision-tests

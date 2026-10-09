@@ -9,7 +9,7 @@ WindowShade 使用 Sparkle 2.10.0 的标准更新流程和标准界面：检查�
 | 位置 | 内容 |
 |---|---|
 | `prototype/App/Updater.swift` | `UpdaterController`：创建 `SPUStandardUpdaterController`，提供菜单项和自动检查开关；`UpdateCopy`：界面文字 |
-| `prototype/App/Preferences.swift` 中的 `makeUpdateSettingsRows()` | 设置窗口“权限与启动”页的“更新”一组 |
+| `prototype/App/SettingsView.swift` 中的 `Section(UpdateCopy.settingsGroup)` | 设置窗口“权限与启动”页的“更新”一组 |
 | `prototype/App/MenuBarController.swift` | 菜单栏菜单中按住 ⌥ 显示的“检查更新…” |
 | `prototype/Info.plist` | `SU*` 设置键和公钥 |
 | `prototype/Vendor/Sparkle.framework` | Sparkle 2.10.0，已删除 XPCServices |
@@ -61,7 +61,7 @@ Sparkle 安装新版本前校验下载包的 EdDSA 签名（与 `SUPublicEDKey` 
 
 ## 发布
 
-发布步骤见 `DEVELOPMENT.md` 的“发布流程”。清单 `site/public/appcast.xml` 保留最近三条，每条的格式：
+发布步骤见 `DEVELOPMENT.md` 的“发布流程”。清单 `site/public/appcast.xml`（仓库里还没有，第一次发布时新建）保留最近三条，每条的格式：
 
 ```xml
 <item>

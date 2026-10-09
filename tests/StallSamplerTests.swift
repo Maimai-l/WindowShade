@@ -1,4 +1,4 @@
-// 卡顿采样器：一次长卡顿要能分段抓多张栈（以前只抓一张，一秒多的卡顿只看得到开头那一下）。
+// 卡顿采样器：一次长卡顿要能分段采集多份调用栈（以前只采一份，一秒多的卡顿只看得到开头一段）。
 // 这里在主线程上真的阻塞 1.1 秒，看日志里是不是留下了 ≥2 张带序号的采样。
 // 再让主线程在跟踪循环里等 0.8 秒输入（菜单、拖动就是这样），看它是不是被认成跟踪、不写成卡顿。
 import Cocoa
@@ -26,11 +26,11 @@ struct StallSamplerTests {
         wlog("stall-test: log is writable")
         MainThreadSampler.shared.start()
         MainThreadSampler.shared.beat(waiting: false)
-        Thread.sleep(forTimeInterval: 1.1)          // 主线程真的卡住
+        Thread.sleep(forTimeInterval: 1.1)          // 主线程真的阻塞
         expect(!MainThreadSampler.shared.busyPeriodWasOnlyTracking(), "a real block is not taken for tracking")
         MainThreadSampler.shared.beat(waiting: false)
 
-        // 跟踪循环（菜单、拖动）：主线程在私有的 RunLoop 模式里等输入，哨兵看不到它入睡，结束时量出一段长间隔。
+        // 跟踪循环（菜单、拖动）：主线程在私有的 RunLoop 模式里等输入，哨兵检测不到它进入休眠，结束时量出一段长间隔。
         // 它不是卡顿，不能写成 stall（CI 场景 B17：菜单收起前的 0.5 秒被记成了卡顿，场景判为不合格）。
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)

@@ -64,7 +64,7 @@ final class ClickDelayer: @unchecked Sendable {
 }
 
 /// 收下一次按下后很久不返回的钩子（K06）：相当于钩子回调无时限地等一个不回话的主线程
-/// （修复之前 WindowShade 的钩子就是这样，docs/testing.md 第 5 节 2026-10-08 那一行）。
+/// （修复之前 WindowShade 的钩子就是这样，见 docs/testing.md 第 5 节“关闭一个收起的、有未保存内容的文本编辑窗口”那一行）。
 /// 只挡带 tag 标记的那一次按下，挡 hold 秒后放行；记下系统有没有因为超时停用它。
 final class StuckTap: @unchecked Sendable {
     let tag: Int64
@@ -208,12 +208,12 @@ let checkScenarios: [Scenario] = [
         h.expect(reported.count == 2, "K04: expected exactly 2 violations, got \(reported)")
         h.result.notes["reported"] = reported
     },
-    Scenario(id: "K06", title: "检查的检查 I2：钩子收下一次点击后 8 秒不返回，检查报错；同时测按键是否也被挡",
+    Scenario(id: "K06", title: "检查的检查 I2：钩子收下一次点击后 8 秒不返回，检查报错；同时测按键是否也被延迟",
              options: [], group: "checks") { _, h in
         // 同时是一次测量：系统会不会切断一个收下了事件、迟迟不返回的钩子，键盘是否也排在它后面。
         // 2026-10-08 用户那次：指针能动、触控板手势有效，点击和快捷键都没有反应，只能强制重启。
         let stuckTag: Int64 = 0x6B06_0001, clickTag: Int64 = 0x6B06_0002, keyTag: Int64 = 0x6B06_0003
-        // 对照：没有卡住的钩子时，带标记的按键能不能被排在最后的监听钩子看到。看不到，按键的结果就不能用。
+        // 对照：没有停住的钩子时，带标记的按键能不能被排在最后的监听钩子看到。看不到，按键的结果就不能用。
         let controlKeyTag: Int64 = 0x6B06_0004
         let controlSent = Date()
         postTaggedKey(80, tag: controlKeyTag)

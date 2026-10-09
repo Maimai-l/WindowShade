@@ -5,7 +5,7 @@ import CoreGraphics
 import Foundation
 
 final class FakeWindowControl: WindowControl, @unchecked Sendable {
-    /// 系统允许窗口停到的范围：位置会被夹回这个范围（模拟 macOS 不让窗口完全离开屏幕）。
+    /// 系统允许窗口停到的范围：位置会被限制在这个范围内（模拟 macOS 不让窗口完全离开屏幕）。
     var allowedOrigins: CGRect
     var windowPosition: CGPoint
     let windowSize: CGSize

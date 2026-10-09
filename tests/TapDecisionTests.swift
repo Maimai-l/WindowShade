@@ -1,7 +1,7 @@
-// 需求：R6（docs/testing.md 第 3.6 节）。缺陷回归：2026-10-08 全系统输入卡死。
-// 第 1 层：全局鼠标钩子问主线程时的硬时限（Core/TapDecision.swift）。
-// 用另一条线程扮演主线程，注入“没开始”“开始了但卡住”“刚好在时限附近答完”等情形，
-// 每种情形都检查：钩子在时限内返回；放行后主线程的结论不再生效；不会既放行又吞掉。
+// 需求：R6（docs/testing.md 第 3.6 节）。缺陷回归：2026-10-08 全系统输入停止响应。
+// 第 1 层：全局鼠标钩子问主线程时的固定时限（Core/TapDecision.swift）。
+// 用另一条线程扮演主线程，注入“没开始”“开始了但停住”“刚好在时限附近答完”等情形，
+// 每种情形都检查：钩子在时限内返回；放行后主线程的结论不再生效；不会既放行又拦下。
 
 import Foundation
 
@@ -12,7 +12,7 @@ struct TapDecisionTests {
     /// 0.4 + 0.25 秒仍远低于系统停用钩子的时限。
     static let slack: TimeInterval = 0.25
 
-    /// 钩子一侧：等结论，返回（吞不吞，用了多久）。
+    /// 钩子一侧：等结论，返回（拦不拦，用了多久）。
     static func hook(_ decision: TapDecision) -> (Bool, TimeInterval) {
         let start = Date()
         let swallow = decision.waitForSwallow()
@@ -45,13 +45,13 @@ struct TapDecisionTests {
             t.expect(!decision.begin(), "the main thread is told not to handle an abandoned click")
         }
 
-        t.section("R6", "主线程开始了但卡住（等一个不回话的 App）：到时放行，不无限等")
+        t.section("R6", "主线程开始了但停住（等一个无响应的 App）：到时放行，不无限等")
         do {
             let decision = TapDecision()
             let release = DispatchSemaphore(value: 0)
             Thread.detachNewThread {
                 guard decision.begin() else { return }
-                _ = release.wait(timeout: .now() + 5)   // 模拟卡住的主线程
+                _ = release.wait(timeout: .now() + 5)   // 模拟停住的主线程
                 decision.finish(swallow: true)
             }
             let (swallow, elapsed) = hook(decision)
@@ -96,12 +96,12 @@ struct TapDecisionTests {
                 let swallow = decision.waitForSwallow(timeout: shortDeadline)
                 let elapsed = Date().timeIntervalSince(start)
                 worst = max(worst, elapsed)
-                // 硬上限是钩子总共不超过 0.5 秒（远小于系统停用钩子的约 1 秒）。超过时限 + slack 的次数只记下来：
+                // 上限是钩子总共不超过 0.5 秒（远小于系统停用钩子的约 2 秒）。超过时限 + slack 的次数只记下来：
                 // 那是系统没有及时调度这条线程（CI 虚拟机上 500 次里出现过 1 次），waitForSwallow 里没有别的等待。
                 if elapsed > 0.5 { late += 1 }
                 if elapsed > shortDeadline + slack { overSlack += 1 }
                 _ = mainFinished.wait(timeout: .now() + 1)
-                // 吞掉只可能来自主线程真的处理了、并且答的就是吞掉。
+                // 拦下只可能来自主线程真的处理了、并且答的就是拦下。
                 if swallow && !(mainHandled.value && wantSwallow) { inconsistent += 1 }
                 // 放行时，要么主线程没处理，要么这次询问已被放弃。
                 if !swallow && mainHandled.value && wantSwallow && !decision.isAbandoned { inconsistent += 1 }

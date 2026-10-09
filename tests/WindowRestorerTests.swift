@@ -1,5 +1,5 @@
-// 需求：F2、R5（docs/design.md 第 3.1、3.6 节）。
-// 第 2 层组件测试：WindowRestorer 放回原窗口的顺序，以及对卡住的应用程序的调用不让调用方等待（Platform/WindowRestorer.swift）。
+// 需求：F2、R5（docs/testing.md 第 3.1、3.6 节）。
+// 第 2 层组件测试：WindowRestorer 放回原窗口的顺序，以及对无响应的应用程序的调用不让调用方等待（Platform/WindowRestorer.swift）。
 
 import CoreGraphics
 import Foundation
@@ -75,7 +75,7 @@ struct WindowRestorerTests {
             t.expect(front.calls == ["unhide", "raise", "focus"], "不再激活（实际 \(front.calls)）")
         }
 
-        t.section("R5", "应用程序卡住：调用方立即返回；同一应用程序的操作依次执行；别的应用程序不等它")
+        t.section("R5", "应用程序无响应：调用方立即返回；同一应用程序的操作依次执行；别的应用程序不等它")
         do {
             // 每次调用等 0.25 秒：一次放回 6 次调用，共约 1.5 秒。
             let frozen = FakeRestoreControl(delay: 0.25)
@@ -93,7 +93,7 @@ struct WindowRestorerTests {
             done.enter()
             slow.run(pid: 7, callbackQueue: callback, { order.add("frozen-second") }, then: { _ in done.leave() })
             let returned = Date().timeIntervalSince(start)
-            t.expect(returned < 0.05, "交给卡住的应用程序后调用方立即返回（\(Int(returned * 1000)) 毫秒）")
+            t.expect(returned < 0.05, "交给无响应的应用程序后调用方立即返回（\(Int(returned * 1000)) 毫秒）")
 
             let responsive = FakeRestoreControl()
             let fast = WindowRestorer(control: responsive, queues: queues)
@@ -102,7 +102,7 @@ struct WindowRestorerTests {
                      then: { _ in done.leave() })
             t.expect(done.wait(timeout: .now() + 5) == .success, "全部在 5 秒内完成")
             let seen = order.values
-            t.expect(seen.first == "other-app", "别的应用程序先完成，不等卡住的那个（实际 \(seen)）")
+            t.expect(seen.first == "other-app", "别的应用程序先完成，不等无响应的那个（实际 \(seen)）")
             t.expect(seen.firstIndex(of: "frozen-restore").map { $0 < (seen.firstIndex(of: "frozen-second") ?? -1) } == true,
                      "同一应用程序的两次操作按提交顺序执行（实际 \(seen)）")
         }

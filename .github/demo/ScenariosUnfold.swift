@@ -20,7 +20,7 @@ func foldAll(_ probe: Probe, _ harness: Harness, size: CGSize = CGSize(width: 36
         await pause(0.3)
         if let frame = axFrame(window) { frames.append(frame) }
     }
-    // 从最下面一行收起：卷帘条的“看一眼”卡片挂在它下面，先收上面那扇，卡片会盖住下一行的标题栏，
+    // 从最下面一行收起：卷帘条的“看一眼”卡片显示在它下面，先收上面那扇，卡片会盖住下一行的标题栏，
     // 双击按规则被拒绝（2026-10-08 B05、B17：refused control role=AXImage）。
     for frame in frames.reversed() {
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -118,7 +118,7 @@ let unfoldScenarios: [Scenario] = [
         guard let folded = await foldProbe(probe, h) else { return }
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
         await pause(1.5)
-        // 切到应用程序时，卷帘条留着还是展开，取决于它的另一扇窗口是否接住了焦点；无论哪种，窗口不能丢。
+        // 切到应用程序时，卷帘条留着还是展开，取决于它的另一扇窗口是否得到了焦点；无论哪种，窗口不能丢。
         if stripFrames().isEmpty {
             await expectRestored(probe, folded.frame, h, within: 3)
         } else {

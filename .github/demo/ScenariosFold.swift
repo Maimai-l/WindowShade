@@ -180,7 +180,7 @@ let foldScenarios: [Scenario] = [
     Scenario(id: "A04", title: "快捷键收起；卷帘条是当前窗口时再按一次展开（B02）", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         await pressShortcut(toggleKey)
@@ -197,7 +197,7 @@ let foldScenarios: [Scenario] = [
     Scenario(id: "A05", title: "从菜单栏菜单收起当前窗口", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         h.expect(await pressWindowShadeMenu("收起"), "A05: no fold item in the menu")
@@ -214,7 +214,7 @@ let foldScenarios: [Scenario] = [
         guard let window = probe.window() else { return }
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         await glide(to: CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14), duration: 0.3)
@@ -228,7 +228,7 @@ let foldScenarios: [Scenario] = [
         defer { setSystemDoubleClick(nil) }
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -244,7 +244,7 @@ let foldScenarios: [Scenario] = [
         defer { setSystemDoubleClick(nil) }
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -264,7 +264,7 @@ let foldScenarios: [Scenario] = [
     Scenario(id: "A10", title: "窗口上挂着对话框时双击标题栏：不收起", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         probe.send("sheet")
         await pause(0.8)
@@ -279,7 +279,7 @@ let foldScenarios: [Scenario] = [
     Scenario(id: "A11", title: "应用程序弹出独立提示框时双击原窗口标题栏：不收起", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         probe.send("alert")
         await pause(0.8)
@@ -359,7 +359,7 @@ let foldScenarios: [Scenario] = [
     Scenario(id: "A23", title: "收起过程中再按一次快捷键", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         await probe.bringToFront()
@@ -430,7 +430,7 @@ let foldScenarios: [Scenario] = [
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window), let pid = windowShadePID() else { return }
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -445,7 +445,7 @@ let foldScenarios: [Scenario] = [
                     return CGRect(dictionaryRepresentation: bounds)
                 }
         }
-        // 缩略图比窗口小得多；收起动画的面板比窗口大，飞完就该撤掉。取与窗口相交的最小那一扇。
+        // 缩略图比窗口小得多；收起动画的面板比窗口大，动画结束后应当移除。取与窗口相交的最小那一扇。
         var thumbnail: CGRect?
         _ = await eventually(3) {
             thumbnail = windowShadeWindows()
@@ -484,10 +484,10 @@ let foldScenarios: [Scenario] = [
             kill(app.processIdentifier, SIGTERM)
         }
     },
-    Scenario(id: "A34", title: "应用程序卡住时双击它的标题栏", options: []) { probe, h in
+    Scenario(id: "A34", title: "应用程序无响应时双击它的标题栏", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -516,7 +516,7 @@ let foldScenarios: [Scenario] = [
     Scenario(id: "A35", title: "收起的过程中应用程序退出", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -539,7 +539,7 @@ let foldScenarios: [Scenario] = [
     Scenario(id: "A36", title: "收起后马上在原处再双击：不作用到后面的窗口", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window) else { return }
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)

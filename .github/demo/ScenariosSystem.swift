@@ -265,7 +265,7 @@ let systemScenarios: [Scenario] = [
              changesSettings: true) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         guard let frame = axFrame(window), let pid = windowShadePID() else { return }
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
@@ -330,7 +330,7 @@ let systemScenarios: [Scenario] = [
         probe.send("fullscreen")
         await pause(2)
     },
-    Scenario(id: "P07", title: "一个应用程序卡住时，另一个应用程序的卷帘条照常展开", options: []) { probe, h in
+    Scenario(id: "P07", title: "一个应用程序无响应时，另一个应用程序的卷帘条照常展开", options: []) { probe, h in
         guard let other = await Probe.launch(Suite.probeApp, name: "P07-other", options: []) else { return }
         defer { other.forceQuit() }
         guard let window = probe.window(), let otherWindow = other.window() else { return }
@@ -361,7 +361,7 @@ let systemScenarios: [Scenario] = [
     Scenario(id: "X09", title: "窗口拒绝被移动：仍能收起，展开后在原处", options: []) { probe, h in
         guard let window = probe.window() else { return }
         place(window, origin: probeOrigin, size: probeSize)
-        await probe.bringToFront()   // 上一个场景留下的窗口可能盖在探测点上，被探测点击带到前面（2026-10-09 A35 收起了访达）
+        await probe.bringToFront()
         await pause(0.6)
         probe.send("pin")
         await pause(0.3)
@@ -386,10 +386,10 @@ let systemScenarios: [Scenario] = [
         await expectNoStrip(h, within: 4)
         await expectRestored(probe, folded.frame, h, within: 3)
     },
-    // 预防卡死（2026-10-08 用户遇到全系统不响应输入）：WindowShade 的鼠标钩子是主动钩子，排在最前；
+    // 预防全系统输入停止响应（2026-10-08 用户遇到过）：WindowShade 的鼠标钩子是主动钩子，排在最前；
     // 它整个进程停住时（调试器挂起、正在崩溃、内存紧张被换出），系统要等钩子超时才放行点击。
     // 量这段时间：停住 3 秒，期间不断发探测单击、双击，每一次都要在 1 秒内穿过钩子（I2）；恢复后双击照常收起。
-    Scenario(id: "X11", title: "WindowShade 整个进程停住 3 秒：点击不被挡住超过 1 秒，恢复后照常收起", options: []) { probe, h in
+    Scenario(id: "X11", title: "WindowShade 整个进程停住 3 秒：点击最多延迟 1 秒，恢复后照常收起", options: []) { probe, h in
         guard let pid = windowShadePID() else { h.result.violations.append("setup: WindowShade is not running"); return }
         // 钩子在钩子进程里（docs/design.md 第 5.9 节）时，WindowShade 停住不挡点击。
         h.result.notes["tapHelper"] = tapHelperPID().map { Int($0) } ?? "none"
@@ -398,7 +398,7 @@ let systemScenarios: [Scenario] = [
         await h.probeFor(3)
         kill(pid, SIGCONT)
         h.result.notes["stoppedFor"] = Date().timeIntervalSince(stopped)
-        // 停住期间主线程当然没动：恢复后它记下的那次“停顿”不是 WindowShade 自己卡住，不算 I6。
+        // 停住期间主线程没有运行：恢复后它记下的那次“停顿”不是 WindowShade 自己停顿，不算 I6。
         await pause(1.5)
         h.excuseStallsBeforeNow()
         await h.probeFor(1)
@@ -488,10 +488,10 @@ let systemScenarios: [Scenario] = [
         h.expect(tabs() == before, "A21: tabs changed from \(before) to \(tabs())")
         await pressKey(13, .maskCommand)   // W 关掉多开的标签页
     },
-    // 用户打开快速查看的方式：在访达里选中一项，按空格。以前用 `qlmanage -p` 代替，但那是命令行调试工具，
-    // 它的预览窗口不回答辅助功能查询（命中测试很快返回 -25204），WindowShade 动不了它（docs/testing.md 第 5 节）。
-    // 选中的方式：打开只放一个文件的文件夹，按 ⌘A。`open -R` 定位临时目录里的文件在 CI 上没有反应（5b53a02）；
-    // 在“应用程序”文件夹里键入名字选中也不可靠，紧跟着的空格被当成名字的一部分，快速查看没有打开（7158a9e、17f75fa）。
+    // 用户打开快速查看的方式：在访达里选中一项，按空格。不用 `qlmanage -p`：那是命令行调试工具，
+    // 它的预览窗口不回答辅助功能查询，WindowShade 无法操作它（docs/testing.md 第 5 节）。
+    // 选中的方式：打开只放一个文件的文件夹，按 ⌘A。`open -R` 定位临时目录里的文件在 CI 上没有反应；
+    // 在“应用程序”文件夹里键入名字选中也不可靠：紧跟着的空格会被当成名字的一部分，快速查看不会打开。
     Scenario(id: "A32", title: "快速查看窗口收起、展开：展开时重新打开同一个文件", options: []) { _, h in
         let item = "A32 preview"
         let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("WindowShade-A32")
@@ -516,8 +516,8 @@ let systemScenarios: [Scenario] = [
             run("/usr/bin/killall", ["qlmanage"], timeout: 5)
             try? FileManager.default.removeItem(at: folder)
         }
-        /// 预览窗口：按空格之后新出现在屏幕上、高过 100 点、不属于 WindowShade 的窗口。7047ba0 上预览已经打开，
-        /// 但按标题（文件名）和所属进程名都没有认出来，所以不再猜它的标题和进程，只看是不是新出现的。
+        /// 预览窗口：按空格之后新出现在屏幕上、高过 100 点、不属于 WindowShade 的窗口。按标题（文件名）或所属进程名
+        /// 都认不出预览窗口（7047ba0），所以不看标题和进程，只看是不是新出现的。
         func onScreen() -> [[String: Any]] {
             (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).filter {
                 let owner = $0[kCGWindowOwnerName as String] as? String ?? ""
@@ -557,8 +557,8 @@ let systemScenarios: [Scenario] = [
         let opened = await eventually(6) { qlWindow() != nil }
         h.result.notes["preview"] = describe(newWindows())
         h.result.notes["finderWindows"] = finderWindowFacts(finderPID)
-        // 面板打开时有放大动画，CI 上要一两秒；动画没走完就按当时的外框双击，点会落在最终标题栏下面（e1cc7bd：
-        // 取外框时在 (123,116 721x483)，双击时已是 (104,65 816x611)）。等外框连续 0.6 秒不变再取。
+        // 面板打开时有放大动画，CI 上要一两秒；动画没走完就按当时的外框双击，点会落在最终标题栏下面（e1cc7bd）。
+        // 所以等外框连续 0.6 秒不变再取。
         var stable: CGRect?
         if opened {
             let started = Date()
@@ -623,7 +623,7 @@ let systemScenarios: [Scenario] = [
             h.result.violations.append("H08: no Start button")
         }
     },
-    Scenario(id: "H09", title: "欢迎窗口开着时授予辅助功能：变成已授权，“开始使用”可以点", options: [],
+    Scenario(id: "H09", title: "欢迎窗口开着时授予辅助功能：变成“已允许”，“开始使用”变为可用", options: [],
              group: "no-accessibility") { probe, h in
         guard permissionRevoked("accessibility", h) else { return }
         NSRunningApplication(processIdentifier: probe.pid)?.activate()
@@ -644,7 +644,7 @@ let systemScenarios: [Scenario] = [
 private func axGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
 /// 访达的全部窗口（A32）：窗口列表里每一扇（含不在屏幕上的）和辅助功能里每一扇，各自的编号、外框。
-/// 快速查看面板在辅助功能里的窗口不在屏幕上，画出预览的是别的窗口（a228492），要据此找出两者的对应关系。
+/// 快速查看打开时有放大动画和一扇过渡窗口（e1cc7bd），这里记下全部窗口，用来对照。
 func finderWindowFacts(_ pid: pid_t?) -> [String] {
     guard let pid else { return [] }
     var lines: [String] = []

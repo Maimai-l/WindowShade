@@ -3,7 +3,7 @@ import Cocoa
 private final class Provider: @unchecked Sendable {
     private let condition = NSCondition()
     private var blocked: Set<WindowListCache.Kind> = []
-    /// 只卡住第一次读取（模拟一个迟迟不回来的刷新者），之后的读取照常返回。
+    /// 只阻塞第一次读取（模拟一次迟迟不返回的刷新），之后的读取照常返回。
     private var firstCallBlocked: Set<WindowListCache.Kind> = []
     private var calls: [WindowListCache.Kind: Int] = [:]
     private var values: [WindowListCache.Kind: [[String: Any]]] = [:]
@@ -129,7 +129,7 @@ struct WindowListCacheTests {
         precondition(ordinaryWindowOwner(at: titleBar, in: ordered.onScreenWindows()) == 32,
                      "reading the live list also refreshes the cache")
 
-        // 程序坞（层级 20，铺满屏幕）、透明窗口不算；点不在任何窗口上时没有主人。
+        // 程序坞（层级 20，铺满屏幕）、透明窗口不算；点不在任何窗口上时不属于任何应用程序。
         let dock = placed(40, 40, CGRect(x: 0, y: 0, width: 1024, height: 768), layer: 20)
         let invisible = placed(41, 41, CGRect(x: 100, y: 100, width: 800, height: 600), alpha: 0)
         precondition(ordinaryWindowOwner(at: titleBar, in: [dock, invisible, probeWindow, textEdit]) == 32,

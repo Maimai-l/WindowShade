@@ -1,5 +1,5 @@
 #!/bin/bash
-# 放回原窗口的顺序，以及应用程序卡住时调用方不等待（第 2 层组件测试）。
+# 放回原窗口的顺序，以及应用程序无响应时调用方不等待（第 2 层组件测试）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/window-restorer-tests

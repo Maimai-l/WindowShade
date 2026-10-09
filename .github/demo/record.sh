@@ -1,5 +1,6 @@
 #!/bin/bash
-# 在 CI 的 macOS 机器上编出 WindowShade、授权，录收起 / 看一眼 / 展开的视频：文本编辑和访达各一段。
+# 在 CI 的 macOS 机器上编出 WindowShade、授权，录收起 / 看一眼 / 展开的视频：文本编辑和访达各一段；
+# 另外运行逐条场景（Scenarios*.swift）、随机操作 Q01、E13 和权限场景组。
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 # 本机运行时放在固定的目录（run-on-this-mac.sh 的 WINDOWSHADE_DEMO_OUT）。
@@ -17,7 +18,7 @@ sw_vers
 system_profiler SPDisplaysDataType | grep -E "Resolution|Display Type" || true
 
 # RECORD_PART=reproduce-e13 时编的是修复之前的版本（f183ee4 的上一个提交），用来证明场景 E13
-# 测得出 2026-10-08 用户遇到的全系统输入卡死（docs/testing.md 第 5 节）。其余情况编当前的代码。
+# 测得出 2026-10-08 用户遇到的全系统输入停止响应（docs/testing.md 第 5 节）。其余情况编当前的代码。
 SRC="$PWD"
 if [ "${RECORD_PART:-all}" = "reproduce-e13" ]; then
   SRC="$PWD/.build/before-fix"
@@ -135,7 +136,7 @@ defaults write com.windowshade.prototype ShadeOnboardingShown -bool true
 # CI 虚拟机上窗口的第一次整窗截图要 0.6–1.7 秒，真实的 Mac 上只要几十毫秒：启动时先截一次最前面的窗口，
 # 让录像里的收起耗时和真实的 Mac 一致（WindowShade.swift 的 prewarmFastCapture，docs/testing.md 第 5 节）。
 defaults write com.windowshade.prototype WindowShadePrewarmFullCapture -bool true
-printf '窗口卷帘的来历\n\nMac OS 8 时代，双击标题栏，窗口就卷成一条只剩标题栏的细条，留在原地。\n\nWindowShade 把这件事带回了 macOS。\n' > "$OUT/参考资料.txt"
+printf '窗口卷帘的来历\n\nMac OS 8 时代，双击标题栏，窗口就收起成一条只剩标题栏的卷帘条，留在原处。\n\nWindowShade 把这件事带回了 macOS。\n' > "$OUT/参考资料.txt"
 open -a TextEdit "$OUT/参考资料.txt"
 sleep 3
 open "$APP"
@@ -144,14 +145,14 @@ collect_crashes() {
   cp ~/Library/Logs/DiagnosticReports/WindowShade* "$OUT/" 2>/dev/null || true
   for report in "$OUT"/WindowShade*.ips; do [ -f "$report" ] && head -80 "$report"; done
 }
-# 没在跑就别录了：录出来只是系统自己的双击缩放，看着像通过。
+# WindowShade 没有运行就不录：录出来只是系统自己的双击缩放，看起来像通过。
 if ! pgrep -x WindowShade >/dev/null; then
   echo "WindowShade is not running after launch"
   collect_crashes
   exit 1
 fi
 
-# 本机运行：开跑前确认两个程序都有权限、用户登录在桌面、屏幕没锁、有显示器。缺什么就说出来并停下（退出码 3）。
+# 本机运行：开始前确认两个程序都有权限、用户登录在桌面、屏幕没锁、有显示器，缺少任何一项就报告并停止（退出码 3）。
 if [ "$LOCAL" = "1" ]; then
   echo "==> preflight"
   rm -f "$OUT/preflight.txt" "$OUT/preflight.log"   # open 往已有的文件后面追加：不删就会读到上一次的结果
@@ -181,7 +182,7 @@ record() {
 }
 
 # CI 把这份脚本分成几个并行任务（.github/workflows/demo.yml 的 matrix），RECORD_PART 说明这一个做哪部分：
-#   recordings   录像（文本编辑、访达）、E13、检查的检查（K01 至 K05）、两个权限场景组
+#   recordings   录像（文本编辑、访达）、E13、检查的检查（K01 至 K06）、两个权限场景组
 #   shard:i/n    主场景组里序号除以 n 余 i 的那些场景
 #   random       随机操作 Q01（300 步，十几分钟，单独一个任务）
 #   reproduce-e13  用修复之前的版本跑 E13、A34、X01 至 X05，至少一条要报出输入被挡住（测试测得出这类缺陷）
@@ -246,11 +247,9 @@ if $REPRODUCE; then
   open -W --stderr "$OUT/driver-close-unsaved.log" "$DRIVER" --args "$OUT/close-unsaved.mp4" close-unsaved
   kill "$watchdog" 2>/dev/null
   cat "$OUT/driver-close-unsaved.log" || true
-  # E13 在修复之前的版本上也通过了（7b36047）：旧版本只合成了一次点击，没有凑出卡死的条件。
-  # 4b7e042 上 X01 至 X05 在旧版本上只报出合成输入（I3）和主线程停顿（I6），探测点击最慢 0.5 秒：
-  # 旧代码合成点击时点击次数写死为 1，凑不成双击；主线程忙时钩子等 0.5 秒就放行。
-  # 不限时等待的那条路是：主线程已经开始处理一次真的双击，又去问一个卡住的应用程序（旧版本每次最多等 6 秒）。
-  # A34 正是这样：应用程序卡住 3 秒，双击它的标题栏，随后的探测点击应当被挡住。
+  # 只跑 E13 不够：旧版本只合成一次点击，合成不出双击，所以 E13 测不出问题（7b36047）。
+  # 会不限时挡住全机输入的情形是主线程处理真的双击时，又去问一个无响应的应用程序（旧版本每次最多等 6 秒）；
+  # A34 测的就是这一情形：应用程序无响应 3 秒，双击它的标题栏，随后的探测点击应当被挡住。
   pgrep -x WindowShade >/dev/null || { open "$APP"; sleep 5; }
   ( sleep 420
     if pgrep -x DemoDriver >/dev/null; then
@@ -306,7 +305,7 @@ run_group() {
   local name="$1" service="$2" ids="$3"
   echo "==> scenarios without $service: $ids"
   sudo python3 .github/demo/grant-tcc.py --revoke "$service" com.windowshade.prototype
-  # 系统自带的收回方式也用一遍（用户和系统两份记录）：只删数据库时，辅助功能的授权在 CI 上仍然有效过。
+  # 系统自带的收回方式也用一遍（用户和系统两份记录）：只删数据库时，辅助功能的授权在 CI 上曾经仍然有效。
   tccutil reset "$service" com.windowshade.prototype || true
   sudo tccutil reset "$service" com.windowshade.prototype || true
   # 旧版系统的“所有程序都可以用辅助功能”开关文件：存在时收回单个应用程序的授权无效，这一组跑完再放回。

@@ -1,4 +1,4 @@
-// 快捷键：新装的不占、升级的照旧，录制规则和菜单上的按键。
+// 快捷键：新安装时不设置快捷键，升级时保留原有快捷键；录制规则和菜单上的按键。
 // 纯逻辑，用单独的偏好域，不碰用户的设置、不碰任何窗口。
 import Carbon.HIToolbox
 import Cocoa
@@ -13,7 +13,7 @@ struct QuietDefaultsTests {
     static let controlCommand = UInt32(controlKey | cmdKey)
     static func ctrlCmd(_ code: Int) -> HotKey { HotKey(keyCode: UInt32(code), modifiers: controlCommand) }
 
-    /// 在一个新的偏好域里跑一段，跑完删掉；prepare 先写好“以前的版本留下的”键。
+    /// 在一个新的偏好域里运行一段测试，结束后删除；prepare 先写好“以前的版本留下的”键。
     static func withDefaults(_ prepare: (UserDefaults) -> Void = { _ in }, _ body: (UserDefaults) -> Void) {
         let suite = "WindowShade.QuietDefaultsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -46,7 +46,7 @@ struct QuietDefaultsTests {
     // MARK: 新装还是升级
 
     /// 事件分派靠 hotKeyID（`EventTap` 按它找动作），编号重了会把快捷键指到别的动作上；
-    /// 名字空着则设置页和冲突提示里会是一片空白。两样都没有别的地方会挡。
+    /// 名字空着则设置页和冲突提示里会是一片空白。这两项别处都不检查。
     static func identifiers() {
         var seen: [UInt32: GlobalShortcut] = [:]
         for shortcut in GlobalShortcut.allCases {
@@ -137,7 +137,7 @@ struct QuietDefaultsTests {
             expect(GlobalShortcutSettings.numberedExpandEnabled, "an upgrade keeps ⌃⌘1…9")
             expect(GlobalShortcutSettings.isAllDefault, "an untouched upgrade still counts as the defaults (restore button stays off)")
             expect(defaults.object(forKey: "GlobalShortcut.toggleShade") == nil, "nothing is copied into the per-shortcut settings")
-            // 他关掉一个、改掉一个：照他的；恢复默认回到他原来的那一套，而不是清空。
+            // 用户关掉一个、改掉一个时按用户的设置；恢复默认回到用户原来的那一套，而不是清空。
             GlobalShortcutSettings.setHotKey(nil, for: .arrange)
             GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_K), for: .toggleShade)
             GlobalShortcutSettings.numberedExpandEnabled = false
@@ -160,7 +160,7 @@ struct QuietDefaultsTests {
                    "what an upgrade had switched off stays off, the rest keep working")
         }
 
-        // 1.0.16 测试版多占的那几个组合属于已经拿掉的动作：留下的两个照 1.0.15。
+        // 1.0.16 测试版多设的那几个组合属于已经删除的动作：留下的两个按 1.0.15。
         withDefaults({ $0.set(true, forKey: InstallHistory.previewMarker) }) { _ in
             expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == shipped[$0] },
                    "a Mac that ran the 1.0.16 preview keeps ⌃⌘C / ⌃⌘0")

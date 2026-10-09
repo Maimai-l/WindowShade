@@ -1,5 +1,6 @@
 // CI 演示录屏的驱动：把指定 App（默认文本编辑）的窗口摆好，录下整块屏幕，
-// 用合成的鼠标事件双击标题栏收起、停在卷帘条上看一眼、再双击展开。
+// 用合成的鼠标事件双击标题栏收起、停在卷帘条上看一眼、再双击展开；另外运行逐条场景（Scenarios*.swift）、
+// 随机操作 Q01、E13 和权限场景组。
 // 第二个参数是 close-unsaved 时跑场景 E13：关闭一个收起的、有未保存内容的窗口，检查系统输入不被挡住。
 // 在 GitHub Actions 的 macOS 机器上跑，也可以用测试包在自己的 Mac 上跑（run-on-this-mac.sh）；不进 App。
 
@@ -228,7 +229,7 @@ private final class RecordingOutputDelegate: NSObject, SCRecordingOutputDelegate
 // MARK: - 场景 E13：关闭一个收起的、有未保存内容的窗口（docs/testing.md 第 4 节）
 
 /// 输入是否还在流动：驱动程序发的探测点击带上标记，一个只听不改、排在所有钩子最后的钩子记下它们到达的时刻。
-/// WindowShade 的钩子卡住时，探测点击迟迟到不了这里。
+/// WindowShade 的钩子停住时，探测点击迟迟到不了这里。
 final class InputProbe: @unchecked Sendable {
     private let lock = NSLock()
     private var arrived: [Int64: Date] = [:]
@@ -454,7 +455,7 @@ func closeUnsavedScenario(video: URL) async {
     results["sheetAppeared"] = sheet != nil
     if sheet == nil { failures.append("the save sheet did not appear within 4 s") }
 
-    // 对话框开着的这段时间正是 2026-10-08 卡死的时候：单击、双击都要能穿过钩子。
+    // 对话框开着的这段时间正是 2026-10-08 输入停止响应的时候：单击、双击都要能穿过钩子。
     log("probe input while the save sheet is open")
     for clicks: Int64 in [1, 2, 1, 2, 1, 2] {
         await probeInput(clicks: clicks)
@@ -591,8 +592,8 @@ struct DemoDriver {
         guard let window else { log("no \(bundleID) window"); exit(2) }
         let origin = CGPoint(x: 160, y: 120)
         place(window, origin: origin, size: size)
-        // 同一应用程序的其他窗口先缩进程序坞，录完放回：用户的 Mac 上文本编辑还开着别的文档，收起后露出来的
-        // 也是白底的文档，逐帧检查看不出窗口变了（2026-10-09 本机运行）。CI 上没有别的窗口，这一步什么也不做。
+        // 同一应用程序的其他窗口先缩进程序坞，录完放回：如果文本编辑还开着别的文档，收起后露出来的
+        // 也是白底的文档，逐帧检查看不出窗口变了。CI 上没有别的窗口，这一步什么也不做。
         let setAside = minimizeOtherWindows(of: bundleID, except: window)
         if !setAside.isEmpty {
             log("minimized \(setAside.count) other \(bundleID) windows for the recording")
@@ -641,8 +642,7 @@ struct DemoDriver {
         await pause(2.5)
 
         await recorder.stop()
-        // macOS 14 的录像从第一帧算起：双击的时刻跟着挪，逐帧检查才对得上画面
-        // （2026-10-09 本机运行：没挪时检查说双击后 2.4 秒内窗口没变）。
+        // macOS 14 的录像从第一帧算起：双击的时刻相应减去第一帧的时刻，逐帧检查才对得上画面。
         if let first = recorder.firstFrameAt {
             let offset = first.timeIntervalSince(recordingStarted)
             for name in ["fold", "unfold"] {
