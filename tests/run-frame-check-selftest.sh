@@ -44,12 +44,50 @@ expect() {
     failures=$((failures + 1))
   fi
 }
+# 拖动卷帘条（第 6.5 节）：收起 3.4–9.4 秒，标题栏上三块浅色方块代表卷帘条上的内容；5.6–6.1 秒指针匀速
+# 往右 120 点，6.1–6.6 秒拖回，深色条和上面的方块一起移动。卷帘条跟手、落后 0.15 秒、中途停 0.15 秒三种录像。
+python3 - "$WORK/drag-events.json" <<'PY'
+import json, sys
+def dx(t):
+    if 5.6 <= t < 6.1: return 240 * (t - 5.6)
+    if 6.1 <= t < 6.6: return 120 - 240 * (t - 6.1)
+    return 0
+path, t = [], 5.6
+while t <= 6.6:
+    path.append([round(t, 4), 400 + dx(t), 112]); t += 1 / 120
+json.dump({"window": {"x": 100, "y": 100, "w": 600, "h": 400}, "scale": 1, "screen": {"w": 800, "h": 600},
+           "fold": 3.0, "unfold": 9.0, "drag": {"grab": [400, 112], "path": path}}, open(sys.argv[1], "w"))
+PY
+make_drag_video() {
+  local out="$1" shift_expr="$2"
+  local dx="if(between(T,5.6,6.1),240*(T-5.6),if(between(T,6.1,6.6),120-240*(T-6.1),0))"
+  dx="${dx//T/$shift_expr}"
+  # drawbox 的位置不逐帧重算：卷帘条单独画好，用 overlay 按时间移动。
+  ffmpeg -v error -y -f lavfi -i "color=c=0x202020:s=800x600:r=30:d=12.5" \
+    -f lavfi -i "color=c=0x3c3c3c:s=510x20:r=30:d=12.5" -filter_complex "\
+[1]drawbox=x=20:y=0:w=40:h=20:color=0xc0c0c0:t=fill,\
+drawbox=x=140:y=0:w=60:h=20:color=0xe0e0e0:t=fill,\
+drawbox=x=300:y=0:w=30:h=20:color=0xa0a0a0:t=fill[strip];\
+[0]drawbox=x=100:y=100:w=600:h=400:color=0x505050:t=fill,\
+drawbox=x=180:y=103:w=510:h=20:color=0x808080:t=fill:enable='lt(t,3.4)+gte(t,9.4)',\
+drawbox=x=140:y=170:w=300:h=60:color=0xf0f0f0:t=fill:enable='lt(t,3.4)+gte(t,9.4)',\
+drawbox=x=140:y=170:w=300:h=60:color=0x101010:t=fill:enable='between(t,3.4,9.4)'[base];\
+[base][strip]overlay=x='180+$dx':y=103:enable='between(t,3.4,9.4)'" -c:v ffv1 "$out"
+}
+make_drag_video "$WORK/drag-smooth.mkv" "t"
+make_drag_video "$WORK/drag-lag.mkv" "(t-0.15)"
+make_drag_video "$WORK/drag-stall.mkv" "if(between(t,5.7,5.85),5.7,t)"
+
 expect "clean recording" pass "" "$WORK/clean.mkv" "$WORK/events.json" "$WORK/good.log"
 expect "blank frame while folding" fail "blank or covered" "$WORK/blank.mkv" "$WORK/events.json" "$WORK/good.log"
 expect "window back in the wrong place" fail "came back at" "$WORK/clean.mkv" "$WORK/events.json" "$WORK/moved.log"
+export WINDOWSHADE_LOCAL=1   # 拖动的判定只在真机上生效
+expect "strip follows the drag" pass "" "$WORK/drag-smooth.mkv" "$WORK/drag-events.json" "$WORK/good.log"
+expect "strip trails the drag" fail "trailed the pointer" "$WORK/drag-lag.mkv" "$WORK/drag-events.json" "$WORK/good.log"
+expect "strip stalls during the drag" fail "stopped while the pointer moved" "$WORK/drag-stall.mkv" "$WORK/drag-events.json" "$WORK/good.log"
 
 if [ "$failures" -eq 0 ]; then
-  echo "PASS: check_frames.py passes a correct recording and reports a blank frame and a misplaced window"
+  echo "PASS: check_frames.py passes correct recordings and reports a blank frame, a misplaced window, and a strip that trails or stalls while dragged"
 else
   echo "FAILED $failures"
   exit 1

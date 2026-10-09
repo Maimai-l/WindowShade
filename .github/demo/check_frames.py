@@ -14,6 +14,7 @@ Exits 1 when any check fails. Needs only python3 and ffmpeg/ffprobe.
 
 import colorsys
 import json
+import os
 import re
 import subprocess
 import sys
@@ -102,6 +103,108 @@ def check_transition(name, times, band, body, at, expect_body_change):
     return failures
 
 
+# Section 6.5: dragging the strip. The pointer moves 240 points per second.
+# The strip may trail the pointer by at most this many points (about 80 ms at
+# that speed, five frames at 60 frames per second).
+DRAG_LAG = 20
+# A stall is this many frames in a row where the pointer moved more than two
+# points and the strip moved less than half a point.
+DRAG_STALL_FRAMES = 2
+# The strip may not move against the pointer by more than this.
+DRAG_BACKWARD = 1.5
+
+
+def profile(crop, width, height):
+    """Mean brightness of each column of an rgb24 crop."""
+    columns = [0.0] * width
+    for row in range(height):
+        base = row * width * 3
+        for col in range(width):
+            i = base + col * 3
+            columns[col] += crop[i] + crop[i + 1] + crop[i + 2]
+    return [c / (3 * height) for c in columns]
+
+
+def best_offset(template, signal, low, high):
+    """Offset (in columns) where template matches signal best, searched in [low, high]."""
+    def cost(offset):
+        total, n = 0.0, 0
+        for i, v in enumerate(template):
+            j = i + offset
+            if 0 <= j < len(signal):
+                total += abs(v - signal[j])
+                n += 1
+        return total / n if n > len(template) // 2 else float("inf")
+    coarse = min(range(low, high + 1, 4), key=cost)
+    return min(range(max(low, coarse - 4), min(high, coarse + 4) + 1), key=cost)
+
+
+def check_drag(video, events, times, scale, screen_w):
+    """Section 6.5: while the strip is dragged it follows the pointer without lag, stalls or jumping back."""
+    drag = events.get("drag")
+    if not drag or not drag.get("path"):
+        return [], "no drag recorded"
+    window = events["window"]
+    path = drag["path"]
+    grab_x = drag["grab"][0]
+    shrink = 2
+    left = max(0, window["x"] - 40)
+    right = min(screen_w, window["x"] + window["w"] + 300)
+    rect = (left, window["y"] + 3, right - left, 20)
+    crops_wide = crops(video, rect, scale, shrink)
+    width = max(1, int(round(rect[2] * scale)) // shrink)
+    height = max(1, int(round(rect[3] * scale)) // shrink)
+    count = min(len(times), len(crops_wide))
+    start, end = path[0][0], path[-1][0]
+    before = last_before(times[:count], start - 0.05)
+    # Template: the strip itself (right of the traffic lights) in the frame before the drag.
+    t_left = int(round((window["x"] + 80 - left) * scale)) // shrink
+    t_right = int(round((window["x"] + window["w"] - 10 - left) * scale)) // shrink
+    template = profile(crops_wide[before], width, height)[t_left:t_right]
+    points_per_column = shrink / scale
+
+    def pointer_dx(t):
+        if t <= path[0][0]:
+            return path[0][1] - grab_x
+        for (t0, x0, _), (t1, x1, _) in zip(path, path[1:]):
+            if t0 <= t <= t1:
+                return (x0 + (x1 - x0) * ((t - t0) / max(1e-6, t1 - t0))) - grab_x
+        return path[-1][1] - grab_x
+
+    samples = []
+    for i in range(count):
+        if not (start <= times[i] <= end):
+            continue
+        signal = profile(crops_wide[i], width, height)
+        offset = best_offset(template, signal, t_left - 20, t_left + int(260 / points_per_column))
+        samples.append((times[i], (offset - t_left) * points_per_column, pointer_dx(times[i])))
+    if len(samples) < 10:
+        return [f"drag: only {len(samples)} frames during the drag"], "too few frames"
+
+    lags = [abs(p - s) for _, s, p in samples]
+    stalls, run, backward = 0, 0, 0
+    for (_, s0, p0), (_, s1, p1) in zip(samples, samples[1:]):
+        ds, dp = s1 - s0, p1 - p0
+        if abs(dp) > 2 and abs(ds) < 0.5:
+            run += 1
+            if run == DRAG_STALL_FRAMES:
+                stalls += 1
+        else:
+            run = 0
+        if abs(dp) > 2 and ds * dp < 0 and abs(ds) > DRAG_BACKWARD:
+            backward += 1
+    summary = (f"drag: {len(samples)} frames, largest lag {max(lags):.1f} pt, "
+               f"{stalls} stalls, {backward} backward jumps")
+    failures = []
+    if max(lags) > DRAG_LAG:
+        failures.append(f"drag: the strip trailed the pointer by {max(lags):.1f} pt (limit {DRAG_LAG})")
+    if stalls:
+        failures.append(f"drag: the strip stopped while the pointer moved, {stalls} times")
+    if backward:
+        failures.append(f"drag: the strip jumped back against the pointer {backward} times")
+    return failures, summary
+
+
 def check_state_machine(log_text):
     """The fold state machine never sees an illegal transition (docs/testing.md section 5)."""
     return [f"state: {line.strip()}" for line in log_text.splitlines() if "illegal transition" in line]
@@ -169,6 +272,14 @@ def check(video, events_path, log_path):
         pixels = indicator_pixels(lights[i])
         if pixels > INDICATOR_PIXELS:
             failures.append(f"indicator: recording indicator at {t:.3f}s ({pixels} pixels)")
+    drag_failures, drag_summary = check_drag(video, events, times, scale, screen_w)
+    # Frame timing on the CI virtual machine is not steady: there the numbers are only reported.
+    if os.environ.get("WINDOWSHADE_LOCAL") == "1":
+        failures += drag_failures
+    else:
+        for line in drag_failures:
+            print(f"INFO {video}: {line} (not judged on CI)")
+    print(f"INFO {video}: {drag_summary}")
     log_text = open(log_path, errors="replace").read()
     failures += check_geometry(log_text, window)
     failures += check_state_machine(log_text)

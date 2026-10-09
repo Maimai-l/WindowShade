@@ -634,6 +634,30 @@ struct DemoDriver {
         await glide(to: CGPoint(x: origin.x + size.width + 120, y: origin.y + 260))
         await pause(1.5)
 
+        // 拖动是否跟手（docs/testing.md 第 6.5 节）：按住卷帘条，匀速往右拖 240 点（1 秒），停 0.3 秒，
+        // 再拖回原处，每一步记下指针的位置和时刻。逐帧检查拿它和每一帧里卷帘条的位置对比。拖回原处，
+        // 展开后窗口仍应回到原来的位置。
+        log("drag the strip right and back")
+        await glide(to: titleBar)
+        await pause(0.3)
+        var dragPath: [[Double]] = []
+        let farPoint = CGPoint(x: titleBar.x + 240, y: titleBar.y)
+        post(.leftMouseDown, at: titleBar)
+        for (from, to) in [(titleBar, farPoint), (farPoint, titleBar)] {
+            let steps = 120
+            for step in 1...steps {
+                let t = Double(step) / Double(steps)
+                let point = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+                post(.leftMouseDragged, at: point)
+                dragPath.append([Date().timeIntervalSince(recordingStarted), Double(point.x), Double(point.y)])
+                await pause(1.0 / 120)
+            }
+            await pause(0.3)
+        }
+        post(.leftMouseUp, at: titleBar)
+        events["drag"] = ["grab": [Double(titleBar.x), Double(titleBar.y)], "path": dragPath]
+        await pause(1.0)
+
         log("double-click the strip to unroll")
         await glide(to: titleBar)
         await pause(0.4)
@@ -647,6 +671,10 @@ struct DemoDriver {
             let offset = first.timeIntervalSince(recordingStarted)
             for name in ["fold", "unfold"] {
                 if let at = events[name] as? Double { events[name] = at - offset }
+            }
+            if var drag = events["drag"] as? [String: Any], let path = drag["path"] as? [[Double]] {
+                drag["path"] = path.map { [$0[0] - offset, $0[1], $0[2]] }
+                events["drag"] = drag
             }
             events["firstFrameOffset"] = offset
             log("first frame \(Int(offset * 1000))ms after the recording started")
