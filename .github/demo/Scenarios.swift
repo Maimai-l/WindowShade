@@ -52,7 +52,7 @@ final class EventAudit: @unchecked Sendable {
         let source = pid_t(event.getIntegerValueField(.eventSourceUnixProcessID))
         let tag = event.getIntegerValueField(.eventSourceUserData)
         lock.withLock {
-            if tag != 0, type == .leftMouseDown { arrived[tag] = Date() }
+            if tag != 0, type == .leftMouseDown || type == .keyDown { arrived[tag] = Date() }
             if watched != 0, source == watched { fromWatched.append("type=\(type.rawValue)") }
         }
     }

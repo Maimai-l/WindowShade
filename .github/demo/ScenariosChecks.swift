@@ -63,6 +63,72 @@ final class ClickDelayer: @unchecked Sendable {
     }
 }
 
+/// 收下一次按下后很久不返回的钩子（K06）：相当于钩子回调无时限地等一个不回话的主线程
+/// （修复之前 WindowShade 的钩子就是这样，docs/testing.md 第 5 节 2026-10-08 那一行）。
+/// 只挡带 tag 标记的那一次按下，挡 hold 秒后放行；记下系统有没有因为超时停用它。
+final class StuckTap: @unchecked Sendable {
+    let tag: Int64
+    let hold: Double
+    private let lock = NSLock()
+    private var tap: CFMachPort?
+    private var disabledAt: Date?
+    private var returnedAt: Date?
+
+    init(tag: Int64, hold: Double) {
+        self.tag = tag
+        self.hold = hold
+    }
+
+    func start() -> Bool {
+        let mask = CGEventMask(1) << CGEventMask(CGEventType.leftMouseDown.rawValue)
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+                                          options: .defaultTap, eventsOfInterest: mask,
+                                          callback: { _, type, event, refcon in
+            if let refcon { Unmanaged<StuckTap>.fromOpaque(refcon).takeUnretainedValue().handle(type, event) }
+            return Unmanaged.passUnretained(event)
+        }, userInfo: refcon) else { return false }
+        self.tap = tap
+        let thread = Thread {
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            CFRunLoopRun()
+        }
+        thread.start()
+        return true
+    }
+
+    func stop() {
+        guard let tap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        CFMachPortInvalidate(tap)
+        self.tap = nil
+    }
+
+    /// 系统因为超时停用它的时刻、挡住的那次回调返回的时刻。
+    var facts: (disabled: Date?, returned: Date?) { lock.withLock { (disabledAt, returnedAt) } }
+
+    private func handle(_ type: CGEventType, _ event: CGEvent) {
+        if type == .tapDisabledByTimeout {
+            lock.withLock { if disabledAt == nil { disabledAt = Date() } }
+            return
+        }
+        guard type == .leftMouseDown, event.getIntegerValueField(.eventSourceUserData) == tag else { return }
+        Thread.sleep(forTimeInterval: hold)
+        lock.withLock { returnedAt = Date() }
+    }
+}
+
+/// 发一次带标记的按键（K06 测按键是否也排在被挡住的点击后面）。
+func postTaggedKey(_ key: CGKeyCode, tag: Int64) {
+    for down in [true, false] {
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: down) else { continue }
+        event.setIntegerValueField(.eventSourceUserData, value: down ? tag : 0)
+        event.flags = []
+        event.post(tap: .cghidEventTap)
+    }
+}
+
 /// 在 AX 里按一扇窗口的关闭按钮（K03 用来对同一个应用程序发两次关闭请求）。
 func pressCloseButton(_ window: AXUIElement) -> Bool {
     var ref: CFTypeRef?
@@ -141,5 +207,52 @@ let checkScenarios: [Scenario] = [
         h.expect(reported.contains { $0.hasPrefix("I5:") }, "K04: I5 did not report an illegal transition")
         h.expect(reported.count == 2, "K04: expected exactly 2 violations, got \(reported)")
         h.result.notes["reported"] = reported
+    },
+    Scenario(id: "K06", title: "检查的检查 I2：钩子收下一次点击后 8 秒不返回，检查报错；同时测按键是否也被挡",
+             options: [], group: "checks") { _, h in
+        // 同时是一次测量：系统会不会切断一个收下了事件、迟迟不返回的钩子，键盘是否也排在它后面。
+        // 2026-10-08 用户那次：指针能动、触控板手势有效，点击和快捷键都没有反应，只能强制重启。
+        let stuckTag: Int64 = 0x6B06_0001, clickTag: Int64 = 0x6B06_0002, keyTag: Int64 = 0x6B06_0003
+        let stuck = StuckTap(tag: stuckTag, hold: 8)
+        guard stuck.start() else {
+            h.result.violations.append("setup: cannot install the stuck event tap")
+            return
+        }
+        let start = Date()
+        postTagged(.leftMouseDown, at: h.neutral, clicks: 1, tag: stuckTag)
+        postTagged(.leftMouseUp, at: h.neutral, clicks: 1, tag: 0)
+        await pause(0.3)
+        let sent = Date()
+        postTagged(.leftMouseDown, at: h.neutral, clicks: 1, tag: clickTag)
+        postTagged(.leftMouseUp, at: h.neutral, clicks: 1, tag: 0)
+        postTaggedKey(80, tag: keyTag)   // F19：系统和常用应用程序都不用它
+        // 场景结束时用的同一段 I2 检查。
+        let before = h.result.violations.count
+        await h.probeInput()
+        let reported = Array(h.result.violations[before...])
+        h.result.violations.removeSubrange(before...)
+        _ = await eventually(12) { [stuckTag, clickTag, keyTag].allSatisfy { h.audit.arrival($0) != nil } }
+        stuck.stop()
+        func milliseconds(_ date: Date?, from origin: Date) -> Any {
+            date.map { Int($0.timeIntervalSince(origin) * 1000) } ?? "never"
+        }
+        let facts = stuck.facts
+        let clickLatency = h.audit.arrival(clickTag)?.timeIntervalSince(sent)
+        let keyLatency = h.audit.arrival(keyTag)?.timeIntervalSince(sent)
+        h.result.notes["stuckClickMs"] = milliseconds(h.audit.arrival(stuckTag), from: start)
+        h.result.notes["probeClickMs"] = milliseconds(h.audit.arrival(clickTag), from: sent)
+        h.result.notes["probeKeyMs"] = milliseconds(h.audit.arrival(keyTag), from: sent)
+        h.result.notes["tapDisabledByTimeoutMs"] = milliseconds(facts.disabled, from: start)
+        h.result.notes["callbackReturnedMs"] = milliseconds(facts.returned, from: start)
+        h.result.notes["keysWaited"] = keyLatency.map { $0 > 1 } ?? true
+        h.result.notes["reported"] = reported
+        // I2 的结论要和实测一致：点击晚于 1 秒（或没到）就必须报出来，按时到了就不能报。
+        if clickLatency.map({ $0 > 1 }) ?? true {
+            h.expect(reported.contains { $0.hasPrefix("I2:") }, "K06: I2 did not report while a tap held clicks for 8 s")
+        } else {
+            h.expect(reported.isEmpty, "K06: I2 reported although clicks got through in time: \(reported)")
+        }
+        await pause(0.5)
+        await h.probeInput()
     },
 ]
