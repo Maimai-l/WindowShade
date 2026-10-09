@@ -311,6 +311,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logIfSlow("launch eventTap", threshold: 0.1) { setupEventTapWhenTrusted() }
         prepareAppIcons()
         FirstUseWarmup.start()
+        // 启动时先在后台查一次登录项状态；查询要等系统的后台服务，不放在主线程（见 App/LaunchAtLogin.swift）。
+        LaunchAtLoginState.refresh {}
         installStripKeyForwarding()
         setupMouseDownMonitor()
         NSWorkspace.shared.notificationCenter.addObserver(self,

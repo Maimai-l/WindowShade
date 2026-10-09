@@ -2,7 +2,6 @@
 // 作为 AppDelegate 扩展实现。
 
 import Cocoa
-import ServiceManagement
 import SwiftUI
 
 extension AppDelegate {
@@ -129,13 +128,14 @@ extension AppDelegate {
         playUnfoldSound()
     }
 
+    /// 读的是后台最近一次查到的状态（见 App/LaunchAtLogin.swift），不在主线程向系统查询。
     func launchAtLoginEnabled() -> Bool {
-        SMAppService.mainApp.status == .enabled
+        LaunchAtLoginState.status == .enabled
     }
 
     /// 只在开关本身说明不了的时候写一句。
     func launchAtLoginNote() -> String? {
-        switch SMAppService.mainApp.status {
+        switch LaunchAtLoginState.status {
         case .requiresApproval: return SettingsCopy.launchNeedsApproval
         case .notFound: return SettingsCopy.launchUnavailable
         default: return nil
@@ -143,18 +143,12 @@ extension AppDelegate {
     }
 
     func setLaunchAtLogin(_ on: Bool) {
-        do {
-            if on {
-                try SMAppService.mainApp.register()
-                wlog("launch-at-login: register status=\(SMAppService.mainApp.status)")
-            } else {
-                try SMAppService.mainApp.unregister()
-                wlog("launch-at-login: unregister status=\(SMAppService.mainApp.status)")
+        LaunchAtLoginState.set(on) { [weak self] failure in
+            if let failure {
+                self?.quietNotice(SettingsCopy.launchFailed, log: "launch-at-login: failed \(failure)")
             }
-        } catch {
-            quietNotice(SettingsCopy.launchFailed, log: "launch-at-login: failed \(error.localizedDescription)")
+            self?.refreshPreferencesWindowIfOpen()
         }
-        refreshPreferencesWindowIfOpen()
     }
 
     /// 改键后立刻生效：重新注册、刷新菜单；新组合注册失败时退回原来的组合。

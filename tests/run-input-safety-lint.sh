@@ -64,6 +64,17 @@ else
   failed=$((failed + 1))
 fi
 
+# 7. 主线程不向系统查询登录项：查一次要等系统的后台服务，2026-10-09 CI 上打开设置窗口时主线程因此停了 0.6 至 0.7 秒。
+#    登录项只在 App/LaunchAtLogin.swift 里、在后台线程上查询和注册。
+hits=$(grep -rn --include='*.swift' 'SMAppService' prototype | grep -v '^prototype/Vendor/' | grep -v '^prototype/App/LaunchAtLogin.swift:' || true)
+if [ -z "$hits" ] && grep -q 'DispatchQueue.global' prototype/App/LaunchAtLogin.swift; then
+  echo "ok   the login item is queried and registered only off the main thread"
+else
+  echo "FAIL the login item is queried and registered only off the main thread (App/LaunchAtLogin.swift)"
+  [ -n "$hits" ] && echo "$hits" | sed 's/^/     /'
+  failed=$((failed + 1))
+fi
+
 if [ "$failed" -gt 0 ]; then
   echo "FAIL input-safety-lint: $failed check(s) failed"
   exit 1

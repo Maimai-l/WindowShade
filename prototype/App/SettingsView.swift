@@ -152,6 +152,8 @@ final class SettingsModel: ObservableObject {
         unfoldSound = app.soundName(defaultsKey: shadeUnfoldSoundDefaultsKey, fallback: shadeDefaultUnfoldSound)
         launchAtLogin = app.launchAtLoginEnabled()
         launchNote = app.launchAtLoginNote()
+        // 登录项状态在后台查；查到的结果变了，再读一遍设置。
+        LaunchAtLoginState.refresh { [weak self] in self?.reload() }
     }
 
     /// 界面改的值交给 AppDelegate，再读回实际生效的（例如登录项注册失败时开关弹回去）。
