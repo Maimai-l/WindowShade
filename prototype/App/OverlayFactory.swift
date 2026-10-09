@@ -68,7 +68,7 @@ extension AppDelegate {
             iv.imageScaling = .scaleAxesIndependently
             iv.configureAccessibility(appName: shaded[id]?.appName ?? "",
                                       windowTitle: shaded[id]?.title ?? "")
-            iv.onDoubleClick = { [weak self] in self?.unshade(id) }
+            iv.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
             iv.onClick = { [weak self] in self?.stripClicked(id) }
             iv.onMoveEnded = { [weak self] frame in
                 self?.noteUserMovedOverlay(id: id, frame: frame)
@@ -84,7 +84,7 @@ extension AppDelegate {
             overlay.onDragEnded = { [weak self] frame in
                 self?.noteUserMovedOverlay(id: id, frame: frame)
             }
-            overlay.onDoubleClick = { [weak self] in self?.unshade(id) }
+            overlay.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
             applyOverlayPresentation(overlay, bringForward: false)
             return overlay
         }
@@ -96,7 +96,7 @@ extension AppDelegate {
         iv.imageScaling = .scaleAxesIndependently
         iv.configureAccessibility(appName: shaded[id]?.appName ?? "",
                                   windowTitle: shaded[id]?.title ?? "")
-        iv.onDoubleClick = { [weak self] in self?.unshade(id) }
+        iv.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
         iv.onClick = { [weak self] in self?.stripClicked(id) }
         iv.onMoveEnded = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
@@ -216,7 +216,7 @@ extension AppDelegate {
             overlay.onResize = { [weak self] window in self?.resizeShadedWindowFromProxy(id, proxyFrame: window.frame) }
         }
         overlay.configureWindowManagementButton(capability: effectiveWindowManagement)
-        overlay.onDoubleClick = { [weak self] in self?.unshade(id) }
+        overlay.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
         applyOverlayPresentation(overlay, bringForward: false)
         PaperSurfaceStyle.installShadow(on: overlay, corners: .top)
         return overlay

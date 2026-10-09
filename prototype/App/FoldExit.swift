@@ -91,6 +91,14 @@ extension AppDelegate {
         }
         return unshadeReturningElement(id) != nil
     }
+    /// 双击卷帘条。快速查看等窗口收起时，卷帘条先出现，关掉原窗口、交接焦点之后收起才算完成（约 0.3 秒）；
+    /// 这段时间里的双击 unshade 接不住，记下来，收起完成时展开（场景 A32：双击被丢掉，卷帘条一直留着）。
+    func unshadeFromStrip(_ id: CGWindowID) {
+        if unshade(id) { return }
+        guard shaded[id] == nil, shadeOperationIDs.contains(id) || currentOperationState(id) == .capturing else { return }
+        wlog("strip: double click before the fold finished; unfolding when it does id=\(id)")
+        unfoldWhenFolded.insert(id)
+    }
     func forceCleanup(_ id: CGWindowID, preserveRecovery: Bool = false) {
         restoreVerificationTokens.removeValue(forKey: id)
         guard shaded[id] != nil else { return }

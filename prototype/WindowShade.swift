@@ -198,6 +198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var menuPreviewHoverID: CGWindowID?
     var menuPreviewAnchor: NSRect?
     var shadeOperationIDs: Set<CGWindowID> = []
+    /// 卷帘条已经出现、收起还没走完时收到双击的窗口：收起一完成就展开（见 unshadeFromStrip）。
+    var unfoldWhenFolded: Set<CGWindowID> = []
     // 显式窗口状态机：operationStates[id] 缺失即 .normal。
     // capturing/failed 为操作期瞬态，folded/restoring 为会话期状态。
     private var operationStates: [CGWindowID: WindowShadeState] = [:]
@@ -664,6 +666,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         operationStates[id] = next
         wlog("state: \(current.rawValue) -> \(next.rawValue) id=\(id) reason=\(reason)")
+        if next == .folded, unfoldWhenFolded.remove(id) != nil {
+            wlog("strip: unfolding id=\(id) for a double click that came before the fold finished")
+            DispatchQueue.main.async { [weak self] in _ = self?.unshade(id) }
+        } else if next != .capturing {
+            unfoldWhenFolded.remove(id)
+        }
         return true
     }
 
