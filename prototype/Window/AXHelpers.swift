@@ -95,7 +95,58 @@ func quickLookReopenURL(for win: AXUIElement) -> URL? {
             return url
         }
     }
+    // 访达的面板不给上面三项，只把文件名写在子元素里；到访达窗口里找名字相同的选中项（Window/QuickLookSource.swift）。
+    var pid: pid_t = 0
+    guard AXUIElementGetPid(win, &pid) == .success, let name = quickLookPreviewName(win) else {
+        wlog("quicklook: panel shows no file name")
+        return nil
+    }
+    var selected: [SelectedFinderItem] = []
+    var budget = 1500
+    for window in appWindows(pid: pid) where !CFEqual(window, win) {
+        collectSelectedItems(window, depth: 0, budget: &budget, into: &selected)
+        if selected.contains(where: { $0.name == name }) || budget <= 0 { break }
+    }
+    guard let url = quickLookSourceURL(previewName: name, selected: selected) else {
+        wlog("quicklook: no selected item matches the panel selected=\(selected.count) budgetLeft=\(budget)")
+        return nil
+    }
+    wlog("quicklook: reopen url from the selected item in the app's windows")
+    return url
+}
+
+/// 面板写出的文件名：前两层子元素里第一段文字。
+private func quickLookPreviewName(_ win: AXUIElement) -> String? {
+    for child in axChildren(win).prefix(axTraversalMaxChildrenPerNode) {
+        if axRole(child) == (kAXStaticTextRole as String), let value = axStringValue(child), !value.isEmpty { return value }
+        for grandchild in axChildren(child).prefix(axTraversalMaxChildrenPerNode)
+        where axRole(grandchild) == (kAXStaticTextRole as String) {
+            if let value = axStringValue(grandchild), !value.isEmpty { return value }
+        }
+    }
     return nil
+}
+
+private func axStringValue(_ element: AXUIElement) -> String? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success else { return nil }
+    return value as? String
+}
+
+/// 窗口里被选中、带文件网址的条目（访达的图标、列表项）。最多看 budget 个元素、10 层。
+private func collectSelectedItems(_ element: AXUIElement, depth: Int, budget: inout Int,
+                                  into items: inout [SelectedFinderItem]) {
+    guard budget > 0, depth <= 10 else { return }
+    budget -= 1
+    if axBoolAttribute(element, kAXSelectedAttribute as String), let url = urlFromAXAttribute(element, "AXURL") {
+        var name: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, "AXFilename" as CFString, &name)
+        items.append(SelectedFinderItem(name: (name as? String) ?? url.lastPathComponent, url: url))
+        return
+    }
+    for child in axChildren(element).prefix(axTraversalMaxChildrenPerNode) {
+        collectSelectedItems(child, depth: depth + 1, budget: &budget, into: &items)
+    }
 }
 
 @discardableResult
