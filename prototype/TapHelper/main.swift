@@ -31,8 +31,9 @@ enum TapHelper {
         }
     }
 
-    /// 问 WindowShade：这次双击（三击）要不要吞掉。送出最多 0.1 秒，等回话最多 0.4 秒；没回话、出错一律放行。
-    static func ask(_ request: TapRequest) -> Bool {
+    /// 问 WindowShade：这次双击（三击）要不要拦下。两段等待由 TapProtocol.waits 按事件已经排队的时间给出，
+    /// 从事件产生算起总共不超过 deadline；没回话、出错一律放行。
+    static func ask(_ request: TapRequest, waits: (send: TimeInterval, reply: TimeInterval)) -> Bool {
         guard gate.shouldAsk(now: CFAbsoluteTimeGetCurrent()) else {
             say("pass: WindowShade did not answer a moment ago; not asking clicks=\(request.clicks)")
             return false
@@ -46,7 +47,7 @@ enum TapHelper {
         }
         var reply: Unmanaged<CFData>?
         let status = CFMessagePortSendRequest(remotePort, TapProtocol.askMessageID, request.encoded() as CFData,
-                                              TapProtocol.sendTimeout, TapProtocol.replyTimeout,
+                                              waits.send, waits.reply,
                                               TapProtocol.replyMode as CFString, &reply)
         let data = reply.map { $0.takeRetainedValue() as Data }
         guard Int(status) == Int(kCFMessagePortSuccess) else {
@@ -56,6 +57,18 @@ enum TapHelper {
         }
         gate.recordAnswered()
         return TapReply.swallow(data)
+    }
+
+    nonisolated(unsafe) static var timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    /// 事件在队列里已经等了多久；算不出来时按刚产生处理。
+    static func age(of event: CGEvent) -> TimeInterval {
+        TapProtocol.eventAge(timestamp: event.timestamp, nowTicks: mach_absolute_time(),
+                             numer: timebase.numer, denom: timebase.denom) ?? 0
     }
 
     static func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -80,8 +93,13 @@ enum TapHelper {
             TapHelper.swallowNextMouseUp = false
             let clicks = event.getIntegerValueField(.mouseEventClickState)
             guard clicks >= 2 else { return pass }   // 单击：不问
-            let request = TapRequest(point: event.location, clicks: clicks, sentAt: CFAbsoluteTimeGetCurrent())
-            guard TapHelper.ask(request) else { return pass }
+            let age = TapHelper.age(of: event)
+            guard let waits = TapProtocol.waits(eventAge: age) else {
+                TapHelper.say("pass: the click already waited \(Int(age * 1000))ms in the queue; not asking clicks=\(clicks)")
+                return pass
+            }
+            let request = TapRequest(point: event.location, clicks: clicks, sentAt: CFAbsoluteTimeGetCurrent() - age)
+            guard TapHelper.ask(request, waits: waits) else { return pass }
             TapHelper.swallowNextMouseUp = true
             return nil
         default:

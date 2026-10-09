@@ -2,7 +2,7 @@
 # 输入安全的源码检查（docs/testing.md 第 3.6 节 R6）。
 #
 # WindowShade 持有全系统的鼠标钩子。2026-10-08 关闭一个收起的、有未保存内容的文本编辑窗口时，
-# 合成的鼠标事件、钩子无限等待主线程和对目标 App 的同步查询互相等待，全系统输入卡死，只能强制重启。
+# 合成的鼠标事件、钩子无限等待主线程和对目标 App 的同步查询互相等待，全系统输入停止响应，只能强制重启。
 # 这里逐条禁止会造成这类后果的写法，出现一处就失败。
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -43,7 +43,7 @@ else
   failed=$((failed + 1))
 fi
 
-# 5. 钩子回调里问主线程只能经过 TapDecision（有硬时限）。
+# 5. 钩子回调里问主线程只能经过 TapDecision（有固定时限）。
 if grep -q 'decision.waitForSwallow()' prototype/App/EventTapCallback.swift \
    && ! grep -qE 'DispatchSemaphore|\.wait\(' prototype/App/EventTapCallback.swift; then
   echo "ok   the event tap asks the main thread only through TapDecision"
@@ -52,11 +52,11 @@ else
   failed=$((failed + 1))
 fi
 
-# 6. 钩子放在单独的钩子进程里（docs/design.md 第 5.9 节）：WindowShade 停住、卡住不挡全系统的点击。
+# 6. 钩子放在单独的钩子进程里（docs/design.md 第 5.9 节）：WindowShade 停住时也不挡全系统的点击。
 #    钩子进程问 WindowShade 只经过 CFMessagePortSendRequest，送出和等回话都有时限；回调里不做会久等的事。
 HELPER=prototype/TapHelper/main.swift
 if grep -q 'TapHelperLink.start()' prototype/WindowShade.swift \
-   && grep -q 'TapProtocol.sendTimeout, TapProtocol.replyTimeout' "$HELPER" \
+   && grep -q 'TapProtocol.waits(eventAge:' "$HELPER" && grep -q 'waits.send, waits.reply' "$HELPER" \
    && ! grep -qE 'AXUIElement|DispatchSemaphore|Thread\.sleep|usleep|\.wait\(|NSApplication|import (AppKit|Cocoa)' "$HELPER"; then
   echo "ok   the mouse tap lives in the tap helper and asks WindowShade with time limits"
 else

@@ -1,4 +1,4 @@
-// 鼠标钩子进程和 WindowShade 之间的询问：编码来回不变、坏数据不认、过时的询问不处理、回话只认“吞掉”。
+// 鼠标钩子进程和 WindowShade 之间的询问：编码来回不变、坏数据不认、过时的询问不处理、回答只认“拦下”。
 import CoreGraphics
 import Foundation
 
@@ -33,8 +33,8 @@ struct TapProtocolTests {
         t.expect(!TapProtocol.isFresh(sentAt: 100, now: 99), "时刻在未来：不认")
         t.expect(TapProtocol.sendTimeout + TapProtocol.replyTimeout <= 0.5, "钩子的时限远小于系统停用钩子的约 2 秒")
 
-        t.section("T4", "回话只认“吞掉”这一种")
-        t.expect(TapReply.swallow(TapReply.encoded(swallow: true)), "吞掉")
+        t.section("T4", "回答只认“拦下”这一种")
+        t.expect(TapReply.swallow(TapReply.encoded(swallow: true)), "拦下")
         t.expect(!TapReply.swallow(TapReply.encoded(swallow: false)), "放行")
         t.expect(!TapReply.swallow(nil), "没有回话：放行")
         t.expect(!TapReply.swallow(Data([1, 1])), "长度不对：放行")
@@ -52,6 +52,28 @@ struct TapProtocolTests {
         t.expect(gate.shouldAsk(now: 102.0), "回话了就恢复照常问")
         t.expect(TapProtocol.sendTimeout + TapProtocol.replyTimeout + 0.05 < 1.0,
                  "一次点击最多被挡一次等待的时间，加上余量也在 1 秒（I2）之内")
+
+        t.section("T7", "从事件产生算起总共只等 deadline：排队等过的时间要扣掉（CI A33-Safari：两次询问叠起来，钩子被系统停用）")
+        let fresh = TapProtocol.waits(eventAge: 0)
+        t.expect(fresh.map { abs($0.send + $0.reply - TapProtocol.deadline) < 1e-9 } ?? false, "刚产生的事件：两段等待合起来就是 deadline")
+        t.expect(fresh.map { $0.send <= TapProtocol.sendTimeout } ?? false, "送出那一段不超过 sendTimeout")
+        let queued = TapProtocol.waits(eventAge: 0.3)
+        t.expect(queued.map { abs($0.send + $0.reply - 0.1) < 1e-9 } ?? false, "排队 0.3 秒的事件只剩 0.1 秒可等")
+        t.expect(TapProtocol.waits(eventAge: 0.36) == nil, "剩下的不够 50 毫秒：不问，直接放行")
+        t.expect(TapProtocol.waits(eventAge: 5) == nil, "排了很久的事件：不问")
+        t.expect(TapProtocol.waits(eventAge: -1).map { abs($0.send + $0.reply - TapProtocol.deadline) < 1e-9 } ?? false,
+                 "时间戳在未来：按刚产生处理")
+        // 时间戳两种编码：纳秒，或 mach 时钟的计数（Apple 芯片上一个计数约 41.67 纳秒）。
+        let ticksPerSecond = UInt64(24_000_000)
+        let now = 1_000 * ticksPerSecond
+        let age = TapProtocol.eventAge(timestamp: now - ticksPerSecond / 4, nowTicks: now, numer: 125, denom: 3)
+        t.expect(age.map { abs($0 - 0.25) < 1e-6 } ?? false, "时间戳是 mach 计数：0.25 秒")
+        let nowNanos = UInt64(Double(now) * 125 / 3)
+        let ageNanos = TapProtocol.eventAge(timestamp: nowNanos - 250_000_000, nowTicks: now, numer: 125, denom: 3)
+        t.expect(ageNanos.map { abs($0 - 0.25) < 1e-6 } ?? false, "时间戳是纳秒：0.25 秒")
+        let intel = TapProtocol.eventAge(timestamp: 5_000_000_000 - 100_000_000, nowTicks: 5_000_000_000, numer: 1, denom: 1)
+        t.expect(intel.map { abs($0 - 0.1) < 1e-6 } ?? false, "计数就是纳秒的机器：0.1 秒")
+        t.expect(TapProtocol.eventAge(timestamp: 0, nowTicks: now, numer: 125, denom: 3) == nil, "算出来不像真的：不用")
 
         t.section("T5", "两个 WindowShade 各用各的端口")
         t.expect(TapProtocol.portName(appPID: 100) != TapProtocol.portName(appPID: 101), "端口名带进程号")

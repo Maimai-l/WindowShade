@@ -28,6 +28,29 @@ enum TapProtocol {
     /// WindowShade 收询问的端口名，带上它的进程号：同时开着两个 WindowShade 时各问各的。
     static func portName(appPID: pid_t) -> String { "com.windowshade.prototype.tap.\(appPID)" }
 
+    /// 这次询问的两段等待各给多少：从事件产生算起，钩子总共只等 deadline。前面的询问占着钩子线程时，
+    /// 后面的事件已经排了一段队；每次询问再各等一个完整时限，等待就会累加，超过系统能容忍的时间，
+    /// 系统会停用钩子（2026-10-09 CI 场景 A33-Safari：探测点击晚了 1.24 秒，钩子被停用一次）。
+    /// 剩下的时间不够 minimumWait 就不问，直接放行。
+    static func waits(eventAge: TimeInterval) -> (send: TimeInterval, reply: TimeInterval)? {
+        let budget = deadline - max(0, eventAge)
+        guard budget >= minimumWait else { return nil }
+        let send = min(sendTimeout, budget / 2)
+        return (send, budget - send)
+    }
+    static let minimumWait: TimeInterval = 0.05
+
+    /// 事件从产生到现在过了多久（秒）。CGEvent 的时间戳在有的系统上是纳秒，在有的系统上是 mach 时钟的计数，
+    /// 两种都换算一次，取落在 0 到 10 秒之间的那个；都不在这个范围就返回 nil，调用方按刚产生处理。
+    static func eventAge(timestamp: UInt64, nowTicks: UInt64, numer: UInt32, denom: UInt32) -> TimeInterval? {
+        let scale = Double(numer) / Double(denom)
+        let nowNanos = Double(nowTicks) * scale
+        let fromTicks = (nowNanos - Double(timestamp) * scale) / 1e9
+        let fromNanos = (nowNanos - Double(timestamp)) / 1e9
+        for age in [fromTicks, fromNanos] where age >= 0 && age < 10 { return age }
+        return nil
+    }
+
     /// WindowShade 开始处理时，这次询问还算不算数。钩子过了时限就放行了；再按它收起，
     /// 用户就会同时看到系统的双击动作（缩放）和收起。留 50 毫秒余量给回话路上的时间。
     static func isFresh(sentAt: CFAbsoluteTime, now: CFAbsoluteTime) -> Bool {
@@ -50,7 +73,7 @@ struct TapAskGate {
     mutating func recordAnswered() { quietUntil = 0 }
 }
 
-/// 一次询问：点在哪里、第几下（2 是双击，3 是三击）、钩子发出的时刻。
+/// 一次询问：点在哪里、第几下（2 是双击，3 是三击）、事件产生的时刻（钩子按它算等待，WindowShade 按它判断是否过时）。
 struct TapRequest: Equatable, Sendable {
     var point: CGPoint
     var clicks: Int64
