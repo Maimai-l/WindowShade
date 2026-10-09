@@ -760,6 +760,13 @@ extension AppDelegate {
                                                 &focused) == .success,
                   let focused, CFGetTypeID(focused) == AXUIElementGetTypeID(),
                   windowID(of: focused as! AXUIElement) == id, shaded[id]?.lifecycleStage == .folded else { continue }
+            // 只管应用程序只有这一扇窗口的情况。有别的窗口时，激活多半是 WindowShade 自己引起的
+            // （点卷帘条上的关闭按钮，转给另一扇窗口时要先激活应用程序），关掉那扇后焦点落到停在角落的这扇上，
+            // 不能因此展开它（CI 随机操作 Q01 种子 1057459836 第 33 步）。
+            var windows: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString,
+                                                &windows) == .success,
+                  (windows as? [AXUIElement])?.count == 1 else { continue }
             wlog("reveal: \(state.appName) came to the front with its parked window focused; unfolding id=\(id)")
             unshade(id)
         }
