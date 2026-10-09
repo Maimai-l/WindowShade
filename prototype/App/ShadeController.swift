@@ -89,7 +89,7 @@ extension AppDelegate {
                                pid: pid_t, profile: WindowChromeProfile,
                                options: ShadeInvocationOptions,
                                fullScreen: Bool, minimized: Bool, hasSheet: Bool,
-                               appHasModalDialog: Bool) -> ShadePlan? {
+                               appHasModalDialog: Bool, quickLookReopenable: Bool) -> ShadePlan? {
         let visible = windowIsVisible(pos: pos, size: size)
         let facts = FoldFacts(visibleOnActiveSpace: visible,
                               fullScreen: fullScreen,
@@ -97,6 +97,7 @@ extension AppDelegate {
                               hasSheet: hasSheet,
                               appHasModalDialog: appHasModalDialog,
                               isQuickLook: profile.isQuickLook,
+                              quickLookReopenable: quickLookReopenable,
                               adobeKind: profile.adobeProfile.kind,
                               adobeCanShade: profile.adobeProfile.canShade,
                               adobeReason: profile.adobeProfile.reason)
@@ -227,7 +228,8 @@ extension AppDelegate {
         let shadePlan = foldPhase("折叠计划") {
             makeShadePlan(pos: pos, size: size, pid: pid, profile: profile, options: options,
                           fullScreen: readout.fullScreen, minimized: readout.minimized, hasSheet: readout.hasSheet,
-                          appHasModalDialog: readout.appHasModalDialog)
+                          appHasModalDialog: readout.appHasModalDialog,
+                          quickLookReopenable: readout.quickLookReopenURL != nil)
         }
         guard let plan = shadePlan else {
             quietNotice("这个窗口不能收起", log: "shade: plan rejected app=\(appName) id=\(id)")
@@ -236,9 +238,6 @@ extension AppDelegate {
         let policy = plan.policy
         let mode = plan.mode
         let quickLookReopenURL = readout.quickLookReopenURL
-        if profile.isQuickLook, quickLookReopenURL == nil {
-            wlog("quicklook: no direct reopen URL; will use Finder Space fallback")
-        }
         let sourceDisplayID = displayID(for: screenForAXWindow(pos: pos, size: size))
         let sourceSpaceID = foldPhase("源 Space 解析") {
             resolvedSourceSpaceID(windowID: id, sourceDisplayID: sourceDisplayID, profile: profile)

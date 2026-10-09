@@ -104,6 +104,8 @@ struct DomainTests {
         t.expect(decide(FoldFacts(isQuickLook: true))
                     == .fold(ShadePlan(mode: .nativeScreenshot, policy: .closeQuickLookPreview, reason: "user-mode-quicklook")),
                  "快速查看窗口：关闭，展开时重新打开")
+        t.expect(decide(FoldFacts(isQuickLook: true, quickLookReopenable: false)) == .reject("quick look preview with no file to reopen"),
+                 "快速查看窗口读不到显示的文件：不收起，免得关掉后找不回来（场景 A32）")
         t.expect(decide(FoldFacts(), settings, finder) == .fold(ShadePlan(mode: .nativeScreenshot, policy: finder.hiding, reason: "user-mode")),
                  "其他窗口按应用程序配置")
         t.expect(decide(FoldFacts(adobeKind: .applicationFrame), FoldSettings(appearance: .proxyTitleBar))

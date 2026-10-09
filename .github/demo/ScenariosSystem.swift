@@ -525,8 +525,38 @@ func finderWindowFacts(_ pid: pid_t?) -> [String] {
         _ = axGetWindow(window, &id)
         let rect = axFrame(window) ?? .zero
         lines.append("ax id=\(id) role=\(axString(window, kAXRoleAttribute as String)) subrole=\(axString(window, kAXSubroleAttribute as String)) "
-            + "\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)) \"\(axString(window, kAXTitleAttribute as String))\"")
+            + "\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)) \"\(axString(window, kAXTitleAttribute as String))\" "
+            + "document=\(axDescribe(window, "AXDocument"))")
+        // 快速查看面板：它自己不给文件路径（3fbe19b），看子元素里有没有文件名、网址，展开时要靠它重新打开。
+        if axString(window, kAXSubroleAttribute as String) == "Quick Look" {
+            lines += axTreeFacts(window, depth: 0, budget: 60)
+        }
     }
+    return lines
+}
+
+func axDescribe(_ element: AXUIElement, _ attribute: String) -> String {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success, let value else { return "-" }
+    return String(String(describing: value).prefix(160))
+}
+
+/// 一棵辅助功能子树里每个元素的角色和文字、网址类属性（最多 budget 行、6 层）。
+func axTreeFacts(_ element: AXUIElement, depth: Int, budget: Int) -> [String] {
+    var lines: [String] = []
+    func walk(_ element: AXUIElement, _ depth: Int) {
+        guard lines.count < budget, depth <= 6 else { return }
+        var fields: [String] = []
+        for attribute in ["AXTitle", "AXValue", "AXDescription", "AXDocument", "AXURL", "AXFilename", "AXHelp"] {
+            let text = axDescribe(element, attribute)
+            if text != "-" && !text.isEmpty { fields.append("\(attribute)=\(text)") }
+        }
+        lines.append(String(repeating: "  ", count: depth) + axString(element, kAXRoleAttribute as String) + " " + fields.joined(separator: " "))
+        var children: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+        for child in children as? [AXUIElement] ?? [] { walk(child, depth + 1) }
+    }
+    walk(element, depth)
     return lines
 }
 

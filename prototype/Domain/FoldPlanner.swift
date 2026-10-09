@@ -34,6 +34,8 @@ struct FoldFacts: Sendable {
     /// 应用程序弹出了独立的模态提示框（例如 NSAlert）：用户要先回答它。
     var appHasModalDialog = false
     var isQuickLook = false
+    /// 快速查看窗口能不能在展开时重新打开：收起时读到了它显示的文件。
+    var quickLookReopenable = true
     var adobeKind = AdobeChromeKind.none
     var adobeCanShade = true
     var adobeReason = ""
@@ -61,6 +63,8 @@ enum FoldPlanner {
         guard !facts.minimized else { return .reject("minimized window") }
         guard !facts.hasSheet else { return .reject("window has a sheet") }
         guard !facts.appHasModalDialog else { return .reject("app shows a modal dialog") }
+        // 快速查看窗口收起时要关掉，展开时靠文件路径重新打开；读不到路径就关掉，展开时预览找不回来（场景 A32）。
+        guard !facts.isQuickLook || facts.quickLookReopenable else { return .reject("quick look preview with no file to reopen") }
         guard facts.adobeKind != .floatingPanel, facts.adobeCanShade else {
             return .reject("adobe panel kind=\(facts.adobeKind.rawValue) reason=\(facts.adobeReason)")
         }
