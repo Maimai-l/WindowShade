@@ -1,7 +1,8 @@
 .DS_Store
 .build/
 .swift-module-cache/
-.claude/
+.claude/*
+!.claude/agents/
 .jspace/
 
 # Local media / generated analysis assets
