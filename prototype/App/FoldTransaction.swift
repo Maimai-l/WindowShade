@@ -733,7 +733,36 @@ extension AppDelegate {
                 glance.cancelAll(reason: "frontmost-app")
             }
         }
+        if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+           app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            unshadeParkedWindowOnActivation(pid: app.processIdentifier)
+        }
         refreshOverlayPresentation()
+    }
+
+    /// 当前桌面上没有别的窗口时，收起无处交焦点，原窗口停到屏幕角落，应用程序不隐藏（第 5.4 节第 8 步）。
+    /// 这时点程序坞图标、Command-Tab、选“窗口”菜单，系统只激活应用程序，没有“取消隐藏”或“取消最小化”可等，
+    /// 窗口也不一定被系统拉回屏幕内（用户的 macOS 14.5 上一直停在角落）。应用程序到前台、它的当前窗口
+    /// 正是停在角落的这扇，就是用户要它回来：展开（场景 B06-alone）。刚收起的 1 秒内是收起自己的余波，过后再看。
+    func unshadeParkedWindowOnActivation(pid: pid_t) {
+        for (id, state) in shaded where state.pid == pid && state.lifecycleStage == .folded
+            && (state.hide == .offscreen || state.hide == .privateOffscreen) {
+            let wait = state.ignoreAppRevealUntil.timeIntervalSinceNow
+            if wait > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.05) { [weak self] in
+                    guard let self, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+                    self.unshadeParkedWindowOnActivation(pid: pid)
+                }
+                continue
+            }
+            var focused: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute as CFString,
+                                                &focused) == .success,
+                  let focused, CFGetTypeID(focused) == AXUIElementGetTypeID(),
+                  windowID(of: focused as! AXUIElement) == id, shaded[id]?.lifecycleStage == .folded else { continue }
+            wlog("reveal: \(state.appName) came to the front with its parked window focused; unfolding id=\(id)")
+            unshade(id)
+        }
     }
 
 
