@@ -22,6 +22,7 @@ enum WelcomeCopy {
     }
 }
 
+@MainActor
 struct WelcomeContent: View {
     static let size = CGSize(width: 520, height: 400)
 

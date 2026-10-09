@@ -177,6 +177,7 @@ final class SettingsModel: ObservableObject {
 
 // MARK: - 页面
 
+@MainActor
 struct SettingsPage: View {
     let section: WindowShadeSettingsSection
     @ObservedObject var model: SettingsModel
@@ -194,6 +195,7 @@ struct SettingsPage: View {
     }
 }
 
+@MainActor
 private struct ShadeSettings: View {
     @ObservedObject var model: SettingsModel
 
@@ -246,6 +248,7 @@ private struct ShadeSettings: View {
     }
 }
 
+@MainActor
 private struct ShortcutSettings: View {
     @ObservedObject var model: SettingsModel
 
@@ -272,6 +275,7 @@ private struct ShortcutSettings: View {
     }
 }
 
+@MainActor
 private struct PermissionSettings: View {
     @ObservedObject var model: SettingsModel
 
@@ -299,6 +303,7 @@ private struct PermissionSettings: View {
     }
 }
 
+@MainActor
 private struct AdvancedSettings: View {
     @ObservedObject var model: SettingsModel
 
@@ -319,6 +324,7 @@ private struct AdvancedSettings: View {
 // MARK: - 零件
 
 /// 两行授权：已授权时一个系统的对勾符号和“已授权”，没授权时一个“去授权”按钮，打开系统设置里对应的那一页。
+@MainActor
 struct PermissionRows: View {
     @ObservedObject var status: PermissionStatus
 
@@ -367,6 +373,7 @@ enum KeyCaps {
 }
 
 /// 一行全局快捷键：当前组合（或提示），“录制”和“清除”。录制时只在这一行接收按键，不装全局监听。
+@MainActor
 private struct ShortcutRow: View {
     @ObservedObject var model: SettingsModel
     let shortcut: GlobalShortcut
