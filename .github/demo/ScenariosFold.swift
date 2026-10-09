@@ -520,6 +520,13 @@ let foldScenarios: [Scenario] = [
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
         await glide(to: point, duration: 0.3)
         await doubleClick(at: point)
+        // 等收起开始了再让它退出：双击后马上退出，WindowShade 处理双击时探测窗口已经关了，
+        // 点到的是后面的访达窗口（2026-10-09 本机运行，退出比收起早 40 毫秒）。
+        let started = Date()
+        while Date().timeIntervalSince(started) < 2,
+              !h.logLines().contains(where: { $0.contains(">>> shade") && $0.contains("app=ProbeApp") }) {
+            await pause(0.01)
+        }
         probe.send("quit")
         await glide(to: h.neutral, duration: 0.2)
         await expectNoStrip(h, within: 4)

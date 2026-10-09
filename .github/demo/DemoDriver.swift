@@ -98,6 +98,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCStreamOutput, @unchecked Sen
     private var writer: AVAssetWriter?
     private var writerInput: AVAssetWriterInput?
     private var sessionStarted = false
+    /// 录像第一帧的时刻：macOS 14 的录像从这一帧算起，不从开始录像算起。stop() 之后读。
+    private(set) var firstFrameAt: Date?
     private let writerQueue = DispatchQueue(label: "demo.recorder.writer")
 
     func start(to url: URL) async throws {
@@ -189,6 +191,7 @@ final class Recorder: NSObject, SCStreamDelegate, SCStreamOutput, @unchecked Sen
         if !sessionStarted {
             writer.startSession(atSourceTime: sampleBuffer.presentationTimeStamp)
             sessionStarted = true
+            firstFrameAt = Date()
         }
         if input.isReadyForMoreMediaData { input.append(sampleBuffer) }
     }
@@ -587,6 +590,16 @@ struct DemoDriver {
         await pause(2.5)
 
         await recorder.stop()
+        // macOS 14 的录像从第一帧算起：双击的时刻跟着挪，逐帧检查才对得上画面
+        // （2026-10-09 本机运行：没挪时检查说双击后 2.4 秒内窗口没变）。
+        if let first = recorder.firstFrameAt {
+            let offset = first.timeIntervalSince(recordingStarted)
+            for name in ["fold", "unfold"] {
+                if let at = events[name] as? Double { events[name] = at - offset }
+            }
+            events["firstFrameOffset"] = offset
+            log("first frame \(Int(offset * 1000))ms after the recording started")
+        }
         let eventsURL = video.deletingPathExtension().appendingPathExtension("json")
         if let data = try? JSONSerialization.data(withJSONObject: events, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: eventsURL)

@@ -150,6 +150,10 @@ restore_saved() {  # $1：哪一次运行记下的（时刻）
       defaults delete "$domain" "$key" 2>/dev/null || true
       echo "  删除 ${domain} ${key}（原来没有）"
     elif [ -n "$value" ]; then
+      # defaults read 把布尔值读成 0/1，-bool 只认 true/false（写 0 只打出用法说明，2026-10-09 本机运行）
+      if [ "$type" = bool ]; then
+        case "$value" in 1) value=true ;; 0) value=false ;; esac
+      fi
       defaults write "$domain" "$key" "-$type" "$value"
       echo "  ${domain} ${key} = ${value}"
     fi
@@ -217,6 +221,14 @@ trap restore EXIT
 # 固定目录里只留编出来的程序，上一次的结果文件先删掉，免得这一次没跑到时被当成这一次的结果打包。
 mkdir -p "$DEMO_OUT"
 rm -f "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png "$DEMO_OUT"/*.txt "$DEMO_OUT"/*.ips "$DEMO_OUT"/*.mp4
+
+# 给权限时打开的系统设置窗口会留在别的桌面上：场景 A33 激活它，后面的场景都换到那个桌面上跑，
+# 收起时焦点交给它、再被别的应用程序抢走，桌面来回切换（2026-10-09 本机运行 B03、B09、B11、B17、B18）。
+if pgrep -x "System Settings" >/dev/null; then
+  echo "退出系统设置（权限已经给好，测试里会自己打开它）"
+  pkill -x "System Settings" || true
+  sleep 1
+fi
 
 caffeinate -dimsu &
 CAFFEINATE=$!
