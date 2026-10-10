@@ -1,4 +1,4 @@
-// 折叠出口与交通灯：展开恢复、清理、交通灯动作转发、QuickLook 特殊处理。
+// 展开与红绿灯：展开时的恢复、清理、红绿灯动作转发、快速查看的特殊处理。
 // 作为 AppDelegate 扩展实现。
 
 import Cocoa
@@ -7,61 +7,44 @@ extension AppDelegate {
     func unshadeReturningElement(_ id: CGWindowID, playSound: Bool = true,
                                          pinAfterRestore: Bool = true,
                                          onVerified: ((Bool) -> Void)? = nil) -> AXUIElement? {
-        duoController.windowEffects.cancelForSynchronousRestore(id)
         guard shaded[id] != nil else { return nil }
-        // 同 ShadeController.shade：展开开始就在后台把音频设备叫醒，音效不迟半秒。
+        // 同 ShadeController.shade：展开一开始就在后台提前启动音频设备，音效才能和动作同时出现。
         prewarmUnfoldSound()
         markShadeLifecycle(id: id, .restoring, reason: "unshade")
         transitionOperationState(id: id, to: .restoring, reason: "unshade")
         guard let state = shaded.removeValue(forKey: id) else { return nil }
-        cancelFoldEvidence(id: id, transaction: state.foldTransactionID)
-        // 缩略图原地展开：整理（⌃⌘0）过的，按整理前的原位放，和飞回去的截图、看一眼的卡片落在同一处。
+        // 缩略图原地展开：整理缩略图之后，按整理前的原位放，和移回原处的截图、看一眼的卡片落在同一处。
         // 要在下面清掉整理记录之前取。卷帘条照旧在它现在的位置展开。
         let thumbnailHome = state.appearanceMode == .thumbnail
             ? state.overlay.map { restoreReferenceFrame(id: id, overlay: $0) } : nil
         let interruptedWaiters = foldWaiters[id].map { Array($0.keys) } ?? []
         defer { MainActor.assumeIsolated { cancelFoldWaiters(id: id, tokens: interruptedWaiters) } }
-        let shouldRememberFocusRejoin = focusPulledOutOverlayIDs.contains(id) && focusSession?.stage == .arrangedAway
-        let rejoinEntry = shouldRememberFocusRejoin ? focusSession?.entries[id] : nil
-        let rejoinStackFrame = shouldRememberFocusRejoin ? focusSideStackFrames[id] : nil
-        hideHoverPreview(id: id)
         hideMenuHoverPreview(id: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         reconcileInvalidCounts.removeValue(forKey: id)
         pendingSpaceReturns.removeValue(forKey: id)
         hoverPreviewSuppressedUntil.removeValue(forKey: id)
-        focusSideStackFrames.removeValue(forKey: id)
-        focusPulledOutOverlayIDs.remove(id)
-        focusPulledOutRestoreFrames.removeValue(forKey: id)
-        focusPulledOutOriginalSizes.removeValue(forKey: id)
-        focusRejoinStackFrames.removeValue(forKey: id)
-        focusRejoinEntries.removeValue(forKey: id)
         arrangedOverlayFrames.removeValue(forKey: id)
-        if !shouldRememberFocusRejoin {
-            removeFocusSessionEntry(id)
-        }
-        if let rejoinEntry, let rejoinStackFrame {
-            focusRejoinEntries[id] = rejoinEntry
-            focusRejoinStackFrames[id] = rejoinStackFrame
-        }
         accessibilityActionTargets.removeValue(forKey: id)
         if let overlayID = state.overlayID { overlayIDs.remove(overlayID) }
         removeObserver(state)                          // 先停掉监听，避免下面的恢复动作反过来触发自己
-        // 折叠条可能被拖动过 → 窗口在折叠条「当前」位置展开（标题栏带着窗口走）
+        // 卷帘条可能被拖动过：窗口在卷帘条现在的位置展开（窗口的标题栏对齐卷帘条）。
         let pos: CGPoint
+        // 窗口是从屏幕外移回来的，或者从程序坞放出来的（最小化）：先让它回到原处，再撤卷帘条，中间不留空档。
+        // 最小化的窗口从程序坞飞回来要 0.3 秒左右，先撤卷帘条的话，这段时间标题栏的位置是空的（CI 文本编辑录像，
+        // 3eb112c：空了 11 帧）。隐藏应用程序的窗口取消隐藏后立刻就在原处，照旧先撤。
+        let dismissAfterRestore = state.hide == .offscreen || state.hide == .privateOffscreen || state.hide == .minimized
         if let overlay = state.overlay {
             pos = axPosition(fromCocoaFrame: thumbnailHome ?? restoreReferenceFrame(id: id, overlay: overlay))
-            dismissOverlay(overlay)
+            if !dismissAfterRestore { dismissOverlay(overlay) }
         } else {
             pos = axPosition(state.element) ?? state.originalPosition
         }
         if state.hide == .quickLookClosed {
-            clearShadeJournal(id: id) // This strategy intentionally closes the original window.
+            clearShadeJournal(id: id) // 这种收起方式本来就会关掉原窗口。
             onVerified?(false)
             if let url = state.quickLookReopenURL, reopenQuickLookPreview(url: url) {
                 wlog("quicklook: reopened via qlmanage id=\(id) path=\(url.path)")
-            } else if reopenQuickLookFromFinderSelection(pid: state.pid) {
-                wlog("quicklook: reopened via Finder Space fallback id=\(id)")
             } else {
                 wlog("quicklook: reopen unavailable id=\(id)")
             }
@@ -72,20 +55,29 @@ extension AppDelegate {
             transitionOperationState(id: id, to: .normal, reason: "unshade-quicklook")
             return nil
         }
-        let restoredElement = restoreWindow(state, to: pos)
-        bringRestoredWindowToFront(restoredElement, pid: state.pid, reason: "unshade id=\(id)")
-        if pinAfterRestore {
-            pinRestoredWindow(state, to: pos, reason: "unshade id=\(id)")
+        if state.hide == .ownWindowOrderedOut {
+            // WindowShade 自己的窗口：放回是主线程上的 AppKit 操作，不涉及其他应用程序。
+            let restoredElement = restoreWindow(state, to: pos)
+            bringRestoredWindowToFront(restoredElement, pid: state.pid, reason: "unshade id=\(id)")
+            if dismissAfterRestore, let overlay = state.overlay { dismissOverlay(overlay) }
+            if pinAfterRestore {
+                pinRestoredWindow(state, to: pos, reason: "unshade id=\(id)")
+            } else {
+                cancelRestorePin(for: id)
+            }
+            verifyRestoredWindow(state, to: pos, completion: onVerified)
         } else {
-            cancelRestorePin(for: id)
+            // 其他应用程序的窗口：辅助功能调用交给它自己的队列，主线程不等（R5）。
+            // 从屏幕外移回的窗口，卷帘条留到窗口回来之后再撤。
+            restoreInBackground(state, id: id, to: pos, dismissOverlayAfter: dismissAfterRestore,
+                                pin: pinAfterRestore, reason: "unshade id=\(id)", onVerified: onVerified)
         }
-        verifyRestoredWindow(state, to: pos, completion: onVerified)
         transitionOperationState(id: id, to: .normal, reason: "unshade")
         rebuildMenu()
         if playSound && !suppressUnshadeSounds {
             playUnfoldSound()
         }
-        return restoredElement
+        return state.element
     }
     @discardableResult
     func unshade(_ id: CGWindowID) -> Bool {
@@ -93,40 +85,36 @@ extension AppDelegate {
         defer { MainThreadActivity.pop() }
         let memoScope = beginAppWindowsMemo()
         defer { endAppWindowsMemo(memoScope) }
-        // 缩略图展开时截图自己从缩略图飞回原处（Thumbnail.swift），不再播卷帘展开的动画；
-        // 正在播的那一段（手势跟手收起到一半又放回）照旧交给它。
-        let thumbnail = shaded[id]?.appearanceMode == .thumbnail
-            && !duoController.windowEffects.hasActiveTransition(for: id)
-        if !thumbnail, duoController.windowEffects.interceptRestore(id: id) { return true }
+        // 看一眼的卡片正盖在原处：由它来展开，卡片留到原窗口回来再撤。
+        // 直接展开会先撤卡片，原窗口回来之前露出后面的窗口。
+        if MainActor.assumeIsolated({ glance.isShown(id) }) {
+            return MainActor.assumeIsolated { glance.expand(id) }
+        }
         return unshadeReturningElement(id) != nil
     }
-    func forceCleanup(_ id: CGWindowID, preserveFocusEntry: Bool = false, preserveRecovery: Bool = false) {
-        duoController.windowEffects.cancel(id)
-        duoRestoreVerificationTokens.removeValue(forKey: id)
+    /// 双击卷帘条。快速查看等窗口收起时，卷帘条先出现，关掉原窗口、交出焦点之后（约 0.3 秒）收起才算完成。
+    /// 这段时间里的双击 unshade 处理不了，先记下来，收起完成时再展开（场景 A32：双击被丢掉，卷帘条一直留着）。
+    func unshadeFromStrip(_ id: CGWindowID) {
+        if unshade(id) { return }
+        guard shaded[id] == nil, shadeOperationIDs.contains(id) || currentOperationState(id) == .capturing else { return }
+        wlog("strip: double click before the fold finished; unfolding when it does id=\(id)")
+        unfoldWhenFolded.insert(id)
+    }
+    func forceCleanup(_ id: CGWindowID, preserveRecovery: Bool = false) {
+        restoreVerificationTokens.removeValue(forKey: id)
         guard shaded[id] != nil else { return }
         markShadeLifecycle(id: id, .cleaned, reason: "forceCleanup")
         guard let state = shaded.removeValue(forKey: id) else { return }
-        cancelFoldEvidence(id: id, transaction: state.foldTransactionID)
         let interruptedWaiters = foldWaiters[id].map { Array($0.keys) } ?? []
         defer { MainActor.assumeIsolated { cancelFoldWaiters(id: id, tokens: interruptedWaiters) } }
         transitionOperationState(id: id, to: .normal, reason: "forceCleanup")
-        hideHoverPreview(id: id)
         hideMenuHoverPreview(id: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         if !preserveRecovery { clearShadeJournal(id: id) }
         reconcileInvalidCounts.removeValue(forKey: id)
-        privateAlphaOriginalValues.removeValue(forKey: id)
+        _ = windowHider.takeOriginalAlpha(id: id)
         hoverPreviewSuppressedUntil.removeValue(forKey: id)
-        focusSideStackFrames.removeValue(forKey: id)
-        focusPulledOutOverlayIDs.remove(id)
-        focusPulledOutRestoreFrames.removeValue(forKey: id)
-        focusPulledOutOriginalSizes.removeValue(forKey: id)
-        focusRejoinStackFrames.removeValue(forKey: id)
-        focusRejoinEntries.removeValue(forKey: id)
         arrangedOverlayFrames.removeValue(forKey: id)
-        if !preserveFocusEntry {
-            removeFocusSessionEntry(id)
-        }
         accessibilityActionTargets.removeValue(forKey: id)
         if let overlayID = state.overlayID { overlayIDs.remove(overlayID) }
         removeObserver(state)
@@ -136,26 +124,19 @@ extension AppDelegate {
     func removeProxyForAction(_ id: CGWindowID, state: ShadeState,
                                       stage: ShadeLifecycleStage, reason: String) {
         guard shaded[id]?.foldTransactionID == state.foldTransactionID else { return }
-        cancelFoldEvidence(id: id, transaction: state.foldTransactionID)
         let interruptedWaiters = foldWaiters[id].map { Array($0.keys) } ?? []
         defer { MainActor.assumeIsolated { cancelFoldWaiters(id: id, tokens: interruptedWaiters) } }
         markShadeLifecycle(id: id, stage, reason: reason)
         transitionOperationState(id: id, to: .normal, reason: "removeProxy")
-        hideHoverPreview(id: id)
         hideMenuHoverPreview(id: id)
+        // 先从 shaded 里移除，再收回看一眼的卡片：看一眼结束时，窗口若还算收起着，会把临时取消隐藏的应用程序重新隐藏，
+        // 刚放回来、正要按关闭按钮的窗口就又不见了（CI 场景 C04-cancel：选“取消”后窗口不在屏幕上）。
+        shaded.removeValue(forKey: id)
         MainActor.assumeIsolated { glance.detach(id: id) }
         clearShadeJournal(id: id)
         reconcileInvalidCounts.removeValue(forKey: id)
-        focusSideStackFrames.removeValue(forKey: id)
-        focusPulledOutOverlayIDs.remove(id)
-        focusPulledOutRestoreFrames.removeValue(forKey: id)
-        focusPulledOutOriginalSizes.removeValue(forKey: id)
-        focusRejoinStackFrames.removeValue(forKey: id)
-        focusRejoinEntries.removeValue(forKey: id)
         arrangedOverlayFrames.removeValue(forKey: id)
-        removeFocusSessionEntry(id)
         accessibilityActionTargets.removeValue(forKey: id)
-        shaded.removeValue(forKey: id)
         if let overlayID = state.overlayID { overlayIDs.remove(overlayID) }
         removeObserver(state)
         if let overlay = state.overlay { dismissOverlay(overlay) }
@@ -251,94 +232,24 @@ extension AppDelegate {
             wlog("quicklook fullscreen: reopen via qlmanage id=\(id) path=\(url.path)")
             return true
         }
-        if reopenQuickLookFromFinderSelection(pid: state.pid) {
-            wlog("quicklook fullscreen: reopen via Finder Space id=\(id)")
-            return true
-        }
         wlog("quicklook fullscreen: reopen unavailable id=\(id)")
         return false
     }
-    func clickQuickLookVisualFullScreenButton(_ win: AXUIElement, pid: pid_t,
-                                                      id: CGWindowID, attempt: Int) -> Bool {
-        let offsets: [CGFloat] = [28, 26, 30, 24, 32]
-        let offset = offsets[min(attempt, offsets.count - 1)]
-        let point: CGPoint
-        if let close = axButtonFrame(win, kAXCloseButtonAttribute as String) {
-            point = CGPoint(x: close.midX + offset, y: close.midY)
-            wlog("quicklook fullscreen: visual point from close id=\(id) pid=\(pid) attempt=\(attempt) close=(\(Int(close.minX)),\(Int(close.minY)) \(Int(close.width))x\(Int(close.height))) offset=\(Int(offset))")
-        } else if let pos = axPosition(win), let size = axSize(win),
-                  size.width > 80, size.height > 30 {
-            let fallbackOffsets: [CGFloat] = [50, 48, 52, 46, 54]
-            point = CGPoint(x: pos.x + fallbackOffsets[min(attempt, fallbackOffsets.count - 1)],
-                            y: pos.y + 20)
-            wlog("quicklook fullscreen: visual point from window id=\(id) pid=\(pid) attempt=\(attempt) pos=(\(Int(pos.x)),\(Int(pos.y)))")
-        } else {
-            return false
-        }
-
-        return humanClickAXPoint(point,
-                                 reason: "quicklook-visual-fullscreen",
-                                 logLabel: "quicklook-visual-fullscreen id=\(id) pid=\(pid) attempt=\(attempt)")
-    }
+    /// 只用辅助功能：先写 AXFullScreen，不行再按一次全屏或缩放按钮。
     func triggerQuickLookFullScreen(_ win: AXUIElement, pid: pid_t,
                                             id: CGWindowID, attempt: Int) -> Bool {
-        if clickQuickLookVisualFullScreenButton(win, pid: pid, id: id, attempt: attempt) {
-            wlog("quicklook fullscreen: visual click scheduled id=\(id) pid=\(pid) attempt=\(attempt)")
-            return true
-        }
-
         if isAXAttributeSettable(win, axFullScreenAttribute),
            AXUIElementSetAttributeValue(win, axFullScreenAttribute as CFString, kCFBooleanTrue) == .success {
             wlog("quicklook fullscreen: AXFullScreen set id=\(id) pid=\(pid) attempt=\(attempt)")
             return true
         }
-
-        let attrs = [kAXFullScreenButtonAttribute as String, kAXZoomButtonAttribute as String]
-        for attr in attrs {
+        for attr in [kAXFullScreenButtonAttribute as String, kAXZoomButtonAttribute as String] {
             if pressAXButton(win, attr) {
                 wlog("quicklook fullscreen: AXPress attr=\(attr) id=\(id) pid=\(pid) attempt=\(attempt)")
                 return true
             }
         }
-        for attr in attrs {
-            if clickAXButton(win, attr) {
-                wlog("quicklook fullscreen: pointer click attr=\(attr) id=\(id) pid=\(pid) attempt=\(attempt)")
-                return true
-            }
-        }
         return false
-    }
-    func verifyQuickLookFullScreenOrSendShortcut(_ win: AXUIElement, pid: pid_t,
-                                                         id: CGWindowID, attempt: Int) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.70) {
-            if axBoolAttribute(win, axFullScreenAttribute) {
-                wlog("quicklook fullscreen: verified after trigger id=\(id) pid=\(pid) attempt=\(attempt)")
-                return
-            }
-
-            runningApp(pid: pid)?.activate(options: [])
-            raiseAXWindow(win)
-            focusAXWindow(win, pid: pid)
-            if attempt < 4,
-               self.clickQuickLookVisualFullScreenButton(win, pid: pid, id: id, attempt: attempt + 1) {
-                wlog("quicklook fullscreen: retry visual click id=\(id) pid=\(pid) attempt=\(attempt + 1)")
-                self.verifyQuickLookFullScreenOrSendShortcut(win, pid: pid, id: id, attempt: attempt + 1)
-                return
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                runningApp(pid: pid)?.activate(options: [])
-                raiseAXWindow(win)
-                focusAXWindow(win, pid: pid)
-                pressFullScreenShortcut()
-                wlog("quicklook fullscreen: shortcut fallback sent id=\(id) pid=\(pid) attempt=\(attempt)")
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.10) {
-                let ok = axBoolAttribute(win, axFullScreenAttribute)
-                wlog("quicklook fullscreen: shortcut verification id=\(id) pid=\(pid) ok=\(ok)")
-            }
-        }
     }
     func openQuickLookFullScreenFromProxy(state: ShadeState, id: CGWindowID) {
         let delays: [TimeInterval] = [0.08, 0.18, 0.32, 0.55, 0.85, 1.20]
@@ -354,7 +265,6 @@ extension AppDelegate {
                 raiseAXWindow(target.win)
                 focusAXWindow(target.win, pid: target.pid)
                 if triggerQuickLookFullScreen(target.win, pid: target.pid, id: id, attempt: index) {
-                    verifyQuickLookFullScreenOrSendShortcut(target.win, pid: target.pid, id: id, attempt: index)
                     return
                 }
                 wlog("quicklook fullscreen: target not ready id=\(id) attempt=\(index)")
@@ -391,40 +301,8 @@ extension AppDelegate {
         }
         let f = restoreReferenceFrame(id: id, overlay: overlay)
         let pos = axPosition(fromCocoaFrame: f)
-        switch action {
-        case .close:
-            removeProxyForForwardedAction(id, state: state)
-            restoreWindow(state, to: pos) // 先让真窗口可见可达
-            performForwardedTrafficAction(state: state, pos: pos, id: id, action: .close)
-        case .minimize:
-            removeProxyForForwardedAction(id, state: state)
-            restoreWindow(state, to: pos) // 回到原处
-            performForwardedTrafficAction(state: state, pos: pos, id: id, action: .minimize)
-        case .zoom:
-            removeProxyForForwardedAction(id, state: state)
-            restoreWindow(state, to: pos)
-            performForwardedTrafficAction(state: state, pos: pos, id: id, action: .zoom)
-        case .fullScreen:
-            removeProxyForForwardedAction(id, state: state)
-            restoreWindow(state, to: pos)
-            performForwardedTrafficAction(state: state, pos: pos, id: id, action: .fullScreen)
-        }
-    }
-    func handleClassicAction(_ action: ClassicAction, _ id: CGWindowID) {
-        guard let state = shaded[id], let overlay = state.overlay else { return }
-        let f = restoreReferenceFrame(id: id, overlay: overlay)
-        let pos = axPosition(fromCocoaFrame: f)
-        switch action {
-        case .close:
-            restoreWindow(state, to: pos)
-            pressAXButton(state.element, kAXCloseButtonAttribute as String)
-            forceCleanup(id)
-        case .zoom:
-            let el = state.element
-            unshade(id)
-            pressAXButton(el, kAXZoomButtonAttribute as String)
-        case .expand:
-            unshade(id)
-        }
+        removeProxyForForwardedAction(id, state: state)
+        // 先让原窗口回到原处、可见可达，再按它自己的按钮；都在该应用程序的队列上（R5）。
+        performForwardedTrafficAction(state: state, pos: pos, id: id, action: action)
     }
 }

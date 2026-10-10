@@ -1,4 +1,6 @@
+import Carbon.HIToolbox
 import Cocoa
+import SwiftUI
 
 @main
 struct SettingsNavigationTests {
@@ -15,100 +17,113 @@ struct SettingsNavigationTests {
     defaults.set(999, forKey: "WindowShade.Settings.LastViewedSection")
     precondition(WindowShadeSettingsSection.lastViewed(in: defaults) == .shade)
 
+    // 拿掉的分页空出来的旧值（0 = 效果，2 = 窗口浏览）落回默认分页。
+    for removed in [0, 2] {
+      defaults.set(removed, forKey: "WindowShade.Settings.LastViewedSection")
+      precondition(WindowShadeSettingsSection.lastViewed(in: defaults) == .shade)
+    }
+
     _ = NSApplication.shared
     let owner = AppDelegate()
-    let controller = owner.duoController
-    controller.owner = owner
-    controller.isDesignPreview = true
-    controller.persistsSettings = false
-    let settings = DuoSettingsWindow(controller: controller)
-    controller.settingsWindow = settings
-    settings.select(section: .browser)
-    // Complete the two deferred layout passes before simulating user scrolling.
-    await drainLayout()
-    guard let root = settings.window?.contentView,
-          let scroll = descendants(root).compactMap({ $0 as? NSScrollView })
-            .first(where: { !($0.documentView is NSTableView) })
-    else { preconditionFailure("Settings detail scroll view is missing") }
-    scroll.layoutSubtreeIfNeeded()
-    scroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: 80))
-    let origin = scroll.contentView.bounds.origin
-    let page = scroll.documentView?.subviews.first
-    settings.select(section: .browser)
-    await drainLayout()
-    precondition(scroll.contentView.bounds.origin == origin,
-                 "Selecting the current pane must preserve the user's scroll position")
-    precondition(scroll.documentView?.subviews.first === page,
-                 "Selecting the current pane must preserve its content view")
+    let settings = SettingsWindow(owner: owner, remembersState: false)
+    owner.settingsWindow = settings
+    guard let window = settings.window, let content = window.contentView else {
+      preconditionFailure("Settings window is missing")
+    }
+
+    // 缺陷回归（CI 场景 H01、H02、C15）：打开设置窗口时四页表单当场全部建好，主线程停 700 毫秒以上。
+    // 只建当前那一页，其余分页切过去时再建。
+    let pages = (window.contentViewController as? NSTabViewController)?.tabViewItems
+      .compactMap { $0.viewController as? LazySettingsPage } ?? []
+    precondition(pages.count == WindowShadeSettingsSection.allCases.count, "One page per settings section")
+    let built = pages.filter(\.isBuilt).count
+    precondition(built == 1, "Opening Settings builds only the page shown, not every page: \(built) built")
+
+    // 分页是系统的工具栏标签：每页一个，带 SF Symbol 和名字，选中哪页标题就是哪页。
+    let items = window.toolbar?.items.filter { $0.label.isEmpty == false } ?? []
+    precondition(items.map(\.label) == WindowShadeSettingsSection.allCases.map(\.title),
+                 "One toolbar tab per settings section: \(items.map(\.label))")
+    precondition(items.allSatisfy { $0.image != nil }, "Every settings tab has a symbol")
+    var sizes: Set<String> = []
     for section in WindowShadeSettingsSection.allCases {
       settings.select(section: section)
       await drainLayout()
-      precondition(settings.window?.subtitle == section.title,
-                   "Explicit contextual navigation must still select the target pane")
+      precondition(settings.selectedSection == section && window.title == section.title,
+                   "Selecting \(section) shows that page")
+      sizes.insert("\(window.frame.size)")
     }
-    // 带说明文字、右侧有控件的行：多行说明不能贴边，也不能压到控件上。
-    // 快捷键录制行在“快捷键”分页，窗口浏览页保留菜单开关与外观选项。
-    let rowsBySection: [(WindowShadeSettingsSection, [String])] = [
-      (.browser, ["在菜单里显示“选择窗口…”", "面板背景", "默认显示方式"]),
-      (.shortcuts, ["整理卷帘条", "选择窗口…"]),
-      // 隐私页（原权限与启动）没有“标签 + 右侧控件”的行，这里只为出浅深色截图。
-      (.permissions, []),
-    ]
-    // 隐私一栏：四组和每一行都在，且和登记表生成的数据源一致。
-    settings.select(section: .permissions)
-    await drainLayout()
-    let privacyViews = descendants(root)
-    let privacyTexts = privacyViews.compactMap { ($0 as? NSTextField)?.stringValue }
-      + privacyViews.compactMap { ($0 as? NSButton)?.title }
-    for group in WS2PrivacyData.groupOrder {
-      precondition(privacyTexts.contains(group), "Missing privacy group: \(group)")
+    precondition(sizes.count == 1, "Switching pages does not resize the window: \(sizes)")
+    precondition(pages.allSatisfy(\.isBuilt), "Every page is built once it has been shown")
+
+    // 设置窗口读回的是 AppDelegate 里实际生效的值。
+    let model = settings.model
+    precondition(model.doubleClick == owner.titlebarDoubleClickEnabled && model.appearance == owner.appearanceMode
+                 && model.floating == owner.floatingOnTop && model.sound == owner.soundEnabled,
+                 "Settings show the values in effect")
+
+    // 用到的 SF Symbols 都存在（名字写错时系统给 nil，界面上就空一块）。
+    var symbols = WindowShadeSettingsSection.allCases.map(\.symbolName) + ["checkmark.circle.fill"]
+    let everyModifier = UInt32(controlKey | optionKey | shiftKey | cmdKey)
+    for keyCode in [kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow, kVK_Return, kVK_Delete,
+                    kVK_ForwardDelete, kVK_Escape, kVK_Tab, kVK_Space] {
+      for cap in HotKey.keyCaps(for: HotKey(keyCode: UInt32(keyCode), modifiers: everyModifier)) {
+        if case .symbol(let name) = cap { symbols.append(name) }
+      }
     }
-    for row in WS2PrivacyData.rows {
-      precondition(privacyTexts.contains(row.label), "Missing privacy row: \(row.label)")
+    for name in symbols {
+      precondition(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "Missing SF Symbol: \(name)")
     }
-    precondition(privacyTexts.contains("显示技术细节"), "Privacy page must offer the technical detail toggle")
-    precondition(privacyTexts.contains("已隐藏"), "private 值默认要藏起来")
-    precondition(privacyTexts.contains("还没读"), "planned 行保持还没读")
-    precondition(WS2PrivacyData.rows.contains { $0.id == "agent-voice-proof" && $0.status == "planned" },
-                 "声纹行留在 planned")
-    settings.window?.setContentSize(NSSize(width: 820, height: 580))
-    for (section, names) in rowsBySection {
-    settings.select(section: section)
+
+    // 文案（docs/copy-guide.md 第 7 条）：不用字符画符号，设置里不写说明句，不写进度旁白和实现用语。
+    let glyphs = CharacterSet(charactersIn: "✓✔●○•·⌃⌥⇧⌘←→↑↓↩⇥⌫⌦…")
+    for text in SettingsCopy.all + WelcomeCopy.all {
+      precondition(text.rangeOfCharacter(from: glyphs) == nil, "Use SF Symbols instead of glyph characters: \(text)")
+      precondition(!["还差", "已就绪", "bundle"].contains(where: text.contains), "No narration or jargon: \(text)")
+    }
+    for text in SettingsCopy.all {
+      precondition(!text.hasSuffix("。"), "Settings show no explanatory sentences: \(text)")
+    }
+
+    // 浅色、深色各截一张图，留在 CI 产物里看。
+    let directory = URL(fileURLWithPath: ".build/appkit-tests/settings-shots", isDirectory: true)
+    try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    func shoot(_ view: NSView, _ name: String) {
+      view.layoutSubtreeIfNeeded()
+      guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+        preconditionFailure("Cannot render \(name)")
+      }
+      view.cacheDisplay(in: view.bounds, to: bitmap)
+      try! bitmap.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent("\(name).png"))
+    }
     for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-      settings.window?.appearance = NSAppearance(named: appearance)
-      await drainLayout()
-      root.layoutSubtreeIfNeeded()
-      for name in names {
-        guard let title = descendants(root).compactMap({ $0 as? NSTextField })
-          .first(where: { $0.stringValue == name
-            && ($0.superview?.superview as? NSStackView)?.orientation == .horizontal }),
-          let labels = title.superview as? NSStackView,
-          // S1 起每一行是「圆角图标 + 文字（+ 说明气泡）」：真正的一行在再外面一层。
-          let content = labels.superview as? NSStackView,
-          let row = content.superview as? NSStackView,
-          let control = row.arrangedSubviews.last else {
-          preconditionFailure("Missing settings row: \(name)")
-        }
-        let rect = content.convert(content.bounds, to: row)
-        let controlRect = control.convert(control.bounds, to: row)
-        precondition(rect.minY >= 7.5 && row.bounds.maxY - rect.maxY >= 7.5,
-                     "Multiline labels need vertical clearance: \(name)")
-        precondition(controlRect.minX - rect.maxX >= 13.5,
-                     "Labels must not overlap controls: \(name)")
+      window.appearance = NSAppearance(named: appearance)
+      for section in WindowShadeSettingsSection.allCases {
+        settings.select(section: section)
+        await drainLayout()
+        shoot(content, "\(section)-\(appearance.rawValue)")
       }
-      scroll.contentView.setBoundsOrigin(.zero)
-      guard let bitmap = root.bitmapImageRepForCachingDisplay(in: root.bounds) else {
-        preconditionFailure("Cannot render settings")
-      }
-      root.cacheDisplay(in: root.bounds, to: bitmap)
-      let directory = URL(fileURLWithPath: ".build/appkit-tests/settings-shots", isDirectory: true)
-      try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      try! bitmap.representation(using: .png, properties: [:])!.write(
-        to: directory.appendingPathComponent("\(section)-\(appearance.rawValue).png"))
+      let welcome = NSHostingView(rootView: WelcomeContent(status: PermissionStatus(), isAdmin: false,
+                                                           onFinish: {}, onLater: {}))
+      welcome.frame = NSRect(origin: .zero, size: WelcomeContent.size)
+      welcome.appearance = NSAppearance(named: appearance)
+      shoot(welcome, "welcome-\(appearance.rawValue)")
     }
-    }
-    settings.window?.close()
-    print("PASS: settings navigation and 820pt light/dark row clearance; screenshots saved")
+
+    // 更新：发布版的 Info.plist 有清单地址和公钥才启动更新器；测试包两样都没有，
+    // 设置里的开关和“检查更新”按钮不可用，菜单里的“检查更新…”也不可用。
+    precondition(UpdaterController.isConfigured(["SUFeedURL": "https://example.com/appcast.xml",
+                                                 "SUPublicEDKey": "key"]))
+    precondition(!UpdaterController.isConfigured(["SUPublicEDKey": "key"]))
+    precondition(!UpdaterController.isConfigured(["SUFeedURL": "", "SUPublicEDKey": "key"]))
+    UpdaterController.shared.start()
+    precondition(!UpdaterController.shared.isAvailable, "A build without a feed URL must not start the updater")
+    model.reload()
+    precondition(!model.updaterAvailable, "Update controls are disabled when the updater is not running")
+    let updateItem = UpdaterController.shared.makeMenuItem()
+    precondition(!UpdaterController.shared.validateMenuItem(updateItem),
+                 "Check for Updates must be disabled when the updater is not running")
+    window.close()
+    print("PASS: settings tabs, values, symbols, copy and update controls; screenshots saved")
   }
 
   @MainActor
@@ -118,10 +133,5 @@ struct SettingsNavigationTests {
         DispatchQueue.main.async { continuation.resume() }
       }
     }
-  }
-
-  @MainActor
-  private static func descendants(_ view: NSView) -> [NSView] {
-    [view] + view.subviews.flatMap(descendants)
   }
 }

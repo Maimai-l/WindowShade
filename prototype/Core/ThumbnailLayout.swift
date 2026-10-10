@@ -1,9 +1,9 @@
-// 缩略图的几何（“收起后的样子”选“缩略图”）：多大、放在哪、按 ⌃⌘0 怎么排成一排。
+// 缩略图的几何（“收起后显示”选“缩略图”）：多大、放在哪、按 ⌃⌘0 怎么排成一排。
 // 纯计算，不碰 AppKit；坐标一律 Cocoa（y 向上），数值取自小样做法 A（docs/direction.md“缩略图”）。
 //
 // 缩略图的左上角对着窗口原来的左上角；App 图标压在右下角、探出去一点。覆盖层窗口的外框 =
-// 缩略图 + 右边和下边探出去的那一截，所以外框的左上角仍是窗口的左上角：展开、整理、恢复日志
-// 都照卷帘条的老规矩按外框左上角算。
+// 缩略图 + 右边和下边探出去的那一截，所以外框的左上角仍是窗口的左上角：展开、整理、恢复记录
+// 都和卷帘条一样，按外框左上角计算。
 
 import CoreGraphics
 
@@ -12,7 +12,7 @@ enum ThumbnailLayout {
     static let box: CGFloat = 180
     /// 短边至少这么长，太扁的窗口也点得中；这时长边最多到 2 × box，多出来的画面裁掉。
     static let minShortSide: CGFloat = 28
-    /// 圆角：和窗口浏览里的卡片同一档（SystemCornerRadius.item）。
+    /// 圆角：SystemCornerRadius.item 那一档。
     static let cornerRadius: CGFloat = 8
     /// 右下角的 App 图标。
     static let iconSize: CGFloat = 26
@@ -23,7 +23,7 @@ enum ThumbnailLayout {
     static let tidyBottom: CGFloat = 12
     static let tidyGap: CGFloat = 10
 
-    /// 窗口多大，缩略图就多大（点，取整）。比方框还小的窗口不放大。
+    /// 缩略图的大小（点，取整）：按窗口长宽比缩进 box 方框；比方框还小的窗口不放大。
     static func size(for window: CGSize) -> CGSize {
         guard window.width >= 1, window.height >= 1 else {
             return CGSize(width: box, height: (box * 0.625).rounded())

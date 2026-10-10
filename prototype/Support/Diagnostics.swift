@@ -29,7 +29,7 @@ final class WindowShadeLogger: @unchecked Sendable {
         }
     }
     func flushAndClose() {
-        // 和旧调用合同相同：只由外部非日志队列调用。关闭后不再开启文件。
+        // 只能从日志队列以外调用（这里用 queue.sync）。关闭以后不再打开文件。
         queue.sync { writer?.closeFiles(); writer = nil; disabled = true }
     }
     private func openWriter() throws -> SecureLogFile {
@@ -50,9 +50,9 @@ func wlog(_ s: String) {
     WindowShadeLogger.shared.write(s)
 }
 
-// 主线程正在做什么。卡顿哨兵只能在阻塞结束之后才拿到控制权，光报时长无法定位；
-// 记下当前活动之后，「stall ≈1054ms」就变成「stall ≈1054ms 期间=duo: desktop show」。
-// 只在主线程记账，因此不需要加锁。
+// 记下主线程正在做什么。卡顿哨兵要等阻塞结束才能运行，只报时长定位不到原因；
+// 有了当前活动的标记，日志里的“stall ≈1054ms”就能写成“stall ≈1054ms 期间=fold: 折叠窗口”。
+// 只在主线程记录，不需要加锁。
 enum MainThreadActivity {
     private struct Span {
         let label: String
@@ -77,8 +77,8 @@ enum MainThreadActivity {
     }
 
     /// 卡顿窗口里累计占用最久的标记，附带次数与占比。
-    /// 报「最后结束的那个」会误导：几秒的连续忙碌通常由几十次短调用组成，
-    /// 末尾那次往往只是恰好排在最后，而不是真正的大头。
+    /// 报最后结束的那一个会误导：几秒的连续忙碌通常由几十次短调用组成，
+    /// 排在最后的那次往往只是碰巧，并不是占时最多的。
     static func attribution(since: CFAbsoluteTime, until: CFAbsoluteTime) -> String {
         var totals: [String: (seconds: Double, count: Int)] = [:]
         func accumulate(_ label: String, from start: CFAbsoluteTime, to end: CFAbsoluteTime) {
@@ -106,7 +106,7 @@ func marking<T>(_ label: String, _ body: () throws -> T) rethrows -> T {
     return try body()
 }
 
-// 包裹疑似昂贵的同步块；超过阈值才记日志，避免刷屏。
+// 包住可能耗时的同步代码；超过阈值才记日志，免得日志太多。
 @discardableResult
 func logIfSlow<T>(_ label: String, threshold: TimeInterval = 0.05, _ body: () -> T) -> T {
     let start = CFAbsoluteTimeGetCurrent()
@@ -120,11 +120,10 @@ func logIfSlow<T>(_ label: String, threshold: TimeInterval = 0.05, _ body: () ->
     return result
 }
 
-// 主线程卡顿哨兵：主 RunLoop 的 observer 在每次活动回调时测量与上次活动的间隔，
-// 上次状态为"非休眠等待"且间隔 >0.5s 即为真卡顿（主线程被同步调用阻塞后恢复）。
-// 由主线程恢复后自我报告：空闲休眠（wasWaiting=true 的长间隔）与 App Nap 不会
-// 误报，也不依赖任何后台计时器（后台计时器本身会被 App Nap 节流产生假长间隔）。
-// 状态只在主线程访问，无锁；每次 RunLoop 活动仅一次取时和比较。
+// 主线程卡顿哨兵：主 RunLoop 每有一次活动，就计算和上一次活动的间隔。
+// 上一次不是休眠等待、且间隔超过 0.5 秒，才算卡顿。由主线程恢复后自己报告，
+// 所以空闲休眠和 App Nap 不会误报，也不需要后台计时器（后台计时器会被 App Nap 节流，量出假的长间隔）。
+// 状态只在主线程访问，不加锁；每次 RunLoop 活动只取一次时间、比较一次。
 final class MainThreadStallSentinel {
     /// 见上：只在主线程访问。
     nonisolated(unsafe) static let shared = MainThreadStallSentinel()
@@ -139,12 +138,13 @@ final class MainThreadStallSentinel {
         let obs = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities.rawValue, true, 0) { [weak self] _, activity in
             guard let self else { return }
             let now = CFAbsoluteTimeGetCurrent()
-            // 真阻塞（卡在回调/同步调用里）期间 RunLoop 不可能入睡，恢复后的首个回调
-            // 必然不是 afterWaiting；反之，以 afterWaiting 结束的长间隔一律是休眠唤醒
+            // 真正阻塞时（停在回调或同步调用里），RunLoop 不会进入休眠，恢复后的第一个回调
+            // 一定不是 afterWaiting；反过来，以 afterWaiting 结束的长间隔都是休眠后被唤醒
             // （即使因回调时序没先看到 beforeWaiting），不是卡顿，不报告。
             if !self.wasWaiting, activity != .afterWaiting, now - self.lastActivityAt > 0.5 {
                 let blame = MainThreadActivity.attribution(since: self.lastActivityAt, until: now)
-                wlog("main-thread stall ≈\(Int((now - self.lastActivityAt) * 1000))ms 期间=\(blame)")
+                wlog(MainThreadStallSentinel.line(milliseconds: Int((now - self.lastActivityAt) * 1000), blame: blame,
+                                                  onlyTracking: MainThreadSampler.shared.busyPeriodWasOnlyTracking()))
             }
             self.lastActivityAt = now
             self.wasWaiting = activity == .beforeWaiting
@@ -154,14 +154,22 @@ final class MainThreadStallSentinel {
         CFRunLoopAddObserver(CFRunLoopGetMain(), obs, CFRunLoopMode.commonModes)
         MainThreadSampler.shared.start()
     }
+
+    /// 菜单、拖动这类跟踪循环跑在私有的 RunLoop 模式里，哨兵看不到它入睡，结束时会量出一段长间隔。
+    /// 采样器在这段时间里只看到主线程在等输入时，它不是卡顿，不写成 stall
+    /// （CI 场景 B17：从菜单栏选“全部展开”后，菜单收起前的 0.5 秒被记成了卡顿）。
+    static func line(milliseconds: Int, blame: String, onlyTracking: Bool) -> String {
+        onlyTracking
+            ? "main-thread tracking ended ≈\(milliseconds)ms (menu or drag tracking; waiting for input, not a stall)"
+            : "main-thread stall ≈\(milliseconds)ms 期间=\(blame)"
+    }
 }
 
-// 卡顿时抓主线程的调用栈。哨兵只能在卡顿结束后报时长，“期间=未标记”说不出是谁；
-// 这里另起一条看门狗线程，主线程超过 250ms 没回到 RunLoop（又不是在睡觉）时，暂停它一下，
-// 沿帧指针链抄下返回地址，马上放开，再在看门狗线程上查符号写进日志。
-// 一次卡顿最多抓 4 张（每张至少隔 200ms）：一秒多的长卡顿能自己分成几段，
-// 不会像以前那样只留下第一张（2026-10-01：CoreAudio 那张抓到了，同一次卡顿的后半段完全看不见）。
-// 平时每 50ms 只读一次时间戳。自家代码记“镜像+偏移”，用 atos 对着构建出来的程序就能还原到行。
+// 卡顿时抓主线程的调用栈。哨兵只能在卡顿结束后报时长，日志写着“期间=未标记”时看不出是谁。
+// 这里另开一条看门狗线程：主线程超过 250 毫秒没回到 RunLoop、又不在休眠时，暂停它，
+// 沿帧指针链记下返回地址，立即恢复，再在看门狗线程上查符号写进日志。
+// 一次卡顿最多抓 4 张（每张至少隔 200 毫秒），长卡顿的后半段也能抓到。
+// 看门狗平时每 200 毫秒醒一次，只读一个时间戳。本程序的帧记“镜像+偏移”，用 atos 对着构建出来的程序就能还原到行。
 final class MainThreadSampler: @unchecked Sendable {
     static let shared = MainThreadSampler()
 
@@ -174,6 +182,9 @@ final class MainThreadSampler: @unchecked Sendable {
     private var stackLow: UInt = 0
     private var stackHigh: UInt = 0
     private var started = false
+    /// 这段忙碌期里抓到的栈：在等输入的几张，在执行代码的几张。下一次 beat 清零。
+    private var trackingSamples = 0
+    private var workSamples = 0
 
     /// 在主线程上调用一次。
     func start() {
@@ -185,7 +196,9 @@ final class MainThreadSampler: @unchecked Sendable {
         stackLow = top - UInt(pthread_get_stacksize_np(pthread_self()))
         let watchdog = Thread { [weak self] in self?.watch() }
         watchdog.name = "WindowShade.stall-sampler"
-        watchdog.qualityOfService = .utility
+        // 不用 .utility：机器繁忙时（CI 上同时在录屏），这一档的线程得不到调度，半秒的卡顿结束了它还没运行，
+        // 一张调用栈也抓不到（2026-10-08 场景 A26 的 551 毫秒卡顿没有采样）。每秒仍只唤醒 5 次。
+        watchdog.qualityOfService = .userInitiated
         watchdog.start()
     }
 
@@ -196,14 +209,32 @@ final class MainThreadSampler: @unchecked Sendable {
         busy = !waiting
         samples = 0
         lastSampleAt = 0
+        trackingSamples = 0
+        workSamples = 0
+        os_unfair_lock_unlock(&lock)
+    }
+
+    /// 这段忙碌期抓到过栈，而且每一张都是在等输入（跟踪循环），没有一张在执行代码。
+    func busyPeriodWasOnlyTracking() -> Bool {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return trackingSamples > 0 && workSamples == 0
+    }
+
+    /// 抓栈期间主线程没有回到 RunLoop 时才记账；它已经回来过，这张栈属于上一段忙碌期，不算进新的一段。
+    private func count(tracking: Bool, periodStartedAt: CFAbsoluteTime) {
+        os_unfair_lock_lock(&lock)
+        if beatAt == periodStartedAt {
+            if tracking { trackingSamples += 1 } else { workSamples += 1 }
+        }
         os_unfair_lock_unlock(&lock)
     }
 
     private func watch() {
         while true {
-            // 200ms：卡顿阈值是 250ms，这个粒度够（检测到的时间点是 250–450ms，报的是真实卡了多久），
-            // 但唤醒从 20 次/秒降到 5 次/秒——锁屏空闲那 0.1% 里相当一部分就是这类唤醒
-            // （2026-10-01 量过：把铰链/AirPods 这些真活儿都拿掉之后，剩下的基本是定时器）。
+            // 每 200 毫秒醒一次：卡顿阈值是 250 毫秒，这个间隔足够（检测时刻落在 250–450 毫秒之间，
+            // 报的仍是实际卡顿时长）；唤醒次数只有每 50 毫秒醒一次时的四分之一，
+            // 锁屏空闲时的唤醒有相当一部分来自这类定时器（2026-10-01 测量）。
             usleep(200_000)
             let now = CFAbsoluteTimeGetCurrent()
             os_unfair_lock_lock(&lock)
@@ -211,15 +242,18 @@ final class MainThreadSampler: @unchecked Sendable {
             let takeSample = busy && stuck > 0.25 && samples < 4 && now - lastSampleAt >= 0.2
             if takeSample { samples += 1; lastSampleAt = now }
             let index = samples
+            let periodStartedAt = beatAt
             os_unfair_lock_unlock(&lock)
             guard takeSample else { continue }
             let frames = captureMainStack()
             guard !frames.isEmpty else { continue }
             let described = frames.prefix(32).map(Self.describe)
-            // 主线程其实在等输入：菜单、拖动这类跟踪循环跑在私有的 RunLoop 模式里，看不到它入睡，但它是闲着的，不算卡顿。
-            if described.contains(where: { $0.contains("ReceiveNextEventCommon") || $0.contains("BlockUntilNextEventMatchingListInMode") }) {
-                // 哨兵只看 runloop 活动，分辨不出「跟踪循环」和「真冻结」，两边会给出矛盾的两行日志。
-                // 这里把它如实记成 tracking（2026-10-01 排查 5 秒级卡顿时被这两行绕进去过）。
+            // 主线程其实在等输入：菜单、拖动这类跟踪循环跑在私有的 RunLoop 模式里，看不到它入睡，但它是空闲的，不算卡顿。
+            let tracking = described.contains { $0.contains("ReceiveNextEventCommon") || $0.contains("BlockUntilNextEventMatchingListInMode") }
+            count(tracking: tracking, periodStartedAt: periodStartedAt)
+            if tracking {
+                // 哨兵只看 RunLoop 活动，分不出跟踪循环和真正的卡顿，会和这里写出互相矛盾的两行日志，
+                // 所以这里如实记成 tracking。
                 if index == 1 {
                     wlog("main-thread tracking ≈\(Int(stuck * 1000))ms (menu or drag tracking; main thread is waiting for input, not frozen)")
                 }
@@ -268,7 +302,7 @@ final class MainThreadSampler: @unchecked Sendable {
         guard dladdr(UnsafeRawPointer(bitPattern: address), &info) != 0 else { return String(format: "0x%lx", address) }
         let image = info.dli_fname.map { URL(fileURLWithPath: String(cString: $0)).lastPathComponent } ?? "?"
         let offset = address - UInt(bitPattern: info.dli_fbase)
-        // 自家程序记偏移（atos 还原）；系统库记符号名更直接。
+        // 本程序的地址记偏移（atos 还原）；系统库记符号名更直接。
         if image == "WindowShade" || info.dli_sname == nil {
             return "\(image)+0x\(String(offset, radix: 16))"
         }

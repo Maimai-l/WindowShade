@@ -1,10 +1,9 @@
-// 卷帘条整理与专注 shelf：排列算法、桌面小组件避让、聚焦栏布局、
-// 全部展开。作为 AppDelegate 扩展实现。
+// 卷帘条整理：排列算法、桌面小组件避让、全部展开。作为 AppDelegate 扩展实现。
 
 import Cocoa
 
 extension AppDelegate {
-    // animated=false 给「归位之后立刻要读卷帘条位置」的调用方用：展开真窗口时
+    // animated=false 给“归位之后立刻要读卷帘条位置”的调用方用：展开原窗口时
     // 要按卷帘条的最终位置定位，动画中途的 frame 会把窗口放错地方。
     func restoreArrangedOverlayFrames(ids requestedIDs: Set<CGWindowID>? = nil,
                                       animated: Bool = true) -> Bool {
@@ -17,7 +16,6 @@ extension AppDelegate {
         guard !entries.isEmpty else {
             if requestedIDs == nil {
                 arrangedOverlayFrames.removeAll()
-                focusSideStackFrames.removeAll()
             }
             return false
         }
@@ -25,10 +23,9 @@ extension AppDelegate {
         isProgrammaticOverlayArrangement = true
         defer { isProgrammaticOverlayArrangement = false }
 
-        // NSWindow.setFrame(display:animate:) 是同步阻塞的：要等自己那段动画播完
-        // 才返回。放在循环里逐个调用，总耗时就是各自动画时长之和——实测 9 条卷帘条
-        // 3.2 秒，而且看上去是一条接一条地挪。改成一个动画组用 animator() 代理，
-        // 所有卷帘条同时动，总耗时收敛到单条动画的长度。
+        // NSWindow.setFrame(display:animate:) 要等自己的动画播完才返回，逐个调用时总耗时是各段动画之和
+        // （9 条卷帘条约 3.2 秒），看上去也是一条接一条地移动。
+        // 所以用一个动画组、通过 animator() 同时移动所有卷帘条，总耗时只有一段动画的长度。
         func applyMoves(_ moves: [(window: NSWindow, frame: NSRect)]) {
             guard !moves.isEmpty else { return }
             let proxies = moves.compactMap { $0.window as? NativeProxyOverlayWindow }
@@ -44,7 +41,7 @@ extension AppDelegate {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
                 for move in moves { move.window.animator().setFrame(move.frame, display: true) }
-            } completionHandler: {
+            } thenOnMain: {
                 for (proxy, handler) in savedHandlers { proxy.onResize = handler }
             }
         }
@@ -57,36 +54,55 @@ extension AppDelegate {
             }
             applyOverlayPresentation(overlay, bringForward: true)
             syncRestoreJournal(id: id, fromOverlayFrame: frame)
-            focusPulledOutOverlayIDs.remove(id)
-            focusSideStackFrames.removeValue(forKey: id)
-            focusPulledOutRestoreFrames.removeValue(forKey: id)
-            focusPulledOutOriginalSizes.removeValue(forKey: id)
-            focusRejoinStackFrames.removeValue(forKey: id)
-            focusRejoinEntries.removeValue(forKey: id)
             arrangedOverlayFrames.removeValue(forKey: id)
             wlog("arrange: restore id=\(id) frame=(\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height)))")
         }
 
         applyMoves(moves)
 
-        if let active = activePreview, active.trigger == .titlebarPeek {
-            updateHoverPreviewFrame(active.ownerID)
-        }
         scheduleMenuRebuild()
         return true
     }
 
     func restoreReferenceFrame(id: CGWindowID, overlay: NSWindow) -> NSRect {
-        if focusPulledOutOverlayIDs.contains(id) {
-            return focusPulledOutRestoreFrames[id] ?? overlay.frame
-        }
         return arrangedOverlayFrames[id] ?? overlay.frame
+    }
+
+    /// 用户拖动了卷帘条：记下新位置，它不再属于整理后的排列。
+    func noteUserMovedOverlay(id: CGWindowID, frame: NSRect) {
+        guard !isProgrammaticOverlayArrangement else { return }
+        let hadArrangedFrame = arrangedOverlayFrames[id] != nil
+        syncRestoreJournal(id: id, fromOverlayFrame: frame)
+        arrangedOverlayFrames.removeValue(forKey: id)
+        if hadArrangedFrame { rebuildMenu() }
+        pullOverlayBackIntoReachAfterDrag(id: id)
+    }
+
+    /// 卷帘条被拖到屏幕外（例如拖过屏幕下边）：拖完后拉回能点到的位置（docs/test-catalog.md C02）。
+    /// 拖动过程中不拉回，以免和用户的拖动冲突；停下 0.3 秒、鼠标已松开才检查。
+    func pullOverlayBackIntoReachAfterDrag(id: CGWindowID) {
+        let token = UUID()
+        overlayMoveSettleTokens[id] = token
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.overlayMoveSettleTokens[id] == token else { return }
+            guard NSEvent.pressedMouseButtons == 0 else {
+                self.pullOverlayBackIntoReachAfterDrag(id: id)
+                return
+            }
+            self.overlayMoveSettleTokens.removeValue(forKey: id)
+            guard let state = self.shaded[id], let overlay = state.overlay,
+                  !overlayIsReachable(overlay.frame) else { return }
+            let newFrame = self.clampedFrame(overlay.frame, margin: 8, preferredDisplayID: state.sourceDisplayID)
+            overlay.setFrame(newFrame, display: true)
+            self.syncRestoreJournal(id: id, fromOverlayFrame: newFrame)
+            wlog("drag: pulled strip back into reach id=\(id) frame=(\(Int(newFrame.minX)),\(Int(newFrame.minY)) \(Int(newFrame.width))x\(Int(newFrame.height)))")
+        }
     }
 
     func arrangedDisplayWidth(for state: ShadeState, overlay: NSWindow,
                                       visibleFrame: NSRect) -> CGFloat {
         guard state.appearanceMode == .proxyTitleBar else { return overlay.frame.width }
-        let hasIcon = runningApp(pid: state.pid)?.icon != nil
+        let hasIcon = AppIconCache.shared.image(pid: state.pid) != nil
         let fitting = NativeProxyTitleContentView.titleFittingWindowWidth(
             appName: state.appName,
             windowTitle: state.title,
@@ -100,12 +116,7 @@ extension AppDelegate {
     func arrangedStairStepWidth(for state: ShadeState, visibleFrame: NSRect) -> CGFloat {
         let base = ProxyTitleLayoutMetrics.trafficLightDiameter * 0.95
         let clamped = min(visibleFrame.width * 0.05, base)
-        switch state.appearanceMode {
-        case .proxyTitleBar, .nativeScreenshot, .thumbnail:
-            return max(10, clamped)
-        case .interactiveNative, .classicSemantic:
-            return max(9, clamped * 0.9)
-        }
+        return max(10, clamped)
     }
 
     func desktopWidgetScanLane(visibleFrame: NSRect) -> NSRect {
@@ -147,92 +158,8 @@ extension AppDelegate {
         return max(visibleFrame.minY, widgetBottom - gap)
     }
 
-    func desktopWidgetColumnFrame(for screen: NSScreen, visibleFrame: NSRect,
-                                          widgetFrames: [NSRect]) -> NSRect? {
-        let scanWidth = min(max(340, visibleFrame.width * 0.34), 560)
-        let lane = NSRect(x: visibleFrame.minX,
-                          y: visibleFrame.minY,
-                          width: scanWidth,
-                          height: visibleFrame.height)
-        let widgets = widgetFrames.filter { screen.frame.intersects($0) && lane.intersects($0) }
-        guard !widgets.isEmpty else { return nil }
-        let minX = widgets.map(\.minX).min() ?? visibleFrame.minX
-        let width = max(240, widgets.map(\.width).max() ?? NativeProxyTitleContentView.arrangedColumnFallbackWidth)
-        return NSRect(x: minX, y: visibleFrame.minY, width: width, height: visibleFrame.height)
-    }
-
-    func arrangedColumnWidth(for screen: NSScreen, visibleFrame: NSRect,
-                                     widgetFrames: [NSRect]) -> CGFloat {
-        let widgetWidth = desktopWidgetColumnFrame(for: screen, visibleFrame: visibleFrame,
-                                                   widgetFrames: widgetFrames)?.width
-        let fallback = min(max(340, NativeProxyTitleContentView.arrangedColumnFallbackWidth),
-                           visibleFrame.width - 24)
-        return min(widgetWidth ?? fallback, visibleFrame.width - 24)
-    }
-
-    func arrangedColumnStartX(for screen: NSScreen, visibleFrame: NSRect,
-                                      widgetFrames: [NSRect]) -> CGFloat {
-        if let widgetColumn = desktopWidgetColumnFrame(for: screen, visibleFrame: visibleFrame,
-                                                       widgetFrames: widgetFrames) {
-            return widgetColumn.minX
-        }
-        return visibleFrame.minX + 12
-    }
-
     func arrangedHousekeepingStartX(for screen: NSScreen, visibleFrame: NSRect) -> CGFloat {
         visibleFrame.minX + 12
-    }
-
-    func desktopWidgetTopExclusion(for screen: NSScreen, visibleFrame: NSRect,
-                                           widgetFrames: [NSRect]) -> NSRect? {
-        let topBand = NSRect(x: visibleFrame.minX,
-                             y: visibleFrame.maxY - min(visibleFrame.height * 0.42, 460),
-                             width: min(visibleFrame.width * 0.62, 760),
-                             height: min(visibleFrame.height * 0.42, 460))
-        let widgets = widgetFrames.filter { screen.frame.intersects($0) && topBand.intersects($0) }
-        guard !widgets.isEmpty else { return nil }
-        return widgets.dropFirst().reduce(widgets[0]) { $0.union($1) }
-    }
-
-    func focusShelfWidth(visibleFrame: NSRect) -> CGFloat {
-        min(420, max(340, visibleFrame.width * 0.22))
-    }
-
-    func focusShelfFrame(index: Int, barHeight: CGFloat,
-                                 screen: NSScreen, visibleFrame: NSRect,
-                                 widgetTopExclusion: NSRect?) -> NSRect {
-        let width = min(focusShelfWidth(visibleFrame: visibleFrame), visibleFrame.width - 24)
-        let gap: CGFloat = 18
-        let rowGap: CGFloat = 10
-        let topY = visibleFrame.maxY - barHeight
-        var startX = visibleFrame.minX + 12
-        if let widgets = widgetTopExclusion,
-           widgets.maxY > topY - rowGap {
-            let widgetRight = widgets.maxX + gap
-            if widgetRight + width <= visibleFrame.maxX {
-                startX = max(startX, widgetRight)
-            }
-        }
-        let usableWidth = max(width, visibleFrame.maxX - startX)
-        let itemsPerRow = max(1, Int(floor((usableWidth + gap) / (width + gap))))
-        let row = index / itemsPerRow
-        let column = index % itemsPerRow
-        let x = startX + CGFloat(column) * (width + gap)
-        let y = topY - CGFloat(row) * (barHeight + rowGap)
-        return clampedFrame(NSRect(x: x, y: y, width: width, height: barHeight), margin: 8)
-    }
-
-    func arrangeCurrentFocusShelf(excluding excludedIDs: Set<CGWindowID> = []) {
-        guard let session = focusSession, session.stage == .arrangedAway else { return }
-        let entries = session.entries.keys.compactMap { id -> (CGWindowID, ShadeState, NSWindow)? in
-            guard !excludedIDs.contains(id),
-                  let state = shaded[id],
-                  state.appearanceMode == .proxyTitleBar,
-                  let overlay = state.overlay else { return nil }
-            return (id, state, overlay)
-        }
-        guard !entries.isEmpty else { return }
-        arrangeShadedEntries(entries, reason: "focus")
     }
 
     @discardableResult
@@ -263,7 +190,6 @@ extension AppDelegate {
             guard visible.width > 80, visible.height > 40 else { continue }
             let widgetFrames = desktopWidgetFrames(for: screen, visibleFrame: visible)
 
-            let usesFocusColumnLayout = reason == "focus" && group.allSatisfy { $0.1.appearanceMode == .proxyTitleBar }
             let usesOriginalHousekeepingColumnLayout = reason == "housekeeping" &&
                 group.allSatisfy { $0.1.appearanceMode != .proxyTitleBar }
             let verticalGap: CGFloat = 14
@@ -282,22 +208,10 @@ extension AppDelegate {
             let availableHeight = max(stepY, startTop - visible.minY)
             let maxRows = max(1, Int(floor(availableHeight / stepY)))
             let columnGap = min(28, max(14, visible.width * 0.012))
-            let columnWidth: CGFloat
             let columnStep: CGFloat
             let columnStartX: CGFloat
             let stairStepX: CGFloat
-            let widgetTopExclusion = usesFocusColumnLayout
-                ? desktopWidgetTopExclusion(for: screen, visibleFrame: visible, widgetFrames: widgetFrames)
-                : nil
-            if usesFocusColumnLayout {
-                columnWidth = arrangedColumnWidth(for: screen, visibleFrame: visible,
-                                                  widgetFrames: widgetFrames)
-                columnStep = min(columnWidth + columnGap, visible.width * 0.60)
-                columnStartX = arrangedColumnStartX(for: screen, visibleFrame: visible,
-                                                    widgetFrames: widgetFrames)
-                stairStepX = 0
-            } else if usesOriginalHousekeepingColumnLayout {
-                columnWidth = widestExisting
+            if usesOriginalHousekeepingColumnLayout {
                 columnStep = min(max(widestExisting + columnGap, widestExisting * 1.04),
                                  visible.width * 0.52)
                 columnStartX = arrangedHousekeepingStartX(for: screen, visibleFrame: visible)
@@ -308,7 +222,6 @@ extension AppDelegate {
                     arrangedStairStepWidth(for: $0.1, visibleFrame: visible)
                 }.max() ?? max(10, ProxyTitleLayoutMetrics.trafficLightDiameter * 0.95)
                 let maxStairOffset = CGFloat(stairDepthCap) * stairStepX
-                columnWidth = widestExisting
                 columnStep = min(max(widestExisting + maxStairOffset + columnGap,
                                      widestExisting * 1.08),
                                  visible.width * 0.52)
@@ -317,7 +230,6 @@ extension AppDelegate {
 
             isProgrammaticOverlayArrangement = true
             defer { isProgrammaticOverlayArrangement = false }
-            let animateFrames = reason != "focus"
             for (index, entry) in group.enumerated() {
                 let id = entry.0
                 let overlay = entry.2
@@ -325,40 +237,24 @@ extension AppDelegate {
                 let column = index / maxRows
                 var frame = overlay.frame
                 arrangedOverlayFrames[id] = arrangedOverlayFrames[id] ?? overlay.frame
-                if usesFocusColumnLayout {
-                    frame = focusShelfFrame(index: index, barHeight: frame.height,
-                                            screen: screen, visibleFrame: visible,
-                                            widgetTopExclusion: widgetTopExclusion)
-                } else {
-                    frame.size.width = arrangedDisplayWidth(for: entry.1, overlay: overlay, visibleFrame: visible)
-                    let stackOffsetX = CGFloat(column) * columnStep
-                    let x = columnStartX + stackOffsetX +
-                        (usesOriginalHousekeepingColumnLayout ? 0 : CGFloat(row) * stairStepX)
-                    let y = startTop - CGFloat(row) * stepY - frame.height
-                    frame.origin = NSPoint(x: x, y: y)
-                    frame = clampedFrame(frame, margin: 8)
-                }
-                if usesFocusColumnLayout {
-                    focusSideStackFrames[id] = frame
-                } else {
-                    focusSideStackFrames.removeValue(forKey: id)
-                }
+                frame.size.width = arrangedDisplayWidth(for: entry.1, overlay: overlay, visibleFrame: visible)
+                let stackOffsetX = CGFloat(column) * columnStep
+                let x = columnStartX + stackOffsetX +
+                    (usesOriginalHousekeepingColumnLayout ? 0 : CGFloat(row) * stairStepX)
+                let y = startTop - CGFloat(row) * stepY - frame.height
+                frame.origin = NSPoint(x: x, y: y)
+                frame = clampedFrame(frame, margin: 8)
 
                 if let proxy = overlay as? NativeProxyOverlayWindow {
                     let oldResize = proxy.onResize
                     proxy.onResize = nil
-                    if usesFocusColumnLayout {
-                        proxy.allowsHorizontalResize = false
-                        proxy.minSize = NSSize(width: frame.width, height: frame.height)
-                        proxy.maxSize = NSSize(width: frame.width, height: frame.height)
-                    }
                     if !framesAlmostEqual(proxy.frame, frame) {
-                        proxy.setFrame(frame, display: true, animate: animateFrames)
+                        proxy.setFrame(frame, display: true, animate: true)
                     }
                     proxy.onResize = oldResize
                 } else {
                     if !framesAlmostEqual(overlay.frame, frame) {
-                        overlay.setFrame(frame, display: true, animate: animateFrames)
+                        overlay.setFrame(frame, display: true, animate: true)
                     }
                 }
                 applyOverlayPresentation(overlay, bringForward: true)
@@ -366,9 +262,6 @@ extension AppDelegate {
             }
         }
 
-        if let active = activePreview, active.trigger == .titlebarPeek {
-            updateHoverPreviewFrame(active.ownerID)
-        }
         scheduleMenuRebuild()
         return true
     }
@@ -392,15 +285,12 @@ extension AppDelegate {
     }
 
     @objc func restoreAll() {
-        duoController.windowEffects.cancelAll()
         guard !shaded.isEmpty else { return }
         let playSound = soundEnabled
         suppressUnshadeSounds = true
-        duoController.windowEffects.suppressedForBulkOperation = true
         withMenuRebuildSuppressed {
             for id in Array(shaded.keys) { _ = unshadeReturningElement(id) }
         }
-        duoController.windowEffects.suppressedForBulkOperation = false
         suppressUnshadeSounds = false
         if playSound {
             playUnfoldSound()

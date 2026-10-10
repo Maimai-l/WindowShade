@@ -1,22 +1,20 @@
 // 全应用共享的系统外观策略。
 //
-// 卷帘条、置顶预览、悬停缩略图、代理标题栏与窗口浏览面板都从这一份策略读取
-// 材质、边线、薄纱与动画时长，避免每个表面各自判断辅助功能开关：
-// - 减少透明度：改用不透明语义底色 + withinWindow 混合，并去掉内容薄纱；
-// - 提高对比度：边线加粗、去掉顶部高光、阴影加深，vibrancy 更实；
+// 卷帘条（原标题栏、简化标题栏）、菜单悬停预览和看一眼都从这一份策略读取
+// 材质、边线、半透明底色与动画时长，避免每个表面各自判断辅助功能开关：
+// - 减少透明度：改用不透明语义底色 + withinWindow 混合，菜单悬停预览底下的半透明底色改为不透明；
+// - 提高对比度：边线加粗、去掉顶部高光、阴影加深，材质视图设为强调状态；
 // - 减少动态效果：所有新增过渡时长为 0；
-// - 系统支持公开玻璃 API 时，全应用只有窗口浏览面板本身是一层玻璃（内容挂在
-//   NSGlassEffectView.contentView 里）；内容/预览表面保持系统材质或系统填充色，
-//   不在窗口画面上再叠折射。
+// - 内容/预览表面保持系统材质或系统填充色，不在窗口画面上叠玻璃折射。
 
 import Cocoa
 
 enum SystemAppearancePurpose: String {
-    /// 悬浮面板与置顶预览的标题条。
+    /// 悬浮面板的标题条。
     case floatingChrome
-    /// 悬停缩略图、菜单预览这类短暂出现的画面。
+    /// 菜单悬停预览这类短暂出现的画面。
     case transientPeek
-    /// 代理标题栏（原貌截图条）。
+    /// 简化标题栏（WindowShade 自己绘制，不用截图）。
     case proxyTitleBar
 
     /// 正常情况下使用的系统材质。
@@ -31,7 +29,7 @@ enum SystemAppearancePurpose: String {
     /// 减少透明度时使用的不透明语义底色（跟随浅深色）。
     var opaqueMaterial: NSVisualEffectView.Material { .contentBackground }
 
-    /// 缩略图内容底下的一层薄纱；减少透明度时不要再冲淡不透明底。
+    /// 菜单悬停预览底下那层半透明底色的不透明度；减少透明度时改用不透明底色，不用这个值。
     var contentVeilAlpha: CGFloat {
         switch self {
         case .transientPeek: return 0.55
@@ -89,18 +87,9 @@ enum SystemAppearancePolicy {
         capabilities.increaseContrast ? 1 : 0.5
     }
 
-    /// 顶边高光只在普通对比度下出现：高对比度下它是多余的噪声。
+    /// 顶边高光只在普通对比度下出现：提高对比度时它只会造成干扰。
     static func highlightAlpha(_ capabilities: SystemAppearanceCapabilities) -> CGFloat {
         capabilities.increaseContrast ? 0 : 0.9
-    }
-
-    /// 卡片/列表行的状态文字色。11 pt 的 secondaryLabelColor 在浅色卡片上约 3.9:1，
-    /// 低于 HIG 对 17 pt 以下文字的 4.5:1；「提高对比度」打开时提到正文色，
-    /// 与同一开关下加粗的边线一致。警告状态仍用橙色。
-    static func statusTextColor(warning: Bool,
-                                _ capabilities: SystemAppearanceCapabilities = .current) -> NSColor {
-        if warning { return .systemOrange }
-        return capabilities.increaseContrast ? .labelColor : .secondaryLabelColor
     }
 
     static func shadowColor(_ capabilities: SystemAppearanceCapabilities) -> NSColor {
@@ -112,7 +101,7 @@ enum SystemAppearancePolicy {
         capabilities.reduceMotion ? 0 : max(0, base)
     }
 
-    /// 缩略图底下的薄纱颜色：普通外观用语义底色半透明，减少透明度时完全不透明。
+    /// 菜单悬停预览底下的半透明底色：普通外观用语义底色半透明，减少透明度时完全不透明。
     static func contentVeilColor(_ purpose: SystemAppearancePurpose,
                                  _ capabilities: SystemAppearanceCapabilities) -> NSColor {
         if usesOpaqueFallback(capabilities) { return .windowBackgroundColor }
@@ -139,12 +128,12 @@ extension SystemAppearancePolicy {
 
     /// 把动态颜色解析成 CGColor 时，必须在该视图当前的外观下解析。
     /// 直接 `color.cgColor` 会按 `NSAppearance.currentDrawingAppearance` 取值——在
-    /// `viewDidChangeEffectiveAppearance` 里那可能仍是旧外观，于是层颜色被“冻”在
+    /// `viewDidChangeEffectiveAppearance` 里那可能仍是旧外观，于是图层颜色停在
     /// 切换前的值上（实测：深色下行背景仍是浅色）。
     @MainActor
     static func cgColor(_ color: NSColor, for view: NSView) -> CGColor {
-        // `.cgColor` 本身也要在块内调用：放在块外会按“当前绘制外观”重新解析，
-        // 等于又把颜色冻回旧外观。
+        // `.cgColor` 也要在块内调用：放在块外会按“当前绘制外观”重新解析，
+        // 颜色又回到旧外观。
         var resolved = color.cgColor
         view.effectiveAppearance.performAsCurrentDrawingAppearance {
             resolved = color.cgColor
@@ -153,8 +142,8 @@ extension SystemAppearancePolicy {
     }
 
     /// 设置页/引导页分组盒的填充：语义底色混入一点标签色。
-    /// 用动态颜色在绘制时按当前外观解析，避免把浅色值冻死（`blended` 返回的是
-    /// 已解析的静态颜色，曾在深色模式下留下浅色卡片配浅色文字）。
+    /// 用动态颜色，绘制时按当前外观解析，避免浅色值被固定下来（`blended` 返回的是
+    /// 已解析的静态颜色，曾在深色模式下出现浅色卡片配浅色文字）。
     static func groupBoxFill() -> NSColor {
         NSColor(name: nil) { appearance in
             var resolved = NSColor.controlBackgroundColor
@@ -177,7 +166,7 @@ extension SystemAppearancePolicy {
     }
 }
 
-/// 圆角刻度：整套自定义表面共用一份数值，来源是系统本身而不是手感。
+/// 圆角刻度：所有自定义表面共用一份数值，取自系统窗口的实测值，不凭目测。
 ///
 /// 本机实测（macOS 27，2x）：Finder 与 ChatGPT 的标准窗口左上角弧长都是 26 px
 /// = 13 pt，且轮廓比正圆更平（连续曲率，不是 circular）。因此：
@@ -192,8 +181,7 @@ enum SystemCornerRadius {
     static let window: CGFloat = 13
     /// 内容级卡片、设置页分组盒。
     static let card: CGFloat = 12
-    /// 窗口浏览面板里的卡片、列表行、详情栏：嵌在 13 pt 面板里、距边 12 pt，
-    /// 取介于窗口级与控件级之间的 8 pt（严格同心会退化成 1 pt）。
+    /// 嵌在面板里的卡片和列表行：取介于窗口级与控件级之间的 8 pt。
     static let item: CGFloat = 8
     /// 控件级：自绘小按钮、chip、列表内小色块。
     static let control: CGFloat = 6
@@ -221,8 +209,8 @@ enum SystemCornerRadius {
 
 /// 连续曲率的圆角矩形路径。`NSBezierPath` 的 `roundedRect` 只能画正圆角，
 /// 而系统窗口用的是连续曲率，所以这里按 Apple 的连续曲率控制点自己画。
-/// `corners` 决定圆哪些角：卷帘条只圆上面两角，下边缘保留“窗口被卷起后”的直切口，
-/// 与截图条（真实窗口 chrome）保持一致。
+/// `corners` 决定圆哪些角：卷帘条只圆上面两角，下边保留收起后留下的直边，
+/// 与原标题栏的卷帘条（原窗口标题栏的截图）保持一致。
 enum SystemCornerPath {
     struct Corners: OptionSet {
         let rawValue: Int
@@ -350,12 +338,11 @@ class SystemMaterialView: NSVisualEffectView {
         material = SystemAppearancePolicy.material(purpose, capabilities)
         blendingMode = SystemAppearancePolicy.blendingMode(capabilities)
         state = .active
-        // 提高对比度时让 vibrancy 更实，减少透明度时不再强调。
+        // 提高对比度时设为强调状态（isEmphasized），减少透明度时不设。
         isEmphasized = capabilities.increaseContrast && !capabilities.reduceTransparency
     }
 }
 
-/// 卷帘条与预览的辅助功能文案（纯字符串，便于直接测试）。
 /// 系统设置深链的选择：macOS 13 起隐私面板由 ExtensionKit 承载
 /// （`SecurityPrivacyExtension.appex`，本机实测标识 `com.apple.settings.PrivacySecurity.extension`），
 /// 旧系统仍是 `com.apple.preference.security`。按本机是否装了新面板决定尝试顺序，
@@ -400,18 +387,18 @@ enum SystemSettingsLinks {
     }
 }
 
+/// 卷帘条与预览的辅助功能文案（纯字符串，便于直接测试）。
 enum PaperSurfaceAccessibility {
     static func stripLabel(appName: String, windowTitle: String) -> String {
         let title = displayTitle(appName: appName, windowTitle: windowTitle)
-        return "WindowShade 卷帘：\(title)"
+        return "已收起的窗口：\(title)"
     }
 
     static func stripHelp() -> String {
-        "双击展开窗口；也可以用标题条上的按钮关闭、缩放或展开。"
+        "双击展开窗口"
     }
 
-    /// 状态栏按钮的可访问性值：读成“没有折叠的窗口 / N 个折叠窗口”，
-    /// 而不是一个孤立的数字。
+    /// 状态栏按钮的可访问性值：读成“没有收起的窗口 / N 个收起的窗口”，不只读一个数字。
     static func statusItemValue(foldedCount: Int) -> String {
         foldedCount <= 0 ? "没有收起的窗口" : "\(foldedCount) 个收起的窗口"
     }
@@ -433,7 +420,7 @@ enum PaperSurfaceAccessibility {
 
     static func previewLabel(windowTitle: String) -> String {
         let clean = windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.isEmpty ? "窗口预览" : "窗口预览：\(clean)"
+        return clean.isEmpty ? "窗口画面" : "窗口画面：\(clean)"
     }
 
     private static func displayTitle(appName: String, windowTitle: String) -> String {

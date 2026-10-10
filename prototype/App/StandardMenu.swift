@@ -1,8 +1,8 @@
 // 标准最小主菜单。
 //
-// WindowShade 是 LSUIElement（菜单栏代理）应用，屏幕顶部不会显示菜单栏；但 AppKit 的
-// 文本编辑快捷键（⌘X/⌘C/⌘V/⌘A/⌘Z）与 ⌘W 都通过主菜单的 key equivalent 派发。
-// 实测：没有主菜单时，即使 NSTextField 已经是 first responder，⌘V 也不会粘贴
+// WindowShade 是只在菜单栏显示图标的代理应用（LSUIElement），屏幕顶部不显示它的菜单栏；
+// 但 AppKit 的文本编辑快捷键（⌘X/⌘C/⌘V/⌘A/⌘Z）和 ⌘W 都通过主菜单的快捷键分派。
+// 实测：没有主菜单时，即使 NSTextField 已经是第一响应者，⌘V 也不会粘贴
 // （menuHandled=false / windowHandled=false）。
 //
 // 因此这里提供一份最小但标准的主菜单：应用菜单（关于/设置/服务/隐藏/退出）、编辑
@@ -37,11 +37,11 @@ enum StandardMenu {
                                   build: String)
         -> [NSApplication.AboutPanelOptionKey: Any] {
         let credits = NSMutableAttributedString(
-            string: "卷起挡路的窗口，钉住要一直看的，或者停在 Dock 图标上翻出那个应用的所有窗口。\n",
+            string: "双击标题栏收起窗口，卷帘条留在原处。\nMIT License\n",
             attributes: [.font: NSFont.systemFont(ofSize: 11),
                          .foregroundColor: NSColor.secondaryLabelColor])
         credits.append(NSAttributedString(
-            string: "MIT License · github.com/surfine/WindowShade",
+            string: "github.com/surfine/WindowShade",
             attributes: [.font: NSFont.systemFont(ofSize: 11),
                          .link: URL(string: "https://github.com/surfine/WindowShade")!]))
         return [
@@ -52,10 +52,10 @@ enum StandardMenu {
         ]
     }
 
-    // MARK: 折叠窗口的菜单分区
+    // MARK: 已收起窗口的菜单分区
 
-    /// 内联列出并带 ⌃⌘1…⌃⌘9 的窗口数；其余放进“更多”子菜单，
-    /// 免得菜单很长、快捷键却静悄悄停在第 9 个。
+    /// 直接列出并带 ⌃⌘1…⌃⌘9 的窗口数；其余放进“更多”子菜单，
+    /// 免得菜单太长，而第 9 扇之后的窗口又没有快捷键。
     static let inlineFoldedWindowLimit = 9
 
     static func foldedWindowShortcut(index: Int) -> String? {
@@ -87,7 +87,7 @@ enum StandardMenu {
         let item = NSMenuItem()
         let menu = NSMenu(title: appName)
 
-        // 有自定义实现时用应用的“关于”面板（标准面板 + 授权信息），否则退回系统默认。
+        // 有自定义实现时用应用的“关于”面板（标准面板 + 许可信息），否则用系统默认的。
         let about = NSMenuItem(title: "关于 \(appName)",
                                action: aboutAction
                                    ?? #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
@@ -131,7 +131,7 @@ enum StandardMenu {
     private static func editMenuItem() -> NSMenuItem {
         let item = NSMenuItem()
         let menu = NSMenu(title: "编辑")
-        // selector 指向 NSText/NSTextView 的标准实现，由响应链上的 first responder 处理。
+        // 这些动作由响应链上的第一响应者执行，标准实现在 NSText/NSTextView 里。
         menu.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
         let redo = NSMenuItem(title: "重做", action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]

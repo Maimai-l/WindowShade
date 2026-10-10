@@ -1,13 +1,12 @@
-// SCShareableContent 短 TTL 缓存。
+// SCShareableContent 的短时缓存。
 
 import Cocoa
 import ScreenCaptureKit
 
-// SCShareableContent.current 每次调用都要枚举全系统窗口，在部分机器上耗时数百
-// 毫秒到数秒——它是每次折叠截图的同步前置成本，也是"双击后要等一下"的感知延迟
-// 大头（超时还会把原貌卷帘降级成代理条）。短 TTL 缓存 + 标题栏点击预热之后，
-// 双击的第二下落地时内容通常已就绪。缓存未命中目标窗口时强制刷新，
-// 正确性不受 TTL 影响（新建窗口永远走强制刷新）。
+// SCShareableContent.current 每次都要枚举全系统的窗口，有的机器上要几百毫秒到几秒。
+// 每次收起截图前都要等它，双击后的等待主要来自它（超时还会让卷帘条改用简化标题栏）。
+// 有了短时缓存，再加上点标题栏时提前取一次，双击的第二下到来时内容通常已经准备好。
+// 缓存里没有目标窗口时强制刷新，所以结果不受缓存时长影响（新建的窗口一定会触发强制刷新）。
 /// 系统一次性产出的只读快照：只在后台枚举任务里生成，交给主 actor 一次，之后谁都不改它。
 /// SCShareableContent 没标 Sendable，只用这个本文件私有的壳子跨这一次边界，不对整个类型担保。
 private struct ShareableSnapshot: @unchecked Sendable {
@@ -42,12 +41,12 @@ final class ShareableContentCache {
         }
         // 等到的在途快照仍不含目标窗口（典型场景：窗口在枚举开始之后才创建）。
         // 旧任务此刻已经跑完，再 await 它只会拿到同一份过期快照；必须发起新枚举。
-        // refresh() 会覆盖 inFlight 槽位，配合代数守卫避免旧任务收尾时误清掉
-        // 新任务的单飞标记（见 refresh() 的 refreshGeneration）。
+        // refresh() 会覆盖 inFlight，配合刷新序号，旧任务收尾时不会误清掉
+        // 新任务的“正在刷新”标记（见 refresh() 的 refreshGeneration）。
         return await refresh()
     }
 
-    // 标题栏 mousedown 预热。命中新鲜缓存或已有在途请求都直接跳过；无录屏权限或
+    // 点标题栏按下鼠标时提前取一次。命中新鲜缓存或已有在途请求都直接跳过；无录屏权限或
     // 处于失败退避期内也跳过，避免每次点击都触发一次注定失败的全系统枚举。
     func prefetch() async {
         guard hasScreenRecordingPermission() else { return }
@@ -56,13 +55,12 @@ final class ShareableContentCache {
         _ = await refresh()
     }
 
-    // "决定要发起 fetch"到"inFlight 被设置"之间必须没有 await：调用方（content(requiring:)
-    // 和 prefetch()）决定发起刷新时，现有 inFlight 要么为空、要么已经完成（content
-    // (requiring:) 只会在 await 完旧任务之后才走进这里），进入本函数到 `inFlight = task`
-    // 这行之前也没有任何 await，因此不会触发重复的全系统枚举。
-    // refreshGeneration 是代数守卫：content(requiring:) 发现旧快照不含目标窗口时会
-    // 立刻发起新一轮 refresh() 并覆盖 inFlight；旧一轮的 await 恢复点可能晚于这个
-    // 覆盖才执行，只有「仍是当前代数」的那一轮才有权清空 inFlight 并写缓存。
+    // 从决定刷新到给 inFlight 赋值之间不能有 await。调用方决定刷新时，inFlight 要么为空，
+    // 要么已经完成（content(requiring:) 先等完旧任务才会走到这里）；本函数在 `inFlight = task`
+    // 之前也没有 await，所以不会重复枚举。
+    // refreshGeneration 是刷新序号：content(requiring:) 发现旧快照里没有目标窗口时，
+    // 会马上开始新一轮刷新并覆盖 inFlight；旧一轮可能在这之后才恢复执行，
+    // 只有序号仍是最新的那一轮才清空 inFlight、写缓存。
     private var refreshGeneration: UInt64 = 0
 
     private func refresh() async -> SCShareableContent? {
@@ -77,7 +75,7 @@ final class ShareableContentCache {
         inFlight = task
         let content = try? await task.value.content
         guard refreshGeneration == generation else {
-            // 已被更新的刷新取代：缓存状态由新代数负责，这里只把结果交还调用方。
+            // 已被更新的刷新取代：缓存状态由新的一轮负责，这里只把结果交还调用方。
             return content
         }
         inFlight = nil
@@ -98,8 +96,8 @@ final class ShareableContentCache {
     }
 }
 
-// continuation 竞速的"只 resume 一次"守卫。两个赛跑的 Task 不在同一 actor 上，
-// 需要真正的互斥而非"没有 await 就不会交错"这类单线程论证。
+// 两个 Task 竞争 resume 同一个 continuation 时，保证只 resume 一次。两个 Task 不在同一个 actor 上，
+// 需要真正的互斥，不能靠“中间没有 await 就不会交错”这种单线程推理。
 actor SingleResumeGuard {
     private var resumed = false
     func tryResume() -> Bool {

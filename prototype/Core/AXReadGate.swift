@@ -1,9 +1,9 @@
 import Foundation
 
-/// 跨 App 的 AX 读取名额。时间由调用方传入。
-/// 每次读取的身份由调用方给，这里沿用已有的 stamp，不另造代次。
-/// 超时只让那一次的结果作废，名额要等这次调用真正返回才放开。
-/// `resultLifetime` 与既有 fold 回调的 2 秒围栏相同，是工程参数，不是耗时承诺。
+/// 跨应用程序的辅助功能读取名额，时间由调用方传入。
+/// 每次读取的身份由调用方给（沿用已有的 FoldCallbackStamp），这里不另设序号。
+/// 超时只让那一次的结果作废；名额要等这次调用真正返回才释放。
+/// `resultLifetime` 取 2 秒，和收起回调的过期时限相同；这是经验取值，不表示读取一定在 2 秒内完成。
 struct AXReadGate<App: Hashable & Sendable, Identity: Equatable & Sendable>: Sendable {
     struct Ticket: Equatable, Sendable {
         let app: App

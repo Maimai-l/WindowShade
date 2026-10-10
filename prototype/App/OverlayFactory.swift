@@ -1,5 +1,5 @@
-// 覆盖层工厂：按外观模式构建截图条 / 经典条 / 代理标题栏窗口，
-// 复用简单条窗口池。作为 AppDelegate 扩展实现。
+// 建卷帘条窗口：按收起后显示的样式建原标题栏或简化标题栏的卷帘条，复用回收的卷帘条窗口。
+// 作为 AppDelegate 扩展实现。
 
 import Cocoa
 
@@ -7,7 +7,7 @@ extension AppDelegate {
     func makeBaseOverlay(axPos: CGPoint, width: CGFloat, height: CGFloat) -> NSWindow {
         let frame = cocoaFrame(fromAXPosition: axPos, size: CGSize(width: width, height: height))
 
-        // 复用已回收的简单卷帘条窗口，避免频繁创建 NSWindow；池取不到才新建。
+        // 复用已回收的卷帘条窗口（原标题栏样式、没有红绿灯的那种），避免频繁创建 NSWindow；池里没有才新建。
         let overlay = ShadeStripPool.shared.take()
             ?? OverlayWindow(contentRect: frame, styleMask: .borderless,
                              backing: .buffered, defer: false)
@@ -45,7 +45,8 @@ extension AppDelegate {
             overlay.setFrame(frame, display: false)
             overlay.titleVisibility = .hidden
             overlay.titlebarAppearsTransparent = true
-            overlay.isMovableByWindowBackground = true
+            // 卷帘条的移动由它自己按每次拖动事件的指针位置来做（NativeProxyOverlayWindow.sendEvent），不交给系统。
+            overlay.isMovable = false
             overlay.isReleasedWhenClosed = false
             overlay.acceptsMouseMovedEvents = true
             overlay.isOpaque = false
@@ -68,8 +69,8 @@ extension AppDelegate {
             iv.imageScaling = .scaleAxesIndependently
             iv.configureAccessibility(appName: shaded[id]?.appName ?? "",
                                       windowTitle: shaded[id]?.title ?? "")
-            iv.onDoubleClick = { [weak self] in self?.unshade(id) }
-            iv.onPreviewPeek = { [weak self] in self?.peekHoverPreview(id) }
+            iv.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
+            iv.onClick = { [weak self] in self?.stripClicked(id) }
             iv.onMoveEnded = { [weak self] frame in
                 self?.noteUserMovedOverlay(id: id, frame: frame)
             }
@@ -78,14 +79,13 @@ extension AppDelegate {
             overlay.alignStandardTrafficButtons(to: buttons)
             overlay.configureWindowManagementButton(capability: effectiveWindowManagement)
             overlay.onAction = { [weak self] action in self?.handleTrafficLight(action, id) }
-            overlay.onWindowManagementPopover = { [weak self] in self?.showRealWindowManagementPopover(id) }
             overlay.onFrameMoved = { [weak self] frame in
                 self?.noteUserMovedOverlay(id: id, frame: frame)
             }
             overlay.onDragEnded = { [weak self] frame in
                 self?.noteUserMovedOverlay(id: id, frame: frame)
             }
-            overlay.onDoubleClick = { [weak self] in self?.unshade(id) }
+            overlay.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
             applyOverlayPresentation(overlay, bringForward: false)
             return overlay
         }
@@ -97,12 +97,12 @@ extension AppDelegate {
         iv.imageScaling = .scaleAxesIndependently
         iv.configureAccessibility(appName: shaded[id]?.appName ?? "",
                                   windowTitle: shaded[id]?.title ?? "")
-        iv.onDoubleClick = { [weak self] in self?.unshade(id) }
-        iv.onPreviewPeek = { [weak self] in self?.peekHoverPreview(id) }
+        iv.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
+        iv.onClick = { [weak self] in self?.stripClicked(id) }
         iv.onMoveEnded = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
         }
-        if !buttons.isEmpty {                                  // 在真灯位置盖透明命中区
+        if !buttons.isEmpty {                                  // 在红绿灯位置盖透明的点击区
             let union = buttons.dropFirst().reduce(buttons[0].0) { $0.union($1.0) }
             let tlFrame = union.insetBy(dx: -4, dy: -4)
             let local = buttons.map { ($0.0.offsetBy(dx: -tlFrame.minX, dy: -tlFrame.minY), $0.1) }
@@ -111,29 +111,10 @@ extension AppDelegate {
             iv.addSubview(tl)
         }
         overlay.contentView = iv
-        overlay.invalidateShadow()                 // 阴影跟随（已镜像的）圆角轮廓
-        // 截图条的画面自带窗口圆角；系统方角阴影会在透明角落透出一块方形底，
-        // 因此换成与经典条同一套“上圆下直”的纸面阴影。
-        overlay.hasShadow = false
-        PaperSurfaceStyle.installShadow(on: overlay, corners: .top)
-        return overlay
-    }
-
-    func makeClassicOverlay(axPos: CGPoint, width: CGFloat, height: CGFloat,
-                                    pid: pid_t, appName: String, title: String, id: CGWindowID) -> NSWindow {
-        let overlay = makeBaseOverlay(axPos: axPos, width: width, height: height)
-        overlay.hasShadow = false
-        let view = ClassicTitleStripView(frame: NSRect(origin: .zero, size: overlay.frame.size),
-                                         appName: appName, windowTitle: title,
-                                         pid: pid)
-        view.onDoubleClick = { [weak self] in self?.unshade(id) }
-        view.onAction = { [weak self] action in self?.handleClassicAction(action, id) }
-        view.onMoveEnded = { [weak self] frame in
-            self?.noteUserMovedOverlay(id: id, frame: frame)
-        }
-        overlay.contentView = view
         overlay.invalidateShadow()
-        // 卷帘条只有上面两角是圆的，阴影要跟着同一条轮廓。
+        // 原标题栏样式的卷帘条画面自带窗口圆角；系统方角阴影会在透明角落透出一块方形底，
+        // 因此换成“上圆下直”的纸面阴影。
+        overlay.hasShadow = false
         PaperSurfaceStyle.installShadow(on: overlay, corners: .top)
         return overlay
     }
@@ -148,7 +129,7 @@ extension AppDelegate {
         let minimumReadableWidth = NativeProxyTitleContentView.minimumReadableWindowWidth(
             appName: appName,
             windowTitle: title,
-            hasIcon: runningApp(pid: pid)?.icon != nil,
+            hasIcon: AppIconCache.shared.image(pid: pid) != nil,
             trafficLightSlots: trafficLights.visibleSlotCount
         )
         let displayWidth = canResize ? width : max(width, minimumReadableWidth)
@@ -158,8 +139,8 @@ extension AppDelegate {
         if trafficLights.minimizeVisible { style.insert(.miniaturizable) }
         if canResize || effectiveWindowManagement.isEnabled || trafficLights.zoomVisible { style.insert(.resizable) }
         let contentRect = NSWindow.contentRect(forFrameRect: frame, styleMask: style)
-        // 拆开量：NSWindow 本体创建（titled + 红绿灯是 AppKit 最贵的窗口类型）
-        // 与之后的属性配置。只有前者占大头，池化才值得冒重置漏项的风险。
+        // 单独计时 NSWindow 本体的创建（带标题栏和红绿灯的窗口是 AppKit 里创建最慢的一种）：
+        // 只有它占大部分时间，才值得冒重置漏项的风险改用窗口池。
         let overlay = foldPhase("└ NSWindow 创建") {
             NativeProxyOverlayWindow(contentRect: contentRect, styleMask: style,
                                      backing: .buffered, defer: false)
@@ -175,7 +156,8 @@ extension AppDelegate {
         overlay.title = proxyDisplayTitle(appName: appName, windowTitle: title)
         overlay.titleVisibility = .hidden
         overlay.titlebarAppearsTransparent = true
-        overlay.isMovableByWindowBackground = true
+        // 卷帘条的移动由它自己按每次拖动事件的指针位置来做（NativeProxyOverlayWindow.sendEvent），不交给系统。
+        overlay.isMovable = false
         overlay.isReleasedWhenClosed = false
         overlay.acceptsMouseMovedEvents = true
         overlay.isOpaque = false
@@ -207,7 +189,7 @@ extension AppDelegate {
             content.wantsLayer = true
             content.layer?.backgroundColor = NSColor.clear.cgColor
 
-            // 代理标题栏材质与其它自定义表面共用同一份系统外观策略。
+            // 代理标题栏材质与其他自定义表面共用同一份系统外观策略。
             let material = SystemMaterialView(purpose: .proxyTitleBar)
             material.frame = content.bounds
             material.autoresizingMask = [.width, .height]
@@ -217,7 +199,7 @@ extension AppDelegate {
             let titleView = NativeProxyTitleContentView(frame: content.bounds,
                                                         appName: appName,
                                                         windowTitle: title,
-                                                        appIcon: runningApp(pid: pid)?.icon,
+                                                        appIcon: AppIconCache.shared.image(pid: pid),
                                                         trafficLightSlots: trafficLights.visibleSlotCount)
             titleView.autoresizingMask = [.width, .height]
             content.addSubview(titleView)
@@ -225,8 +207,7 @@ extension AppDelegate {
         }
 
         overlay.onAction = { [weak self] action in self?.handleTrafficLight(action, id) }
-        overlay.onWindowManagementPopover = { [weak self] in self?.showRealWindowManagementPopover(id) }
-        overlay.onPreviewPeek = { [weak self] in self?.peekHoverPreview(id) }
+        overlay.onClick = { [weak self] in self?.stripClicked(id) }
         overlay.onFrameMoved = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
         }
@@ -237,7 +218,7 @@ extension AppDelegate {
             overlay.onResize = { [weak self] window in self?.resizeShadedWindowFromProxy(id, proxyFrame: window.frame) }
         }
         overlay.configureWindowManagementButton(capability: effectiveWindowManagement)
-        overlay.onDoubleClick = { [weak self] in self?.unshade(id) }
+        overlay.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
         applyOverlayPresentation(overlay, bringForward: false)
         PaperSurfaceStyle.installShadow(on: overlay, corners: .top)
         return overlay

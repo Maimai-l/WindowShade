@@ -1,7 +1,8 @@
 .DS_Store
 .build/
 .swift-module-cache/
-.claude/
+.claude/*
+!.claude/agents/
 .jspace/
 
 # Local media / generated analysis assets
@@ -10,7 +11,6 @@
 !/assets/windowshade-settings.png
 !/assets/windowshade-settings-dark.png
 !/assets/readme-desk*.png
-!/assets/windowshade-lid*.gif
 
 # Build outputs and packaged app bundles
 prototype/windowshade

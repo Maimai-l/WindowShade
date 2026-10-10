@@ -16,9 +16,8 @@ func copyAXValue(_ element: AXUIElement, _ attr: String) -> AXValue? {
     return (v as! AXValue)
 }
 
-// AX 布尔属性可能是 CFBoolean，也可能是 toll-free 桥接的 NSNumber；都接受。
-// CFBoolean 与 NSNumber 是 toll-free 桥接，统一走 NSNumber 读 boolValue，
-// 不需要任何强转；第三方 app 返回其它类型时按 nil/false 处理。
+// 辅助功能的布尔属性可能是 CFBoolean，也可能是 NSNumber；两者是 toll-free 桥接的，
+// 统一按 NSNumber 读 boolValue，其他类型返回 nil。
 func cfBooleanValue(_ value: CFTypeRef) -> Bool? {
     (value as? NSNumber)?.boolValue
 }
@@ -70,7 +69,10 @@ func setAXMinimized(_ e: AXUIElement, _ v: Bool) {
 func setAXAppHidden(pid: pid_t, _ hidden: Bool) -> Bool {
     let app = AXUIElementCreateApplication(pid)
     let value: CFTypeRef = (hidden ? kCFBooleanTrue : kCFBooleanFalse)!
-    return AXUIElementSetAttributeValue(app, kAXHiddenAttribute as CFString, value) == .success
+    let ok = AXUIElementSetAttributeValue(app, kAXHiddenAttribute as CFString, value) == .success
+    // 每一次隐藏、取消隐藏都记下来：场景里应用程序“不知被谁隐藏”时，日志能说清是不是 WindowShade。
+    wlog("ax: app hidden=\(hidden) pid=\(pid) ok=\(ok)")
+    return ok
 }
 
 func axBoolAttribute(_ e: AXUIElement, _ attr: String) -> Bool {
@@ -97,7 +99,7 @@ func isAXAttributeSettable(_ e: AXUIElement, _ attr: String) -> Bool {
 }
 
 func allowsProxyHorizontalResize(_ win: AXUIElement, pid: pid_t) -> Bool {
-    guard windowPolicy(for: pid).allowsProxyHorizontalResize else { return false }
+    guard appProfile(for: pid).stripResizable else { return false }
     return isAXSizeSettable(win)
 }
 
@@ -136,163 +138,8 @@ func pressAXButton(_ win: AXUIElement, _ attr: String) -> Bool {
     return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
 }
 
-func pressFullScreenShortcut() {
-    let source = CGEventSource(stateID: .hidSystemState)
-    let flags: CGEventFlags = [.maskCommand, .maskControl]
-    let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_F), keyDown: true)
-    down?.flags = flags
-    let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_F), keyDown: false)
-    up?.flags = flags
-    down?.post(tap: .cghidEventTap)
-    up?.post(tap: .cghidEventTap)
-}
-
-@discardableResult
-func legacyPostMouseEvent(_ p: CGPoint, down: Bool) -> CGError? {
-    typealias CGPostMouseEventFn = @convention(c) (CGPoint, boolean_t, CGButtonCount, boolean_t) -> CGError
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGPostMouseEvent") else {
-        return nil
-    }
-    let fn = unsafeBitCast(symbol, to: CGPostMouseEventFn.self)
-    return fn(p, boolean_t(0), 1, down ? boolean_t(1) : boolean_t(0))
-}
-
 func cocoaMousePoint(fromAXPoint p: CGPoint) -> CGPoint {
     CGPoint(x: p.x, y: coordinateBaselineY() - p.y)
-}
-
-func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
-    hypot(a.x - b.x, a.y - b.y)
-}
-
-@discardableResult
-func movePointerRaw(to p: CGPoint, includeDisplayMove: Bool) -> (CGError, CGError?) {
-    CGDisplayShowCursor(CGMainDisplayID())
-    CGAssociateMouseAndMouseCursorPosition(boolean_t(0))
-    let warpErr = CGWarpMouseCursorPosition(p)
-    var displayErr: CGError?
-    if includeDisplayMove {
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(p) }),
-           let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
-            let displayID = CGDirectDisplayID(number.uint32Value)
-            let bounds = CGDisplayBounds(displayID)
-            let local = CGPoint(x: p.x - bounds.minX, y: p.y - bounds.minY)
-            displayErr = CGDisplayMoveCursorToPoint(displayID, local)
-        } else {
-            displayErr = CGDisplayMoveCursorToPoint(CGMainDisplayID(), p)
-        }
-    }
-    CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
-    return (warpErr, displayErr)
-}
-
-@discardableResult
-func movePointerVisibly(to axPoint: CGPoint, reason: String) -> CGPoint {
-    let expectedVisiblePoint = cocoaMousePoint(fromAXPoint: axPoint)
-    let before = NSEvent.mouseLocation
-    let beforeCG = CGEvent(source: nil)?.location ?? .zero
-
-    let first = movePointerRaw(to: axPoint, includeDisplayMove: true)
-    let afterAX = NSEvent.mouseLocation
-    if distance(afterAX, expectedVisiblePoint) <= 3 {
-        wlog("mouse: move reason=\(reason) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) event=(\(Int(axPoint.x)),\(Int(axPoint.y))) before=(\(Int(before.x)),\(Int(before.y))) beforeCG=(\(Int(beforeCG.x)),\(Int(beforeCG.y))) after=(\(Int(afterAX.x)),\(Int(afterAX.y))) warp=\(first.0.rawValue) display=\(first.1?.rawValue ?? -999) mode=ax")
-        return axPoint
-    }
-
-    let flipped = expectedVisiblePoint
-    let second = movePointerRaw(to: flipped, includeDisplayMove: false)
-    let afterFlipped = NSEvent.mouseLocation
-    let useFlipped = distance(afterFlipped, expectedVisiblePoint) < distance(afterAX, expectedVisiblePoint)
-    let eventPoint = useFlipped ? flipped : axPoint
-    wlog("mouse: move reason=\(reason) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) event=(\(Int(eventPoint.x)),\(Int(eventPoint.y))) expected=(\(Int(expectedVisiblePoint.x)),\(Int(expectedVisiblePoint.y))) before=(\(Int(before.x)),\(Int(before.y))) beforeCG=(\(Int(beforeCG.x)),\(Int(beforeCG.y))) afterAX=(\(Int(afterAX.x)),\(Int(afterAX.y))) afterFlip=(\(Int(afterFlipped.x)),\(Int(afterFlipped.y))) first=(warp:\(first.0.rawValue),display:\(first.1?.rawValue ?? -999)) second=(warp:\(second.0.rawValue)) mode=\(useFlipped ? "flipped" : "ax")")
-    return eventPoint
-}
-
-@discardableResult
-@MainActor func clickAXButton(_ win: AXUIElement, _ attr: String) -> Bool {
-    guard let frame = axButtonFrame(win, attr) else { return false }
-    let axPoint = CGPoint(x: frame.midX, y: frame.midY)
-    return clickAXPoint(axPoint, reason: "click-\(attr)", logLabel: "attr=\(attr)")
-}
-
-@discardableResult
-@MainActor func clickAXPoint(_ axPoint: CGPoint, reason: String, logLabel: String) -> Bool {
-    let eventPoint = movePointerVisibly(to: axPoint, reason: reason)
-    let source = CGEventSource(stateID: .hidSystemState)
-    CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-            mouseCursorPosition: eventPoint, mouseButton: .left)?.post(tap: .cghidEventTap)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.012) {
-        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
-        let legacyErr = legacyPostMouseEvent(eventPoint, down: true)
-        let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
-                           mouseCursorPosition: eventPoint, mouseButton: .left)
-        down?.setIntegerValueField(.mouseEventClickState, value: 1)
-        down?.post(tap: .cghidEventTap)
-        wlog("mouse: down legacy=\(legacyErr?.rawValue ?? -999) event=(\(Int(eventPoint.x)),\(Int(eventPoint.y))) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) visible=(\(Int(NSEvent.mouseLocation.x)),\(Int(NSEvent.mouseLocation.y)))")
-    }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.034) {
-        let legacyErr = legacyPostMouseEvent(eventPoint, down: false)
-        let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
-                         mouseCursorPosition: eventPoint, mouseButton: .left)
-        up?.setIntegerValueField(.mouseEventClickState, value: 1)
-        up?.post(tap: .cghidEventTap)
-        wlog("mouse: up legacy=\(legacyErr?.rawValue ?? -999) event=(\(Int(eventPoint.x)),\(Int(eventPoint.y))) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) visible=(\(Int(NSEvent.mouseLocation.x)),\(Int(NSEvent.mouseLocation.y)))")
-    }
-    wlog("mouse: scheduled click \(logLabel) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) event=(\(Int(eventPoint.x)),\(Int(eventPoint.y)))")
-    return true
-}
-
-@discardableResult
-@MainActor func humanClickAXPoint(_ axPoint: CGPoint, reason: String, logLabel: String,
-                       hoverDelay: TimeInterval = 0.18,
-                       pressDuration: TimeInterval = 0.09) -> Bool {
-    let eventPoint = movePointerVisibly(to: axPoint, reason: reason)
-    let source = CGEventSource(stateID: .hidSystemState)
-
-    for i in 0..<3 {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.06) {
-            CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
-            CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-                    mouseCursorPosition: eventPoint, mouseButton: .left)?.post(tap: .cghidEventTap)
-        }
-    }
-
-    DispatchQueue.main.asyncAfter(deadline: .now() + hoverDelay) {
-        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
-        let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
-                           mouseCursorPosition: eventPoint, mouseButton: .left)
-        down?.setIntegerValueField(.mouseEventClickState, value: 1)
-        down?.post(tap: .cghidEventTap)
-        wlog("mouse: human down \(logLabel) event=(\(Int(eventPoint.x)),\(Int(eventPoint.y))) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) visible=(\(Int(NSEvent.mouseLocation.x)),\(Int(NSEvent.mouseLocation.y)))")
-    }
-    DispatchQueue.main.asyncAfter(deadline: .now() + hoverDelay + pressDuration) {
-        let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
-                         mouseCursorPosition: eventPoint, mouseButton: .left)
-        up?.setIntegerValueField(.mouseEventClickState, value: 1)
-        up?.post(tap: .cghidEventTap)
-        wlog("mouse: human up \(logLabel) event=(\(Int(eventPoint.x)),\(Int(eventPoint.y))) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) visible=(\(Int(NSEvent.mouseLocation.x)),\(Int(NSEvent.mouseLocation.y)))")
-    }
-    wlog("mouse: scheduled human click \(logLabel) ax=(\(Int(axPoint.x)),\(Int(axPoint.y))) event=(\(Int(eventPoint.x)),\(Int(eventPoint.y))) hoverDelay=\(String(format: "%.2f", hoverDelay))")
-    return true
-}
-
-@discardableResult
-func hoverAXButtonForWindowManagement(_ win: AXUIElement, _ attr: String) -> Bool {
-    guard let frame = axButtonFrame(win, attr) else { return false }
-    let axPoint = CGPoint(x: frame.midX, y: frame.midY)
-    let eventPoint = movePointerVisibly(to: axPoint, reason: "hover-\(attr)")
-
-    // The system Window Management popover is hover-driven. A single synthetic
-    // move is easy to lose while the real app is activating, so keep the cursor
-    // warm over the real green button for one native hover interval.
-    for i in 0...10 {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.08) {
-            let source = CGEventSource(stateID: .hidSystemState)
-            CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-                    mouseCursorPosition: eventPoint, mouseButton: .left)?.post(tap: .cghidEventTap)
-        }
-    }
-    return true
 }
 
 func raiseAXWindow(_ win: AXUIElement) {
@@ -306,10 +153,20 @@ func focusAXWindow(_ win: AXUIElement, pid: pid_t) {
     AXUIElementSetAttributeValue(win, kAXFocusedAttribute as CFString, kCFBooleanTrue)
 }
 
-// 三个交通灯在折叠条（view 坐标，左下原点，高 barH）里的命中区
+/// 露出一块看得见的部分才算可见；停在屏幕角上只剩一像素的窗口不算（见 Core/CornerParking.swift）。
 func windowIsVisible(pos: CGPoint, size: CGSize) -> Bool {
     let winRect = cocoaFrame(fromAXPosition: pos, size: size)
-    return NSScreen.screens.contains { $0.frame.intersects(winRect) }
+    return rectIsVisible(winRect, onScreens: NSScreen.screens.map(\.frame))
+}
+
+/// 卷帘条还在可操作的范围内：某块屏幕的可用区域里露出它完整的高度和至少 120 点宽（整条不到 120 点时要求整条）。
+/// 原来的窗口就伸出屏幕边时，卷帘条跟着伸出去是对的，不用拉回来。
+func overlayIsReachable(_ frame: NSRect) -> Bool {
+    let needWidth = min(frame.width, 120)
+    return NSScreen.screens.contains { screen in
+        let overlap = screen.visibleFrame.intersection(frame)
+        return !overlap.isNull && overlap.width >= needWidth && overlap.height >= frame.height - 1
+    }
 }
 
 func cgWindowIsVisible(id: CGWindowID, fallbackSize: CGSize) -> Bool? {
@@ -371,14 +228,12 @@ func publicWindowID(of e: AXUIElement) -> CGWindowID? {
 
     let axFrame = CGRect(origin: pos, size: size)
     let title = cleanDisplayTitle(axTitle(e))
-    // Compare all Spaces, including transparent windows. A visible sibling must
-    // not win merely because the source window is hidden or off the current Space.
+    // 在所有桌面的窗口里比，透明窗口也算：原窗口被隐藏或不在当前桌面时，不能因此选中另一扇可见的窗口。
     let candidates = WindowListCache.shared.allWindows(ofPID: pid).filter { info in
         guard let bounds = cgWindowBounds(info) else { return false }
         return frameDistance(bounds, axFrame) <= 96
     }
-    // Geometry is only a compatibility fallback. Rank ordering cannot establish
-    // identity when more than one window has a plausible frame.
+    // 按几何位置匹配只是兼容做法：不止一扇窗口位置相近时，前后顺序说明不了是哪一扇。
     guard candidates.count == 1, let info = candidates.first,
           let number = info[kCGWindowNumber as String] as? NSNumber,
           number.uint32Value != 0 else { return nil }
@@ -391,12 +246,10 @@ func windowID(of e: AXUIElement) -> CGWindowID? {
     var id: CGWindowID = 0
     let error = _AXUIElementGetWindow(e, &id)
     if error == .success, id != 0 { return id }
-    // Some otherwise healthy AX windows report success with a zero ID. Keep
-    // the compatibility path for that case; publicWindowID now accepts only
-    // a unique, title-compatible WindowServer candidate, so it cannot silently
-    // replace an ambiguous window.
+    // 有些辅助功能窗口一切正常，却报告成功并给出 0。这种情况仍走兼容匹配：
+    // publicWindowID 只接受唯一一扇、标题相符的窗口，不会悄悄换成另一扇。
     if error == .success { return publicWindowID(of: e) }
-    // A failed/stale target must not be replaced by a lookalike window.
+    // 读取失败或元素已失效时，不能用外形相似的窗口代替。
     guard error != .invalidUIElement, error != .cannotComplete else { return nil }
     return publicWindowID(of: e)
 }
@@ -413,7 +266,7 @@ func axSubrole(_ e: AXUIElement) -> String? {
     return v as? String
 }
 
-// 从「点中的元素」往上找它所属的窗口
+// 从“点中的元素”往上找它所属的窗口
 func containingWindow(_ el: AXUIElement) -> AXUIElement? {
     if axRole(el) == (kAXWindowRole as String) { return el }
     var winRef: CFTypeRef?
@@ -453,11 +306,10 @@ func isChromeControlRole(_ role: String?) -> Bool {
     }
 }
 
-// 双击/三击标题栏时"不抢"的控件：只保护有真实双击语义的（地址栏/输入框选词、
-// 按钮、滑块等）。标签例外——Safari 等浏览器对标签及标签条的双击没有任何行为
-// （实测确认，2026-07），而标签条在空间语义上就是标题栏，放行给折叠。
-// 误伤防线：命中点仍需通过 titlebarContains 的标题栏带校验，
-// 对话框内容区里的真单选按钮不会走到折叠。
+// 双击、三击标题栏时，哪些控件自己要用双击：地址栏和输入框（双击选词）、按钮、滑块等，
+// 点在它们上面时不收起。标签和标签条除外：Safari 等浏览器双击标签没有反应（2026-07 实测），
+// 而标签条所在位置就是标题栏，所以照常收起。点击位置还要通过 titlebarContains 的标题栏范围检查，
+// 对话框内容区里的单选按钮不会触发收起。
 func stealsTitlebarDoubleClick(_ role: String?) -> Bool {
     switch role ?? "" {
     case "AXRadioButton", "AXTabGroup", "AXRadioGroup":
@@ -491,7 +343,7 @@ func collectTopChromeControlSamples(_ el: AXUIElement, winTop: CGFloat, winSize:
         }
     }
 
-    // 每节点最多展开前 40 个子节点：顶部 chrome 控件（交通灯、搜索框、工具栏
+    // 每节点最多展开前 40 个子节点：顶部 chrome 控件（红绿灯、搜索框、工具栏
     // 按钮）几乎总在子列表最前，越界展开只会把预算浪费在内容区深层节点上。
     for c in axChildren(el).prefix(axTraversalMaxChildrenPerNode) {
         collectTopChromeControlSamples(c, winTop: winTop, winSize: winSize,
@@ -536,8 +388,8 @@ func firstTopChromeControlCluster(of win: AXUIElement, winTop: CGFloat, winSize:
     return clusters.first
 }
 
-// 自绘/toolbar-less 窗口常把搜索框、标题、按钮藏在 AXSplitGroup/AXGroup 内部。
-// 若顶部确实有控件，保留到控件底边，并补上与顶部相同的下 margin，避免截断控件。
+// 自绘或没有工具栏的窗口，常把搜索框、标题、按钮放在 AXSplitGroup、AXGroup 里面。
+// 顶部确实有控件时，保留到控件底边，再补一段和顶部留白相当的下边距（4–28 点），不截断控件。
 func topChromeControlsHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize,
                              titleBarBottom: CGFloat?,
                              allowBelowTitleBar: Bool = false) -> CGFloat? {
@@ -577,9 +429,9 @@ func hasContentControlsBelowTitleBar(_ win: AXUIElement, winTop: CGFloat, winSiz
     return e.minTop >= titleBarBottom - 2
 }
 
-// 用原生交通灯按钮推算标题栏高度：交通灯在标题栏里垂直居中，
+// 用原生红绿灯按钮推算标题栏高度：红绿灯在标题栏里垂直居中，
 // 所以 高度 ≈ 2 ×（按钮中心到窗口顶的距离）。Electron 等自绘标题栏也适用，
-// 因为交通灯始终是 macOS 原生绘制、AX 可读。
+// 因为红绿灯始终是 macOS 原生绘制、AX 可读。
 func trafficLightHeight(of win: AXUIElement, winTop: CGFloat) -> CGFloat? {
     guard let btn = axButtonElement(win, kAXCloseButtonAttribute as String) else { return nil }
     guard let bp = axPosition(btn), let bs = axSize(btn) else { return nil }
@@ -595,8 +447,9 @@ func trafficLightPaddedHeight(of win: AXUIElement, winTop: CGFloat) -> CGFloat? 
     return bottom + min(top, 28)
 }
 
-// 折叠后要保留的 AX 下限：取「写死默认 / 交通灯推算 / 工具栏底边 / 顶部 AX 控件」最大值，
-// 宁可略多保留一点内容，也不要把标题栏切断。
+// 收起后保留的标题栏高度：固定高度、Adobe、只要标准标题栏的窗口各有各的规则；
+// 其余取默认值、红绿灯推算、工具栏底边、顶部控件四者中最大的，最多 300 点。
+// 宁可多保留一点，也不切断标题栏。
 func chromeHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize? = nil, pid: pid_t? = nil) -> CGFloat {
     let trafficH = trafficLightPaddedHeight(of: win, winTop: winTop) ??
                    trafficLightHeight(of: win, winTop: winTop)
@@ -653,16 +506,12 @@ func titlebarHitHeight(of win: AXUIElement, id: CGWindowID,
     return measuredTitlebarHitHeight(of: win, winTop: winTop, winSize: winSize, pid: pid)
 }
 
-/// 不看缓存、当场量。只有辅助功能查询，不碰只在主线程读写的 ChromeProfileCache，可以在后台线程上做
-/// （手势起点的确认就在后台量，见 TrackpadGestures.swift 的 resolveTitleBar）。
+/// 不看缓存、当场量。只有辅助功能查询，不读写 ChromeProfileCache，可以在后台线程上做。
 func measuredTitlebarHitHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize, pid: pid_t) -> CGFloat {
     let visualHeight = chromeHeight(of: win, winTop: winTop, winSize: winSize, pid: pid)
     if isAdobeApp(pid: pid) {
         let profile = adobeChromeProfile(for: win, pid: pid, size: winSize)
         return min(max(visualHeight, profile.hitChromeHeight), min(winSize.height, 300))
     }
-    guard extendsTitlebarHitToApplicationFrame(pid: pid) else { return visualHeight }
     return visualHeight
 }
-
-// MARK: - 诊断日志（写到 ~/Library/Logs/WindowShade/windowshade.log，只有本人可读，不写窗口标题）

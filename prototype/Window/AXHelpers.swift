@@ -1,5 +1,5 @@
-// AX 辅助：交通灯、QuickLook 重开、系统标题栏双击设置、窗口管理能力、
-// 外部唤回回调与调试转储。
+// 辅助功能相关的函数：红绿灯、快速查看窗口重新打开、系统的标题栏双击设置、窗口管理能力、
+// 外部唤回回调和调试输出。
 
 import Cocoa
 import Carbon.HIToolbox
@@ -42,8 +42,7 @@ func proxyTrafficLightConfiguration(of win: AXUIElement, pid: pid_t) -> ProxyTra
     let minimizeExists = axButtonFrame(win, kAXMinimizeButtonAttribute as String) != nil
     let zoomExists = axButtonFrame(win, kAXZoomButtonAttribute as String) != nil
 
-    // AX can occasionally hide all three buttons for transient system panels.
-    // In that case, keep the normal AppKit trio instead of creating a buttonless proxy.
+    // 临时出现的系统面板偶尔三个按钮都读不到：这时仍用 AppKit 的三个标准按钮，不做没有按钮的简化标题栏。
     guard closeExists || minimizeExists || zoomExists else { return .standard }
 
     var configuration = ProxyTrafficLightConfiguration(
@@ -54,7 +53,7 @@ func proxyTrafficLightConfiguration(of win: AXUIElement, pid: pid_t) -> ProxyTra
         minimizeEnabled: isAXButtonEnabled(win, kAXMinimizeButtonAttribute as String),
         zoomEnabled: isAXButtonEnabled(win, kAXZoomButtonAttribute as String)
     )
-    if windowPolicy(for: pid).kind == .finder,
+    if appProfile(for: pid).id == .finder,
        configuration.visibleActions.count == 2,
        firstToolbar(win) == nil {
         configuration.style = .quickLook
@@ -95,7 +94,58 @@ func quickLookReopenURL(for win: AXUIElement) -> URL? {
             return url
         }
     }
+    // 访达的面板不给上面三项，只把文件名写在子元素里；到访达窗口里找名字相同的选中项（Window/QuickLookSource.swift）。
+    var pid: pid_t = 0
+    guard AXUIElementGetPid(win, &pid) == .success, let name = quickLookPreviewName(win) else {
+        wlog("quicklook: panel shows no file name")
+        return nil
+    }
+    var selected: [SelectedFinderItem] = []
+    var budget = 1500
+    for window in appWindows(pid: pid) where !CFEqual(window, win) {
+        collectSelectedItems(window, depth: 0, budget: &budget, into: &selected)
+        if selected.contains(where: { $0.name == name }) || budget <= 0 { break }
+    }
+    guard let url = quickLookSourceURL(previewName: name, selected: selected) else {
+        wlog("quicklook: no selected item matches the panel selected=\(selected.count) budgetLeft=\(budget)")
+        return nil
+    }
+    wlog("quicklook: reopen url from the selected item in the app's windows")
+    return url
+}
+
+/// 面板写出的文件名：前两层子元素里第一段文字。
+private func quickLookPreviewName(_ win: AXUIElement) -> String? {
+    for child in axChildren(win).prefix(axTraversalMaxChildrenPerNode) {
+        if axRole(child) == (kAXStaticTextRole as String), let value = axStringValue(child), !value.isEmpty { return value }
+        for grandchild in axChildren(child).prefix(axTraversalMaxChildrenPerNode)
+        where axRole(grandchild) == (kAXStaticTextRole as String) {
+            if let value = axStringValue(grandchild), !value.isEmpty { return value }
+        }
+    }
     return nil
+}
+
+private func axStringValue(_ element: AXUIElement) -> String? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success else { return nil }
+    return value as? String
+}
+
+/// 窗口里被选中、带文件网址的条目（访达的图标、列表项）。最多看 budget 个元素、10 层。
+private func collectSelectedItems(_ element: AXUIElement, depth: Int, budget: inout Int,
+                                  into items: inout [SelectedFinderItem]) {
+    guard budget > 0, depth <= 10 else { return }
+    budget -= 1
+    if axBoolAttribute(element, kAXSelectedAttribute as String), let url = urlFromAXAttribute(element, "AXURL") {
+        var name: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, "AXFilename" as CFString, &name)
+        items.append(SelectedFinderItem(name: (name as? String) ?? url.lastPathComponent, url: url))
+        return
+    }
+    for child in axChildren(element).prefix(axTraversalMaxChildrenPerNode) {
+        collectSelectedItems(child, depth: depth + 1, budget: &budget, into: &items)
+    }
 }
 
 @discardableResult
@@ -111,39 +161,6 @@ func reopenQuickLookPreview(url: URL) -> Bool {
     } catch {
         return false
     }
-}
-
-func postSpacebarKey() {
-    let source = CGEventSource(stateID: .hidSystemState)
-    let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Space), keyDown: true)
-    let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Space), keyDown: false)
-    down?.post(tap: .cghidEventTap)
-    up?.post(tap: .cghidEventTap)
-}
-
-@discardableResult
-func reopenQuickLookFromFinderSelection(pid: pid_t) -> Bool {
-    let finder = runningApp(pid: pid)
-        ?? NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" })
-    guard let finder else {
-        return false
-    }
-    let finderPID = finder.processIdentifier
-    finder.unhide()
-    finder.activate(options: [])
-    if let visibleWindow = appWindows(pid: finderPID).first(where: { win in
-        guard !axBoolAttribute(win, kAXMinimizedAttribute as String) else { return false }
-        guard let size = axSize(win), size.width > 40, size.height > 40 else { return false }
-        guard let pos = axPosition(win) else { return true }
-        return windowIsVisible(pos: pos, size: size)
-    }) {
-        raiseAXWindow(visibleWindow)
-        focusAXWindow(visibleWindow, pid: finderPID)
-    }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-        postSpacebarKey()
-    }
-    return true
 }
 
 enum SystemTitlebarDoubleClickAction: Equatable {
@@ -190,16 +207,16 @@ func realWindowManagementCapability(_ win: AXUIElement) -> WindowManagementCapab
     return .none
 }
 
-// Refcon is a never-reused registration number, not a window ID or heap pointer.
+// refcon 是一个不复用的登记号，不是窗口号，也不是指针。
 let axWindowCallback: AXObserverCallback = { _, _, notification, refcon in
     guard let refcon, Thread.isMainThread else { return }
     let routeID = UInt(bitPattern: refcon)
     let note = notification as String
-    // The only installation site attaches this source to CFRunLoopGetMain.
+    // 唯一注册这个回调的地方把它挂在主线程的 RunLoop 上。
     MainActor.assumeIsolated { appDelegate?.receiveFoldAXNotification(routeID: routeID, notification: note) }
 }
 
-// 取窗口某个标准按钮（关闭/最小化/缩放）的屏幕坐标 frame
+// 原窗口三个标准按钮（关闭、最小化、缩放）在卷帘条里的位置：以窗口左上角为准换算，左下原点，高 barH。
 func trafficLightRects(_ win: AXUIElement, winTopLeft pos: CGPoint, barH: CGFloat) -> [(CGRect, TrafficAction)] {
     let specs: [(String, TrafficAction)] = [
         (kAXCloseButtonAttribute as String, .close),

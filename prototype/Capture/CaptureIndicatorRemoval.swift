@@ -1,14 +1,11 @@
 // 抹掉画面里的系统录屏指示器。
 //
 // macOS 26 在“正被流式捕获的窗口”的红绿灯处画一个蓝紫色胶囊（带录屏图标）。单张截图
-// 本身不会触发它，但只要这扇窗上还开着一条捕获流（收起动画、置顶预览、窗口浏览实时预览），
-// 流里的每一帧、以及同时截的单张图里都有它；在帧里它取代了红绿灯，灯根本不在画面上。
+// 本身不会触发它，但只要这扇窗上还开着一条捕获流（看一眼的实时画面），
+// 流里的每一帧、以及同时截的单张图里都有它；在帧里它盖住了红绿灯，画面上看不到红绿灯。
 //
-// 两种修法：
-// - 抹平：用胶囊两侧的标题栏像素逐行填回去。原貌卷帘条上面叠着真实的 AppKit 按钮，
-//   抹平就够了；收起动画那几百毫秒、窗口浏览的小预览也只抹平。
-// - 底片：置顶预览开流之前先截一张（此时还没有胶囊），之后每帧把底片上同一位置那一块
-//   贴回去，红绿灯原样回来。
+// 处理办法是抹平：用胶囊两侧的标题栏像素逐行填回去。显示原标题栏的卷帘条上面叠着真实的 AppKit 按钮，
+// 看一眼的卡片又从标题栏以下开始，抹平就够了。
 //
 // 只在确实检测到胶囊时才动：位置在左上角红绿灯区域、颜色是指示器的蓝紫色、形状像
 // 一颗胶囊（尺寸与红绿灯组相称、没有铺满整个检测区域）。其余画面一个像素都不改。
@@ -21,7 +18,7 @@ import Foundation
 import ScreenCaptureKit
 
 enum CaptureIndicatorRemoval {
-    /// 检测区域：内容左上角 170 × 64 pt，覆盖各种标题栏高度下的红绿灯组。
+    /// 检测区域：内容左上角 170 × 64 点，覆盖各种标题栏高度下的红绿灯组。
     static let searchSize = CGSize(width: 170, height: 64)
 
     struct Detection: Equatable {
@@ -51,10 +48,9 @@ enum CaptureIndicatorRemoval {
     // MARK: 捕获流的一帧（原地修改）
 
     /// 在一帧 32BGRA 缓冲上原地修补。`content` 是窗口内容在缓冲里的像素矩形（SCK 可能
-    /// 在四周留白），`scale` 是每 pt 的像素数。有底片时贴底片，否则抹平。返回是否改动。
+    /// 在四周留白），`scale` 是每点的像素数。返回是否改动。
     @discardableResult
-    static func clean(_ buffer: CVPixelBuffer, content: CGRect, scale: CGFloat,
-                      plate: CleanPlate? = nil) -> Bool {
+    static func clean(_ buffer: CVPixelBuffer, content: CGRect, scale: CGFloat) -> Bool {
         guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
               CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess else { return false }
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
@@ -65,16 +61,13 @@ enum CaptureIndicatorRemoval {
                              bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), order: .bgra)
         let origin = CGPoint(x: max(0, content.minX.rounded()), y: max(0, content.minY.rounded()))
         guard let found = detect(in: view, origin: origin, scale: scale) else { return false }
-        if let plate, plate.paste(into: view, rect: found.bounds, contentOrigin: origin, scale: scale) {
-            return true
-        }
         fill(view, rect: found.bounds)
         return true
     }
 
     /// 直接处理 ScreenCaptureKit 的一帧：从帧信息里取内容区域与缩放比例。
     @discardableResult
-    static func clean(_ sample: CMSampleBuffer, plate: CleanPlate? = nil) -> Bool {
+    static func clean(_ sample: CMSampleBuffer) -> Bool {
         guard let buffer = sample.imageBuffer,
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false)
                 as? [[SCStreamFrameInfo: Any]],
@@ -87,13 +80,13 @@ enum CaptureIndicatorRemoval {
             content = CGRect(x: rect.minX * scale, y: rect.minY * scale,
                              width: rect.width * scale, height: rect.height * scale)
         }
-        return clean(buffer, content: content, scale: scale, plate: plate)
+        return clean(buffer, content: content, scale: scale)
     }
 
     // MARK: 检测与抹平
 
     static func detect(in view: PixelView, origin: CGPoint, scale: CGFloat) -> Detection? {
-        // 缩略图每 pt 可能不到 1 个像素；按实际比例换算尺寸，只挡住离谱的值。
+        // 缩小过的截图每点可能不到 1 个像素；按实际比例换算尺寸，只挡住离谱的值。
         let scale = max(0.25, scale)
         let x0 = Int(origin.x), y0 = Int(origin.y)
         let width = min(view.width - x0, Int(searchSize.width * scale))
@@ -111,7 +104,7 @@ enum CaptureIndicatorRemoval {
         guard count > 0 else { return nil }
         let box = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
         let points = CGSize(width: box.width / scale, height: box.height / scale)
-        // 形状：胶囊宽约 60–120 pt、高约 16–34 pt；左缘贴近窗口左边；
+        // 形状：胶囊宽 36–140 点、高 12–36 点，左缘离窗口左边不超过 24 点；
         // 不能碰到检测区域的右/下边（那说明是整片紫色的工具栏）。
         guard (36...140).contains(points.width),
               (12...36).contains(points.height),
@@ -120,7 +113,7 @@ enum CaptureIndicatorRemoval {
         // 胶囊里有图标（卷帘条样本里还有灯），紫色不会铺满外接矩形，但也不会只是零星几点。
         let fill = Double(count) / Double(box.width * box.height)
         guard fill >= 0.25 else { return nil }
-        // 胶囊外圈有一层淡淡的光晕（饱和度低，不算“紫色”），多扩 3 pt 一并盖住。
+        // 胶囊外圈有一层淡淡的光晕（饱和度低，不算“紫色”），多扩 3 点一并盖住。
         let pad = ceil(3 * scale)
         let padded = box.offsetBy(dx: CGFloat(x0), dy: CGFloat(y0)).insetBy(dx: -pad, dy: -pad)
             .intersection(CGRect(x: 0, y: 0, width: view.width, height: view.height))
@@ -146,50 +139,6 @@ enum CaptureIndicatorRemoval {
             let window = rows[max(0, offset - 2)...min(rows.count - 1, offset + 2)].compactMap { $0 }
             guard let fill = Pixel.average(window) else { continue }
             for x in minX...maxX { view.set(x: x, y: y, fill) }
-        }
-    }
-}
-
-/// 置顶预览开流前截的一张干净画面（还没有胶囊）。只保留左上角红绿灯那一块。
-final class CleanPlate: @unchecked Sendable {
-    private var pixels: RGBAPixels
-    /// 底片每 pt 的像素数。
-    let scale: CGFloat
-
-    init?(image: CGImage, scale: CGFloat) {
-        let size = CaptureIndicatorRemoval.searchSize
-        let rect = CGRect(x: 0, y: 0, width: min(CGFloat(image.width), size.width * scale),
-                          height: min(CGFloat(image.height), size.height * scale))
-        guard let crop = image.cropping(to: rect.integral), var pixels = RGBAPixels(crop),
-              pixels.withView({ CaptureIndicatorRemoval.detect(in: $0, origin: .zero, scale: scale) }) == nil
-        else { return nil }
-        self.pixels = pixels
-        self.scale = scale
-    }
-
-    /// 把底片上与 `rect`（帧像素）对应的那一块贴进帧里。比例不同时按最近邻换算。
-    /// 底片覆盖不到这块时返回 false，调用方退回抹平。
-    func paste(into view: PixelView, rect: CGRect, contentOrigin: CGPoint, scale: CGFloat) -> Bool {
-        let ratio = self.scale / max(1, scale)
-        let minX = max(0, Int(rect.minX)), maxX = min(view.width - 1, Int(rect.maxX) - 1)
-        let minY = max(0, Int(rect.minY)), maxY = min(view.height - 1, Int(rect.maxY) - 1)
-        guard minX <= maxX, minY <= maxY else { return false }
-        let plateMaxX = Int((CGFloat(maxX) - contentOrigin.x) * ratio)
-        let plateMaxY = Int((CGFloat(maxY) - contentOrigin.y) * ratio)
-        guard plateMaxX < pixels.width, plateMaxY < pixels.height else { return false }
-        return pixels.withView { plate in
-            for y in minY...maxY {
-                let py = Int((CGFloat(y) - contentOrigin.y) * ratio)
-                guard py >= 0 else { continue }
-                for x in minX...maxX {
-                    let px = Int((CGFloat(x) - contentOrigin.x) * ratio)
-                    guard px >= 0 else { continue }
-                    let p = plate.pixel(x: px, y: py)
-                    // 底片圆角处透明：保留帧里原来的像素。
-                    if p.a == 255 { view.set(x: x, y: y, p) }
-                }
-            }
-            return true
         }
     }
 }

@@ -1,31 +1,9 @@
-// 悬停预览：标题栏单击 peek 与菜单悬停预览的统一展示/隐藏机制，
-// 懒截图请求与预览定位。作为 AppDelegate 扩展实现。
+// 菜单悬停预览：展示/隐藏、懒截图请求与预览定位；单击卷帘条转给看一眼。
+// 作为 AppDelegate 扩展实现。
 
 import Cocoa
 
 extension AppDelegate {
-
-    func safariStylePreviewFrame(id: CGWindowID, overlayFrame: NSRect, imageSize: NSSize) -> NSRect {
-        let rawVisible = visibleFrame(for: overlayFrame)
-        var visible = rawVisible.insetBy(dx: 8, dy: 8)
-        if visible.width <= 80 || visible.height <= 60 {
-            visible = rawVisible
-        }
-
-        let size = safariStylePreviewSize(anchorWidth: overlayFrame.width,
-                                          imageSize: imageSize,
-                                          visibleWidth: visible.width)
-        let gap: CGFloat = 8
-        let spaceBelow = overlayFrame.minY - visible.minY - gap
-        let spaceAbove = visible.maxY - overlayFrame.maxY - gap
-
-        var origin = NSPoint(x: overlayFrame.midX - size.width / 2,
-                             y: overlayFrame.minY - size.height - gap)
-        if spaceBelow < size.height && spaceAbove > spaceBelow {
-            origin.y = overlayFrame.maxY + gap
-        }
-        return clampedFrame(NSRect(origin: origin, size: size), margin: 8)
-    }
 
     func safariStylePreviewSize(anchorWidth: CGFloat, imageSize: NSSize,
                                         visibleWidth: CGFloat) -> NSSize {
@@ -91,8 +69,6 @@ extension AppDelegate {
         guard let anchor else { return }
         if shaded[id] != nil {
             showShadedMenuHoverPreview(id, anchor: anchor)
-        } else if pinnedPreviewController.isPreviewing(id: id) {
-            showPinnedMenuHoverPreview(id, anchor: anchor)
         }
     }
 
@@ -114,37 +90,18 @@ extension AppDelegate {
                                                  image: image,
                                                  windowTitle: hoverPreviewTitle(ownerID: id))
         presentPreview(ownerID: id, frame: frame, contentView: previewView,
-                       trigger: .menuHover, isPinnedLive: false)
+                       trigger: .menuHover)
     }
 
-    /// 悬停缩略图要展示的窗口名：折叠会话优先，其次置顶会话。
+    /// 菜单悬停预览要显示的窗口名。
     func hoverPreviewTitle(ownerID: CGWindowID) -> String {
-        if let state = shaded[ownerID] {
-            return descriptiveDisplayTitle(appName: state.appName, windowTitle: state.title)
-        }
-        if let snapshot = pinnedPreviewController.sessionSnapshots()
-            .first(where: { $0.windowID == ownerID }) {
-            return descriptiveDisplayTitle(appName: snapshot.appName, windowTitle: snapshot.title)
-        }
-        return ""
+        guard let state = shaded[ownerID] else { return "" }
+        return descriptiveDisplayTitle(appName: state.appName, windowTitle: state.title)
     }
 
-    func showPinnedMenuHoverPreview(_ id: CGWindowID, anchor: NSRect) {
-        guard !pinnedPreviewController.isSuspended(id: id),
-              let sourceSize = pinnedPreviewController.thumbnailSourceSize(id: id),
-              sourceSize.width > 1, sourceSize.height > 1 else { return }
-        let frame = menuHoverPreviewFrame(anchor: anchor, imageSize: sourceSize)
-        guard let previewView = pinnedPreviewController.makeThumbnailPreviewView(
-            frame: NSRect(origin: .zero, size: frame.size), id: id) else { return }
-        presentPreview(ownerID: id, frame: frame, contentView: previewView,
-                       trigger: .menuHover, isPinnedLive: true)
-    }
-
-    // 唯一的预览显示入口：菜单悬停和标题栏 peek 都经过这里建窗/挂载内容，同时保证
-    // 系统中只有一个预览视窗存在——显示新的一定先关掉旧的（无论是哪种触发路径
-    // 留下的），不需要每个调用端各自记得「要不要顺手关掉另一边」。
+    // 唯一显示预览的入口：建窗口、放入内容，并保证同一时间只有一个预览窗口：显示新的之前一定先关掉旧的。
     func presentPreview(ownerID: CGWindowID, frame: NSRect, contentView: NSView,
-                                trigger: PreviewTrigger, isPinnedLive: Bool, alpha: CGFloat = 1) {
+                                trigger: PreviewTrigger, alpha: CGFloat = 1) {
         hidePreview(reason: "replaced")
         let window = PreviewWindow(contentRect: frame, styleMask: .borderless,
                                    backing: .buffered, defer: false)
@@ -156,7 +113,7 @@ extension AppDelegate {
         window.hasShadow = true
         window.contentView = contentView
         window.alphaValue = alpha
-        activePreview = ActivePreview(ownerID: ownerID, window: window, trigger: trigger, isPinnedLive: isPinnedLive)
+        activePreview = ActivePreview(ownerID: ownerID, window: window, trigger: trigger)
         window.orderFrontRegardless()
     }
 
@@ -166,11 +123,6 @@ extension AppDelegate {
         guard let active = activePreview else { return }
         if let ownerID, active.ownerID != ownerID { return }
         if let trigger, active.trigger != trigger { return }
-        // 若当前预览是已置顶窗口的实时镜像，断开镜像层，停止向其投喂采样帧。
-        // 对静态图预览是安全的空操作。
-        if active.isPinnedLive {
-            pinnedPreviewController.detachThumbnail(id: active.ownerID)
-        }
         active.window.orderOut(nil)
         activePreview = nil
     }
@@ -208,26 +160,6 @@ extension AppDelegate {
         hidePreview(ownerID: id, trigger: .menuHover, reason: "menu-hide")
     }
 
-    func updateHoverPreviewFrame(_ id: CGWindowID) {
-        guard let active = activePreview, active.trigger == .titlebarPeek, active.ownerID == id,
-              let state = shaded[id],
-              let overlay = state.overlay else { return }
-        let imageSize = (active.window.contentView as? SafariStylePreviewView)?.imageView.image?.size
-            ?? state.previewImage?.size ?? active.window.frame.size
-        let frame = safariStylePreviewFrame(id: id, overlayFrame: overlay.frame, imageSize: imageSize)
-        if abs(active.window.frame.minX - frame.minX) > 0.5 ||
-           abs(active.window.frame.minY - frame.minY) > 0.5 ||
-           abs(active.window.frame.width - frame.width) > 0.5 ||
-           abs(active.window.frame.height - frame.height) > 0.5 {
-            active.window.setFrame(frame, display: true)
-        }
-    }
-
-    func mouseIsInsideOverlay(_ id: CGWindowID, padding: CGFloat = 2) -> Bool {
-        guard let overlay = shaded[id]?.overlay else { return false }
-        return overlay.frame.insetBy(dx: -padding, dy: -padding).contains(NSEvent.mouseLocation)
-    }
-
     func hoverPreviewIsSuppressed(_ id: CGWindowID) -> Bool {
         guard let until = hoverPreviewSuppressedUntil[id] else { return false }
         if until > Date() { return true }
@@ -235,103 +167,9 @@ extension AppDelegate {
         return false
     }
 
-    func peekHoverPreview(_ id: CGWindowID) {
-        // 看一眼打开时，单击卷帘条就是马上看一眼（原位、原尺寸），不再弹小卡片。
-        if GlanceController.isEnabled {
-            MainActor.assumeIsolated { glance.stripClicked(id) }
-            return
-        }
-        guard !hoverPreviewIsSuppressed(id) else { return }
-        if let state = shaded[id],
-           cleanupProxyIfSourceWindowVisible(id: id, state: state, reason: "peek-preview") {
-            return
-        }
-        if let active = activePreview, active.trigger == .titlebarPeek, active.ownerID == id,
-           active.window.isVisible {
-            hideHoverPreview(id: id)
-            return
-        }
-        peekHoverID = id
-        if let active = activePreview, active.trigger == .titlebarPeek, active.ownerID != id {
-            hideHoverPreview(preserveHover: true)
-        }
-        if shaded[id]?.previewImage != nil {
-            showHoverPreview(id, requireMouseInside: false)
-            return
-        }
-        // 专注 shelf 成员折叠当下不截图（保持批量折叠/reflow 快），但这里是用户
-        // 主动点击、不在热路径上：懒截图一次，与菜单悬停本来就允许的行为对齐。
-        requestCachedPreview(id, reason: "click") { [weak self] in
-            guard let self,
-                  self.peekHoverID == id else { return }
-            self.showHoverPreview(id, requireMouseInside: false)
-        }
-    }
-
-    func hideHoverPreview(id: CGWindowID? = nil, preserveHover: Bool = false) {
-        if let id {
-            if !preserveHover, peekHoverID == id {
-                peekHoverID = nil
-            }
-            guard activePreview?.trigger == .titlebarPeek, activePreview?.ownerID == id else { return }
-        } else if !preserveHover {
-            peekHoverID = nil
-        }
-        hidePreview(trigger: .titlebarPeek, reason: "peek-hide")
-    }
-
-    func clickPreviewImage(for state: ShadeState, overlay: NSWindow) -> NSImage? {
-        guard let image = state.previewImage,
-              image.size.width > 1,
-              image.size.height > 1 else { return nil }
-        let overlayFrame = overlay.frame
-        guard state.appearanceMode == .nativeScreenshot,
-              let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-              state.originalSize.width > 1,
-              state.originalSize.height > overlayFrame.height + 1 else {
-            return image
-        }
-
-        let scale = CGFloat(cg.width) / max(1, state.originalSize.width)
-        let cropTop = min(cg.height - 1, max(1, Int(ceil(overlayFrame.height * scale))))
-        let cropRect = CGRect(x: 0, y: cropTop,
-                              width: cg.width,
-                              height: max(1, cg.height - cropTop))
-        guard let content = cg.cropping(to: cropRect) else { return image }
-        let contentSize = NSSize(width: image.size.width,
-                                 height: max(1, image.size.height - overlayFrame.height))
-        let titlebarRadius = (overlay.contentView as? TitleStripView)?.image
-            .flatMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) }
-            .flatMap { estimatedCornerRadiusPixels(from: $0) }
-        let fallbackRadius = max(10, min(32, overlayFrame.height * 0.48)) * scale
-        let radius = titlebarRadius ?? fallbackRadius
-        let rounded = roundedClippedImage(content, cornerRadius: radius,
-                                          whitePreviewGradient: true) ?? content
-        return NSImage(cgImage: rounded, size: contentSize)
-    }
-
-    func showHoverPreview(_ id: CGWindowID, requireMouseInside: Bool = true) {
-        guard peekHoverID == id,
-              !requireMouseInside || mouseIsInsideOverlay(id) else { return }
-        guard let state = shaded[id],
-              let overlay = state.overlay,
-              let image = clickPreviewImage(for: state, overlay: overlay),
-              image.size.width > 1,
-              image.size.height > 1 else { return }
-        if cleanupProxyIfSourceWindowVisible(id: id, state: state, reason: "show-preview") {
-            return
-        }
-
-        let overlayFrame = overlay.frame
-        let frame = safariStylePreviewFrame(id: id, overlayFrame: overlayFrame, imageSize: image.size)
-        let previewView = SafariStylePreviewView(frame: NSRect(origin: .zero, size: frame.size),
-                                                 image: image,
-                                                 windowTitle: hoverPreviewTitle(ownerID: id))
-        // 不再跟随「半透明卷帘条」设置——peek 靠白纱+圆角本身就足够区分于真实窗口，
-        // 不需要借用户的透明度偏好，也让它跟菜单悬停预览视觉上一致。
-        presentPreview(ownerID: id, frame: frame, contentView: previewView,
-                       trigger: .titlebarPeek, isPinnedLive: false)
-        peekHoverID = id
-        wlog("preview: show id=\(id) style=safari-card size=(\(Int(frame.width))x\(Int(frame.height)))")
+    /// 单击卷帘条：设置里打开了看一眼时，立即在原处按原尺寸显示看一眼的卡片；没打开时什么都不做。
+    func stripClicked(_ id: CGWindowID) {
+        guard GlanceController.isEnabled else { return }
+        MainActor.assumeIsolated { glance.stripClicked(id) }
     }
 }

@@ -1,2 +1,0 @@
-PASS STAGED_NEW_DIRECTORY /mnt/data/ws2-stage-part2-final
-No input repository, user home, device, or running App was modified

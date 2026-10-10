@@ -1,6 +1,6 @@
-// 渲染与图像分析辅助（纯计算）：标题行绘制、布局度量、
-// 标题栏 chrome 像素扫描、圆角镜像、截图降采样、卷帘条制备等。
-// 全部为纯函数/纯类型，可在任意线程执行，不依赖 AppDelegate 状态。
+// 截图分析与绘制的辅助函数：标题行绘制、布局度量、标题栏像素扫描、圆角镜像、降采样、卷帘条制备。
+// 除 drawAlignedTitleLine（画在 NSGraphicsContext.current 上）和 quickWindowPreviewImage（生成 NSImage）外，
+// 都可在任意线程调用，不依赖 AppDelegate 状态。
 
 import Cocoa
 import CoreText
@@ -89,11 +89,11 @@ struct ProxyTitleLayoutMetrics {
     }
 }
 
-// Elpass / WeChat 这类窗口的 AX 树不给稳定 toolbar：
-// - Elpass 会把内容区控件混进顶部扫描，AX 高度偏大；
-// - WeChat 只暴露交通灯，AX 高度偏小。
-// 这条只在白名单 app 上使用：从截图上找搜索框/顶部控件的浅色填充行，
-// 用控件上 padding 推出对称下 padding，得到“刚好包住顶部控件”的裁切高度。
+// 微信、Elpass 这类窗口的辅助功能树里没有可靠的工具栏：Elpass 会把内容区的控件算进顶部，
+// 量出的高度偏大；微信只给出红绿灯，量出的高度偏小。
+// 做法：在截图里找搜索框等顶部控件的浅色行，用控件上方的留白推出下方留白，得到刚好包住顶部控件的裁切高度。
+// 现在走不到：prepareNativeStrip 只在 fixedNonstandardChromeHeight 为 nil 且 preciseChrome 为真时调用它，
+// 而 preciseChrome 的定义就是 fixedNonstandardChromeHeight 不为 nil，两个调用条件互斥。
 func preciseVisualChromeHeight(of image: CGImage, scale: CGFloat, minimum: CGFloat) -> CGFloat? {
     let w = image.width, h = image.height
     guard w > 20, h > 20, scale > 0 else { return nil }
@@ -178,7 +178,7 @@ func preciseVisualChromeHeight(of image: CGImage, scale: CGFloat, minimum: CGFlo
     return candidate
 }
 
-// 把截图底部两角裁成和顶部两角完全一样的形状：每个像素的 alpha 与其「垂直镜像」位置取 min。
+// 把截图底部两角裁成和顶部两角完全一样的形状：每个像素的 alpha 与其“垂直镜像”位置取 min。
 // 顶部本就有原生圆角的透明缺口，镜像到底部就得到对称、同半径同曲线的底部圆角——不靠猜半径。
 func mirrorRoundCorners(_ image: CGImage) -> CGImage? {
     let w = image.width, h = image.height
@@ -280,10 +280,10 @@ func nativeTitleStripLooksBroken(_ image: CGImage, logicalHeight: CGFloat) -> (B
         return count > 0 ? CGFloat(material) / CGFloat(count) : 0
     }
 
-    // 只统计 alpha 覆盖率，不管颜色。用来区分两种"两侧空"：
-    // 真悬浮岛（Codex 式分离标题药丸）两侧是 alpha≈0 的透明缺口；
-    // Liquid Glass 全宽工具栏（Safari 非激活态）两侧是近白色半透明"材质"——
-    // 后者是正常 chrome，不得降级成代理标题栏。
+    // 只统计 alpha 覆盖率，不看颜色，用来区分两种“两侧空”：
+    // 真正浮在中间的标题（Codex 那种两侧断开的圆角标题块）两侧是 alpha≈0 的透明缺口；
+    // Liquid Glass 的全宽工具栏（Safari 不在前台时）两侧是接近白色的半透明材质——
+    // 后者是正常的标题栏，不能退回简化标题栏。
     func alphaCoverage(xRange: Range<Int>, yRange: Range<Int>) -> CGFloat {
         var covered = 0
         var count = 0
@@ -381,41 +381,6 @@ func estimatedCornerRadiusPixels(from image: CGImage) -> CGFloat? {
     return min(max(radius, 6), CGFloat(min(w, h)) / 2)
 }
 
-func roundedClippedImage(_ image: CGImage, cornerRadius: CGFloat,
-                         whitePreviewGradient: Bool = false) -> CGImage? {
-    let w = image.width, h = image.height
-    guard w > 0, h > 0 else { return nil }
-    let bpr = w * 4
-    var buf = [UInt8](repeating: 0, count: bpr * h)
-    guard let ctx = CGContext(data: &buf, width: w, height: h, bitsPerComponent: 8,
-                              bytesPerRow: bpr, space: CGColorSpaceCreateDeviceRGB(),
-                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-    ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
-    let rect = CGRect(x: 0, y: 0, width: w, height: h)
-    // 窗口原貌的圆角同样是连续曲率，不用正圆近似。
-    let path = SystemCornerPath.cgPath(in: rect, radius: cornerRadius)
-    ctx.addPath(path)
-    ctx.clip()
-    ctx.draw(image, in: rect)
-    if whitePreviewGradient {
-        let colors = [
-            NSColor.white.withAlphaComponent(0.56).cgColor,
-            NSColor.white.withAlphaComponent(0.20).cgColor,
-            NSColor.white.withAlphaComponent(0.00).cgColor,
-        ] as CFArray
-        let locations: [CGFloat] = [0.0, 0.32, 1.0]
-        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                     colors: colors,
-                                     locations: locations) {
-            ctx.drawLinearGradient(gradient,
-                                   start: CGPoint(x: 0, y: h),
-                                   end: CGPoint(x: 0, y: 0),
-                                   options: [])
-        }
-    }
-    return ctx.makeImage()
-}
-
 func downsampleCGImage(_ image: CGImage, maxPixelSize: CGSize) -> CGImage? {
     let maxWidth = max(1, maxPixelSize.width)
     let maxHeight = max(1, maxPixelSize.height)
@@ -445,7 +410,7 @@ func quickWindowPreviewImage(id: CGWindowID, logicalSize: CGSize,
         .map { NSImage(cgImage: $0, size: logicalSize) }
 }
 
-/// 快速预览所依赖的旧接口只报一次可用性，便于未来系统移除时定位。
+/// 截图用的旧接口不可用时只记一次日志，以后系统移除它时便于定位。
 enum LegacyQuickCapture {
     private static let lock = NSLock()
     /// 只在持有 `lock` 时读写。
@@ -472,9 +437,9 @@ func quickWindowPreviewCGImage(id: CGWindowID,
         static let createImage: CreateImage? = {
             guard let handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY),
                   let symbol = dlsym(handle, "CGWindowListCreateImage") else {
-                // Apple 已把 CGWindowListCreateImage 标记为废弃（改用 ScreenCaptureKit）。
-                // 当前系统上它仍可用；一旦未来系统移除该符号，这里记录一次，
-                // 折叠条会退回代理标题栏、悬停预览退回“无预览”，不会静默损坏。
+                // Apple 已把 CGWindowListCreateImage 标为废弃（改用 ScreenCaptureKit），当前系统上仍然可用。
+                // 将来系统移除这个符号时，这里记一次日志：卷帘条改用简化标题栏，菜单悬停预览不显示画面，
+                // 不会悄悄出错。
                 LegacyQuickCapture.reportUnavailableOnce()
                 return nil
             }
@@ -500,9 +465,8 @@ struct NativeStripPreparation {
     let standardBarH: CGFloat
 }
 
-// 纯 CPU 计算，可在任意线程执行：决定标题栏裁切高度（visual/precise chrome
-// 像素扫描）、裁切、原生条健康检查、底部圆角镜像。不触碰 AppKit/AX 状态，
-// 因此可以安全地在 pixelAnalysisQueue 上跑。
+// 纯计算，可在 pixelAnalysisQueue 上执行：定标题栏裁切高度（像素扫描）、裁切、检查原标题栏的卷帘条是否完整、
+// 镜像底部圆角。只读应用程序配置（经加锁的 WindowRegistry 和线程安全的 NSRunningApplication），不读辅助功能。
 func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
                         profile: WindowChromeProfile, pid: pid_t) -> NativeStripPreparation {
     let scale = CGFloat(full.width) / max(1, logicalSize.width)

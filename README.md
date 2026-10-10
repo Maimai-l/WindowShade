@@ -25,26 +25,6 @@ A free, open-source window utility for Mac.
 
 </div>
 
-## Live activities in development
-
-The notch and the Launchpad Today page share up to three live activities: Music/Spotify, AirPods, shares and routes started here, and Voice Memos microphone use or confirmed recording state. Swipe between them and hold to expand. Connect music explicitly to allow playback controls. Existing title-bar gestures and system three-finger dragging remain available. [API boundaries, gestures and validation](docs/live-activities.md). These changes are not in the current release download.
-
-## Touch ID in the notch, in development
-
-Choose **Verify Touch ID…** to expand the notch around the system fingerprint prompt. Displays without a notch use a separate capsule below the menu bar. It closes when finished and restores the previous live activity. This confirms a WindowShade application request; it does not unlock macOS. The current download does not include it, and physical authentication and display setups still need on-device validation. [Design and validation](docs/touch-id-island.md).
-
-## Launchpad in development
-
-Press ⌃⌘L for the Home grid. Hold an icon to rearrange apps and make folders. The last page is the App Library; search by name, Chinese pinyin or initials. Removing an app from Home leaves it installed and available in the library. Outside editing mode, drag an icon straight to the screen edge to open its window in Slide Over. You can also drag a window by its title bar onto the Slide Over arrow midway along a free screen edge; pause until the target highlights, then release. To leave Slide Over, drag the title bar to the middle of the screen, stop, and release; the window stays where you put it.
-
-The Home screen keeps the macOS 15 look: a flat search field on top, page dots on their own below the grid, and the wallpaper decoded and blurred in the background. The page before page one shows live local data only: the real clock, this month's calendar and the apps that are running. Two-finger panning right from page one reaches it, and panning left from the last page reaches the App Library. Swiping up, the back gesture and pinching close all step back; swiping down closes the launchpad and calls up Spotlight with the shortcut set for it in System Settings; if that shortcut is turned off, it stays in the launchpad and uses its own search. Dropping an icon onto the notch first restores that window's tucked-rolled-up or Slide Over state, then falls back to Home; left is the App Library, right is the page before page one. The App Library follows the iPadOS 26 four-column reference without claiming pixel-exact parity. If the user wallpaper cannot be decoded, the launchpad falls back to the system `DefaultDesktop.heic`, and shows no wallpaper only if both fail — it never goes to the network.
-
-Use the arrow keys and Return in the App Library, or Page Up / Page Down to turn pages. Press Esc during a rearrangement to restore the layout from before the drag.
-
-A few more things are in development. “Temporarily unpin all” in the menu bar gets every pinned window out of the way, and choosing it again puts them back in the same front-to-back order (you can record a shortcut for it in Settings). When a window already sits in the top or bottom row, swiping left or right walks the same ladder inside that row, giving two-thirds and one-sixth cells; a one-third window steps a column at a time through the middle. From a one-sixth cell, a sideways swipe that turns up or down walks the three rows of that column, giving one-ninth cells. Pulling down a little on a rolled-up strip is a glance, and pulling all the way unrolls the window. Resting the pointer on a window in the notch shows it as it is now, not the picture taken when it was tucked away. The notch is also the Mac's Home button now: one click goes to the Home screen, two open Mission Control, three show all windows of the current app; minimized windows and hidden apps sit in the notch row too, and dragging a file onto the notch opens the Home screen with only the apps that can open it lit. Spreading two fingers on a title bar is now Magic Tiling: that window becomes the main one and the other windows on the screen are laid out beside it by how much room each app wants (5:5, 6:4 or 7:3, split top and bottom on a portrait screen), chat apps go to Slide Over, and a pinch puts them all back; ⌃⌘M does the same. Shaking a window by its title bar sends the others into the notch, and shaking it again brings them back. When Magic Tiling can't fit everything, the rest continue as a scroll strip in the style of niri: each window gets its own column at the width its app wants and waits past the right edge with a sliver showing; a two-finger swipe on any strip window's title bar slides the whole strip, swiping down or up widens or narrows that column, ⌃⌘←→ steps to the neighbouring column, and a newly opened window joins next to the current one without squeezing anything. On the notch, pushing up with two fingers tucks every window on that screen into the notch and pulling down brings the batch back (⌃⌘H does the same); swiping left or right switches to the previous or next app; dragging a title bar to the notch drops an island with five targets: left half, fill, tuck into the notch, Magic Tiling and right half. Holding ⌥ and pressing Tab switches by window, with rolled-up and tucked windows included (⌘Tab can be chosen in Settings); clicking the Dock icon of the app in front puts it out of the way; ⌃⌘N moves a window to the next screen, including screens stacked above or below; and Settings can leave a gap between arranged windows. Slide Over now looks like iPadOS 27: a glass border around the window and an arc in the inner bottom corner — drag the arc to resize, drag the border to move. When two windows fill a screen side by side, a small bar appears between them (the split handle): drag it to resize both, or push it to the screen edge to send that window into Slide Over; every seam between tiled windows (corners, thirds, grids) can be dragged the same way. Coming from Rectangle, one button in Settings → Shortcuts brings its key set with you. With Mission Control open, ⌘W closes the window under the pointer and ⌘Q quits its app. Any window can go into Picture in Picture: drag its title bar into a screen corner and hold for a moment, and it shrinks to a live picture in that corner while the real window steps aside; fling it to another corner or past the screen edge to hide it; scrolling scrolls the real window, page up and down are sent to it, you can show just one region of the window, and a double-click puts it back where it was. Resting the pointer on the sliver a strip column leaves at the screen edge glances at that window, and spreading two fingers on a strip window's title bar opens the strip overview. The window browser adds New Window (⌘N on a Mac), dragging a preview out of the panel to a screen edge places that window there, and WeChat mini-program windows are listed under WeChat.
-
-These additions have not shipped. The download still follows its release notes. See the [Launchpad guide](docs/launchpad.md) and [title bar gestures](docs/gestures.md) for usage and validation.
-
 ## Three ways to move a window aside. Only one never makes you look for it.
 
 When a window covers something, you probably close it or minimize it. Both work. Getting it back just takes a little effort.
@@ -73,54 +53,29 @@ Then [boot an old Mac](https://windowshade.aaronlau.me/en/history/#lab) — Syst
 
 Today’s WindowShade is an independent Swift / AppKit app: the old name and the old idea, with code written from scratch. It is not an Apple product, and it uses no code from Rob Johnston, Apple, or Unsanity’s WindowShade X.
 
-## Beyond the old gesture, it keeps track of every window
+## How it works
 
-Roll up, and a window stays where it was. Glance, and you see it without unrolling. Carry it to every desktop, and you can see it from anywhere. Pin, and it stays in front. Browse, and you find it from the Dock. They all answer one question: where is the window you need, without a round trip to get it?
+Roll up, and a window stays where it was. Glance, and you see it without unrolling. The window you need stays where you know it is, with no round trip to get it.
 
-**Roll up.** Double-click a title bar or press `⌃⌘C` and the window rolls up into a thin bar; double-click the bar to unroll it. The bar can keep the window’s own look, or use one consistent title bar. While a bar is in front, `⌘W`, `⌘M`, `⌘H`, `⌘Q` and `⌘N` go to the window and app behind it; `⌘Q` puts the window back down first, so any “save changes?” question is where you can see it.
+**Roll up.** Double-click a title bar, or press the shortcut for “Roll up or unroll the current window”, and the window rolls up into a thin bar; double-click the bar to unroll it. After rolling up it can show the original title bar, a simplified title bar, or a thumbnail; choose in Settings → Roll up → Show after rolling up. While a bar is in front, Command-W, Command-M, Command-H, Command-Q and Command-N go to the window and app behind it; Command-Q unrolls the window first, so any “save changes?” question is where you can see it.
 
-**Swipe the title bar.** Put the pointer on a title bar and swipe with two fingers. The window follows your fingers: push up and it rolls up like a shade; pull down and it fills the screen between the menu bar and the Dock, and pushing up again puts it back. Nothing happens until you let go, so pulling back halfway undoes it. While you swipe, a small panel styled like the system volume indicator says what letting go will do. Swipe sideways for half the screen; keep swiping the same way for two thirds, then one third, and if there’s another display on that side, once more moves the window there. Once a sideways swipe is complete, turn down or up and the window takes that corner. Spreading two fingers also fills the screen, pinching undoes the last placement, and a double-tap toggles between filled and the original size. With an ordinary mouse, three notches of the wheel on a title bar count as one swipe; Magic Mouse support is still being checked on real hardware.
-
-**Flick the title bar.** Drag a title bar, throw it and let go, and the window glides the way you threw it: up rolls it up, down fills the screen, left and right walk the same steps, and a throw clearly aimed at a corner takes that corner. Three-finger drag works too; lifting your fingers is enough. Slowing down before you let go, or letting go at the edge of the screen, is still the system’s own dragging and tiling. The keyboard follows the same steps: `⌃⌘←` and `⌃⌘→` for the sides, `⌃⌘↓` one size up, `⌃⌘↑` one size down; press `⌃⌘←` then `⌃⌘↓` right away for the bottom-left corner. After you switch displays, windows you placed with a gesture, a shortcut or the window browser are laid out the same way on the new screen. Web pages and lists still scroll, sideways swipes on a Safari tab still switch tabs, and while Swish is running the title bar is left to it. Details are in the [gesture notes](docs/gestures.md).
-
-**Glance.** Rest the pointer on the bar and a card drops down beneath it, showing the window's content at its own size; move away and it rolls back up. Click the card to unroll the window for real; on a Force Touch trackpad, pressing firmly on the bar also glances, and letting go puts it away. The bar stays put and the card hangs just below it, so it reads as a preview, not the window itself. A glance never switches the app you’re in and never moves a window. A window that was minimized when it rolled up can’t be shown live, so you see how it looked then, and the corner says so. Details are in the [glance notes](docs/glance.md).
-
-**Carry to every desktop.** If you keep one app per desktop, press `⌃⌘G` to carry the current window to every desktop: it stays where it is, and its bar appears in the top-right corner of your other desktops. Rest on the bar for a live picture; if the window is hidden or minimized, a labelled snapshot appears instead. Click the picture to go to it. Press `⌃⌘G` again, or click the bar’s ×, to put it down.
-
-**Pin.** Writing from notes, or following a tutorial step by step? Press `⌃⌘P` to pin that window, and it stays uncovered while you switch to anything else. The menu bar lists every pinned window and can unpin them all at once.
-
-**Window browsing.** Rest the pointer on an app’s icon in the Dock and every window that app has open is listed, each with a picture and a title.
-
-- The panel is for looking. A window changes only when you press a button on its card.
-- Select a window and press Space for a large preview. The window isn’t brought forward or moved.
-- Left half, right half, a corner, centred, full, or another display: it shows where the window will go and moves it only when you agree. You can undo afterwards.
-
-You can also open it from Choose window… in the menu bar, or with a hot key you set. The Dock entry is off by default; turn it on in Settings → Window browsing. The panel is temporary: it does not replace the Dock or take over Command-Tab. Details are in the [window browsing notes](docs/window-browser.md).
-
-**An extra: close the lid, and the desktop stays put.**
-
-<img src="assets/windowshade-lid-en.gif" alt="As the MacBook lid closes, the desktop seems to stay where it was, darker and blurrier toward the top" width="620">
-
-On an Apple Silicon MacBook with a hinge sensor, the screen closes but the desktop seems to stay where it was, like a page behind glass, growing darker and blurrier toward the top. Open the lid and it’s back. There are three styles: gentle, standard and frosted. It’s only an extra: rolling up and pinning work without it.
+**Glance.** Rest the pointer on the bar and a card drops down beneath it, showing the window's content at its own size; move away and it rolls back up. Click the card to unroll the window for real. The bar stays put and the card hangs just below it, with a gap between them, so it’s clear the card isn’t the window itself. A glance never switches the app you’re in and never moves a window. Some windows can’t be shown live after rolling up; then the card shows the window as it was when it rolled up.
 
 ## Shortcuts
 
-New setups in 1.0.16 preset none of these ⌃⌘ combinations; record your own in Settings → Shortcuts, or bring Rectangle’s key set over in one click. Setups upgraded from 1.0.15 or earlier keep the combinations below.
+From 1.0.16, a new installation of WindowShade presets no shortcuts. In Settings → Shortcuts you can record one for “Roll up or unroll the current window” and “Line up the bars”, and turn on “Unroll by number” (Control-Command-1 to 9). Installations upgraded from 1.0.15 or earlier keep the shortcuts below.
 
-| Shortcut (upgraded setups) | What it does |
+| Kept after upgrading | What it does |
 | --- | --- |
 | `⌃⌘C` | Roll up or unroll the current window |
-| `⌃⌘P` | Pin or unpin the current window |
-| `⌃⌘G` | Carry the current window to every desktop; press again to put it down |
 | `⌃⌘1…9` | Unroll a rolled-up window, in menu order |
-| `⌃⌘0` | Line up the bars, or switch to a focus layout |
-| `⌃⌘←` `⌃⌘→` `⌃⌘↑` `⌃⌘↓` | Place the current window: to the sides, one size down, one size up |
+| `⌃⌘0` | Line up the bars; press again to put them back |
 
-Double-click a title bar to roll up; double-click the bar to unroll. Every shortcut can be changed or turned off in Settings, and if another app already uses a combination, WindowShade tells you once.
+“Roll up or unroll the current window” and “Line up the bars” can be changed or cleared in Settings, and “Unroll by number” can be turned off as a group; if another app already uses a combination, WindowShade tells you once.
 
 ## Download
 
-Get the latest ZIP from [Releases](https://github.com/surfine/WindowShade/releases/latest), unzip it, drag `WindowShade.app` into Applications and open it, then follow the permission prompts. It lives in the menu bar and stays out of your Dock.
+Get the latest ZIP from [Releases](https://github.com/surfine/WindowShade/releases/latest), unzip it, drag `WindowShade.app` into Applications and open it, then allow Accessibility and Screen Recording in System Settings when asked. Only its icon appears, in the menu bar; it stays out of your Dock.
 
 - **1.0.15 download:** 4.06 MB ZIP; the extracted app contains 7.98 MB of files (decimal MB; filesystem allocation may differ).
 - **Needs macOS 14 or later and Apple Silicon.** There’s no Intel build.
@@ -129,18 +84,18 @@ Get the latest ZIP from [Releases](https://github.com/surfine/WindowShade/releas
 
 ## Your windows stay on your Mac
 
-WindowShade asks for two permissions. **Accessibility**: finding, moving and restoring windows. **Screen Recording**: taking the window pictures used for previews. “Screen Recording” is just the name the system gives that permission — everything is processed on your Mac and nothing is uploaded. If the app ever quits unexpectedly, your windows go back to how they were.
+WindowShade uses two items in System Settings: **Accessibility**, to find, move, roll up and unroll windows; **Screen Recording**, because the original title bar, glance and thumbnails need pictures of the window. “Screen Recording” is just the name the system gives that item — everything is processed on your Mac and nothing is uploaded. If WindowShade ever quits unexpectedly, it puts rolled-up windows back the next time it opens.
 
 Regular windows all roll up. Stickies rolls up in its own system way; apps like Adobe’s that draw their own title bars are handled separately. Full screen, Split View, Stage Manager and multiple displays still have a few gaps — try it once with the apps you use. If something goes wrong, please [report it](https://github.com/surfine/WindowShade/issues) with your macOS version, the app, and the steps.
 
 ## Build and contribute
 
-Requires macOS 14+, Xcode command line tools with the Metal compiler, and an Apple Development signing certificate.
+Requires macOS 14+, Xcode command line tools, and an Apple Development signing certificate.
 
 ```sh
 git clone https://github.com/surfine/WindowShade.git
 cd WindowShade/prototype
-./build.sh --check   # Swift type checking and Metal compilation
+./build.sh --check   # compile check, no signing
 ./build.sh           # build and sign with your configured identity
 open WindowShade.app
 ```
@@ -149,8 +104,8 @@ Set `WINDOWSHADE_CODESIGN_IDENTITY` or use an untracked `prototype/local-codesig
 
 | In the repository | Purpose |
 | --- | --- |
-| [`prototype/`](prototype/) | Native app: window policies, capture, overlays, effects, and recovery |
-| [`tests/`](tests/) | State, recovery, frame, Metal, and paper-component checks |
+| [`prototype/`](prototype/) | Native app: window policies, capture, bars, and recovery |
+| [`tests/`](tests/) | State, recovery, shortcut, and paper-component checks |
 | [`site/`](site/) | Bilingual website and window stories, hosted on Cloudflare Pages |
 | [`docs/performance.md`](docs/performance.md) | Measurements and approaches that did or did not work |
 | [`docs/releases/`](docs/releases/) | Preserved release notes |

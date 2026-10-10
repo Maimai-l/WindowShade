@@ -1,9 +1,8 @@
-// 看一眼的画面：一张单独的卡片，和真窗口分得开。
-// 收起的窗口：原貌卷帘条不动，卡片挂在它下面、隔一道缝，显示标题栏以下的内容。
-// 带到每张桌面的窗口：卡片挂在那条卷帘条下面，整扇窗按比例缩小。
-// 缩略图：卡片就是整扇窗口，从缩略图长回原来的大小，移开时缩回去（grow / shrink）。
-// 卡片四个角都用真窗口的圆角（从截图里量），带自己的投影；有画面时不铺底色。
-// 被隐藏的 App 临时在原处取消隐藏时，缝和圆角缺口底下垫一张真实背景，真窗口露不出来。
+// 看一眼的画面：一张单独的卡片，和原窗口分开。
+// 收起的窗口：显示原标题栏的卷帘条不动，卡片挂在它下面、隔一道缝，显示标题栏以下的内容。
+// 缩略图：卡片就是整扇窗口，从缩略图放大到原来的大小，移开时缩回去（grow / shrink）。
+// 卡片四个角都用原窗口的圆角（从截图里量），带自己的投影；有画面时不铺底色。
+// 被隐藏的 App 临时在原处取消隐藏时，缝和圆角缺口底下垫一张真实背景，原窗口露不出来。
 // 面板不激活 WindowShade、不抢键盘焦点；单击卡片才真正打开那扇窗。
 
 import AVFoundation
@@ -43,6 +42,8 @@ final class GlanceContentView: NSView {
     let cardFrame: NSRect
     /// 整扇窗口的画面在卡片里的位置；超出卡片的部分（标题栏、屏幕外）被裁掉。
     let pictureFrame: NSRect
+    /// 见 GlanceTarget.stripJoin：大于 0 时卡片上沿是直角，再往上补出卷帘条圆角外的两小块。
+    let stripJoin: CGFloat
 
     private let backdropLayer = CALayer()
     private let shadowLayer = CALayer()
@@ -50,23 +51,14 @@ final class GlanceContentView: NSView {
     private let snapshotLayer = CALayer()
     private weak var videoLayer: AVSampleBufferDisplayLayer?
     private let rollMask = CALayer()
-    private let badge: GlanceBadge
-    private let message = NSTextField(labelWithString: "")
-    /// badge 和 message 装在这一层里。缩略图的卡片长大、缩回时它们不跟着缩放：整层先藏起来，
-    /// 卡片整张铺开再露出来。各自该不该显示仍由 setStaleNoticeVisible / refreshPlaceholder 管，这里不动。
-    private let notices = NSView()
-    /// 每次长大、缩回、停住都加一：过时的“铺开了再露出提示”不再生效。
-    private var noticesGeneration = 0
     private(set) var hasSnapshot = false
-    /// 视频层挂在画面里，且盖在截图上面。
-    var showsVideo: Bool { videoLayer?.superlayer === cardLayer && snapshotLayer.isHidden }
     private(set) var isLive = false
 
     init(frame: NSRect, cardFrame: NSRect, pictureFrame: NSRect, cornerRadius: CGFloat,
-         staleText: String, accessibilityTitle: String) {
+         stripJoin: CGFloat = 0, accessibilityTitle: String) {
         self.cardFrame = cardFrame
         self.pictureFrame = pictureFrame
-        badge = GlanceBadge(text: staleText)
+        self.stripJoin = stripJoin
         super.init(frame: frame)
         wantsLayer = true
         let root = CALayer()
@@ -80,9 +72,21 @@ final class GlanceContentView: NSView {
         shadowLayer.shadowRadius = 14
         shadowLayer.shadowOffset = CGSize(width: 0, height: -6)
         root.addSublayer(shadowLayer)
-        cardLayer.masksToBounds = true
-        cardLayer.cornerRadius = cornerRadius
-        cardLayer.cornerCurve = .continuous
+        if stripJoin > 0 {
+            // 卡片层往上多出 stripJoin 高，形状由 mask 给：下面两角圆、上沿直角，再加上卷帘条
+            // 两个下圆角外的缺口。投影只留在卡片上沿以下，不落到卷帘条上。
+            let shape = CAShapeLayer()
+            shape.path = Self.joinedCardPath(size: cardFrame.size, radius: cornerRadius, join: stripJoin)
+            cardLayer.mask = shape
+            let shadowClip = CALayer()
+            shadowClip.backgroundColor = NSColor.black.cgColor
+            shadowClip.frame = CGRect(x: 0, y: 0, width: frame.width, height: cardFrame.maxY)
+            shadowLayer.mask = shadowClip
+        } else {
+            cardLayer.masksToBounds = true
+            cardLayer.cornerRadius = cornerRadius
+            cardLayer.cornerCurve = .continuous
+        }
         root.addSublayer(cardLayer)
         snapshotLayer.contentsGravity = .resize
         snapshotLayer.minificationFilter = .trilinear
@@ -93,25 +97,54 @@ final class GlanceContentView: NSView {
         shadowLayer.shadowPath = CGPath(roundedRect: cardFrame, cornerWidth: cornerRadius,
                                         cornerHeight: cornerRadius, transform: nil)
 
-        message.font = SystemAppearancePolicy.font(relativeToBody: 0, weight: .medium)
-        message.textColor = .secondaryLabelColor
-        message.alignment = .center
-        message.isHidden = true
-        notices.addSubview(message)
-        badge.isHidden = true
-        notices.addSubview(badge)
-        notices.frame = bounds
-        notices.autoresizingMask = [.width, .height]
-        addSubview(notices)
         applySystemAppearance()
 
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel("看一眼：\(accessibilityTitle)")
-        setAccessibilityHelp("单击打开这个窗口")
+        setAccessibilityHelp("单击展开这个窗口")
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// 卡片接卷帘条时往上多盖的一道（点）：盖住卷帘条下沿和圆角上那道细边，原窗口上没有这道线。
+    static let stripEdgeCover: CGFloat = 2
+
+    /// 接在卷帘条下的卡片形状（卡片层坐标，原点在左下，卡片上沿在 size.height）：下面两角圆，
+    /// 上沿直角并往上多盖 stripEdgeCover；再加上左右两个角落里、卷帘条下圆角外面的那一小块，
+    /// 同样往圆角里多盖 stripEdgeCover。
+    static func joinedCardPath(size: CGSize, radius: CGFloat, join: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        let r = min(radius, size.width / 2, size.height / 2)
+        let edge = min(stripEdgeCover, join)
+        let top = size.height + edge
+        path.move(to: CGPoint(x: 0, y: top))
+        path.addLine(to: CGPoint(x: 0, y: r))
+        path.addArc(tangent1End: CGPoint(x: 0, y: 0), tangent2End: CGPoint(x: r, y: 0), radius: r)
+        path.addLine(to: CGPoint(x: size.width - r, y: 0))
+        path.addArc(tangent1End: CGPoint(x: size.width, y: 0),
+                    tangent2End: CGPoint(x: size.width, y: r), radius: r)
+        path.addLine(to: CGPoint(x: size.width, y: top))
+        path.closeSubpath()
+        let cornerY = size.height + join
+        // 三块都按逆时针走：和卡片本体重叠的那 2 点里绕数相加，方向相反会抵消成一个洞。
+        // 左边：角落方块减去以卷帘条左下圆角圆心为心、半径小 edge 的圆。
+        path.move(to: CGPoint(x: 0, y: size.height))
+        path.addLine(to: CGPoint(x: join, y: size.height))
+        path.addArc(center: CGPoint(x: join, y: cornerY), radius: join - edge,
+                    startAngle: 1.5 * .pi, endAngle: .pi, clockwise: true)
+        path.addLine(to: CGPoint(x: 0, y: cornerY))
+        path.closeSubpath()
+        // 右边对称。
+        path.move(to: CGPoint(x: size.width, y: cornerY))
+        path.addLine(to: CGPoint(x: size.width - edge, y: cornerY))
+        path.addArc(center: CGPoint(x: size.width - join, y: cornerY), radius: join - edge,
+                    startAngle: 0, endAngle: -0.5 * .pi, clockwise: true)
+        path.addLine(to: CGPoint(x: size.width - join, y: size.height))
+        path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.closeSubpath()
+        return path
+    }
 
     override var isFlipped: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -141,12 +174,13 @@ final class GlanceContentView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        // 用 bounds + position 摆，不用 frame：缩略图的看一眼长大、缩回时这两层带着变换，
+        // 用 bounds + position 摆，不用 frame：缩略图的看一眼放大、缩回时这两层带着变换，
         // 那时写 frame 会被变换折算错。没有变换时两种写法一样。
         shadowLayer.bounds = CGRect(origin: .zero, size: bounds.size)
         shadowLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        cardLayer.bounds = CGRect(origin: .zero, size: cardFrame.size)
-        cardLayer.position = CGPoint(x: cardFrame.midX, y: cardFrame.midY)
+        cardLayer.bounds = CGRect(origin: .zero, size: CGSize(width: cardFrame.width,
+                                                              height: cardFrame.height + stripJoin))
+        cardLayer.position = CGPoint(x: cardFrame.midX, y: cardFrame.minY + (cardFrame.height + stripJoin) / 2)
         snapshotLayer.frame = pictureFrame
         videoLayer?.frame = pictureFrame
         if rollMask.animationKeys()?.isEmpty ?? true {
@@ -154,18 +188,10 @@ final class GlanceContentView: NSView {
                                      height: rollMask.bounds.height)
             rollMask.position = CGPoint(x: 0, y: bounds.height)
         }
-        notices.frame = bounds
-        message.sizeToFit()
-        message.frame = NSRect(x: cardFrame.minX + 16,
-                               y: floor(cardFrame.midY - message.frame.height / 2),
-                               width: max(0, cardFrame.width - 32), height: message.frame.height)
-        badge.fitToLabel()
-        badge.setFrameOrigin(NSPoint(x: cardFrame.maxX - badge.frame.width - 12,
-                                     y: cardFrame.minY + 12))
         CATransaction.commit()
     }
 
-    /// 真窗口临时在底下时：把那块区域原本的背景垫在卡片下面（缝与圆角缺口里看到的就是它）。
+    /// 原窗口临时在底下时：把那块区域原本的背景垫在卡片下面（缝与圆角缺口里看到的就是它）。
     func setBackdrop(_ image: CGImage, frame: NSRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -190,7 +216,7 @@ final class GlanceContentView: NSView {
         needsLayout = true
     }
 
-    /// 实时画面到了：盖住截图，去掉“不是实时画面”的提示。
+    /// 实时画面到了：盖住截图。
     func setLive(_ live: Bool) {
         isLive = live
         CATransaction.begin()
@@ -200,25 +226,12 @@ final class GlanceContentView: NSView {
         refreshPlaceholder()
     }
 
-    /// 右下角“收起时的画面”此刻看得见（探针用）。
-    var showsStaleNotice: Bool { !notices.isHidden && !badge.isHidden }
-
-    /// 实时画面等不到时，照实说这是哪个时候的画面。
-    func setStaleNoticeVisible(_ visible: Bool) {
-        badge.isHidden = !(visible && hasSnapshot && !isLive)
-        needsLayout = true
-    }
-
     private func refreshPlaceholder() {
-        let nothing = !hasSnapshot && !isLive
-        message.stringValue = nothing ? "画面暂时看不到" : ""
-        message.isHidden = !nothing
-        if isLive { badge.isHidden = true }
         applySystemAppearance()
         needsLayout = true
     }
 
-    /// 卡片的底色与细边只在什么画面都没有时出现：窗口画面自带边缘，多一层会在角上露出月牙。
+    /// 卡片的底色与细边只在什么画面都没有时出现：窗口画面自带边缘，多一层边，圆角处会露出一道弧形细边。
     func applySystemAppearance(capabilities: SystemAppearanceCapabilities = .current) {
         let bare = !hasSnapshot && !isLive
         cardLayer.borderWidth = bare ? SystemAppearancePolicy.edgeWidth(capabilities) : 0
@@ -259,48 +272,6 @@ final class GlanceContentView: NSView {
         rollMask.add(roll, forKey: "glance-roll")
     }
 
-    /// 手指在卷帘条上往下拉：卡片跟着手指卷下 fraction（0...1），不做动画。
-    func setRoll(_ fraction: CGFloat) {
-        layoutSubtreeIfNeeded()
-        let f = max(0, min(1, fraction))
-        rollMask.removeAllAnimations()
-        layer?.removeAnimation(forKey: "glance-fade")
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        rollMask.position = CGPoint(x: 0, y: bounds.height)
-        if reduceMotion {
-            layer?.opacity = Float(f)
-            rollMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height)
-        } else {
-            layer?.opacity = 1
-            rollMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height * f)
-        }
-        CATransaction.commit()
-    }
-
-    /// 没拉满就松手：从手指停下的地方接着卷到全开，停在“看一眼”。返回要多久。
-    @discardableResult
-    func settleRoll() -> CFTimeInterval {
-        let full = bounds.height
-        let current = rollMask.presentation()?.bounds.height ?? rollMask.bounds.height
-        rollMask.removeAllAnimations()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer?.opacity = 1
-        rollMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: full)
-        rollMask.position = CGPoint(x: 0, y: full)
-        CATransaction.commit()
-        guard !reduceMotion, full > 1, current < full - 0.5 else { return 0 }
-        let duration = 0.18 * Double(max(0.3, (full - current) / full))
-        let roll = CABasicAnimation(keyPath: "bounds.size.height")
-        roll.fromValue = current
-        roll.toValue = full
-        roll.duration = duration
-        roll.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
-        rollMask.add(roll, forKey: "glance-roll")
-        return duration
-    }
-
     /// 卷上（或缩回缩略图）途中指针又回来了：停在全开，不重播卷下。
     func cancelRollUp() {
         rollMask.removeAllAnimations()
@@ -315,25 +286,9 @@ final class GlanceContentView: NSView {
             grown.transform = CATransform3DIdentity
         }
         CATransaction.commit()
-        // 卡片停在全开：缩回时藏起来的提示照各自的状态露出来。
-        noticesGeneration += 1
-        notices.isHidden = false
     }
 
-    // MARK: 从缩略图长回原大小 / 缩回缩略图
-
-    /// 卡片 delay 秒后整张铺开：到时再露出提示（中途又缩回、停住就作废）。
-    private func revealNotices(after delay: CFTimeInterval) {
-        noticesGeneration += 1
-        let generation = noticesGeneration
-        notices.isHidden = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.noticesGeneration == generation else { return }
-                self.notices.isHidden = false
-            }
-        }
-    }
+    // MARK: 从缩略图放大到原大小 / 缩回缩略图
 
     /// 卡片（连同投影）缩在 rect（本视图坐标）里的样子：把卡片外框映到 rect 上的变换。
     private func shrunkTransform(for target: CALayer, into rect: NSRect) -> CATransform3D {
@@ -346,7 +301,7 @@ final class GlanceContentView: NSView {
         return CATransform3DConcat(CATransform3DMakeScale(kx, ky, 1), CATransform3DMakeTranslation(tx, ty, 0))
     }
 
-    /// 缩略图上停够了：卡片从缩略图（rect，本视图坐标）长回窗口原来的大小，弹簧 0.3 / 不回弹。
+    /// 缩略图上停够了：卡片从缩略图（rect，本视图坐标）放大到窗口原来的大小，弹簧 0.3 / 不回弹。
     /// 返回多久之后卡片整张盖住原处（被隐藏的 App 要等到那时才在下面取消隐藏）。
     @discardableResult
     func grow(from rect: NSRect) -> CFTimeInterval {
@@ -364,9 +319,7 @@ final class GlanceContentView: NSView {
         }
         CATransaction.commit()
         if reduceMotion {
-            // 整张一起淡入，提示跟着淡入就行。
-            noticesGeneration += 1
-            notices.isHidden = false
+            // 整张一起淡入。
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
@@ -386,8 +339,6 @@ final class GlanceContentView: NSView {
         }
         // 临界阻尼的弹簧到 0.45 秒已差不到 0.1%：千点宽的窗口也露不出一点。
         let covered = min(settle, 0.45)
-        // 右下角“收起时的画面”、正中“画面暂时看不到”不跟着缩放：卡片铺开了再露出来。
-        revealNotices(after: covered)
         return covered
     }
 
@@ -417,10 +368,6 @@ final class GlanceContentView: NSView {
                 shrink.timingFunction = CAMediaTimingFunction(controlPoints: 0.65, 0, 0.35, 1)
                 grown.add(shrink, forKey: "glance-grow")
             }
-            // 画面缩小时右下角“收起时的画面”那块提示不跟着缩：整层先藏起来（各自的状态留着，
-            // 指针中途回来时 cancelRollUp 照原样露出来）。
-            noticesGeneration += 1
-            notices.isHidden = true
         }
         CATransaction.commit()
     }
@@ -448,32 +395,5 @@ final class GlanceContentView: NSView {
             rollMask.add(roll, forKey: "glance-roll")
         }
         CATransaction.commit()
-    }
-}
-
-/// 右下角的小提示：只在画面不是实时的时候出现。
-private final class GlanceBadge: NSView {
-    private let label: NSTextField
-
-    init(text: String) {
-        label = NSTextField(labelWithString: text)
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 9
-        layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = .white
-        addSubview(label)
-        setAccessibilityElement(false)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    func fitToLabel() {
-        label.sizeToFit()
-        let size = NSSize(width: ceil(label.frame.width) + 16, height: 18)
-        setFrameSize(size)
-        label.setFrameOrigin(NSPoint(x: 8, y: floor((size.height - label.frame.height) / 2)))
     }
 }

@@ -1,4 +1,4 @@
-// 窗口外框画像：Adobe 工作区识别、标准标题栏裁切高度、画像缓存与解析。
+// 窗口标题栏外形：Adobe 工作区识别、标准标题栏裁切高度、外形缓存与解析。
 
 import Cocoa
 
@@ -47,15 +47,15 @@ func adobeChromeProfile(for win: AXUIElement,
         appName.contains("illustrator") ||
         appName.contains("indesign")
 
-    // AE/Premiere 的工作区标题总带产品名前缀（"Adobe After Effects 2026 - …"），
-    // 独立面板则是 "Effect Controls" / "Timeline: …" 这类裸面板名。
+    // After Effects、Premiere 的工作区标题总带产品名前缀（“Adobe After Effects 2026 - …”），
+    // 独立面板的标题则只有面板名，如“Effect Controls”“Timeline: …”。
     let titleLooksLikeWorkspace = windowTitle.contains("adobe") || windowTitle.contains(appName)
 
-    // Adobe panels are usually small floating windows owned by the workspace.
-    // Default to ignoring them so WindowShade does not fight Adobe's panel/layout system.
-    // 注意：AE/Premiere 连主工作区的 subrole 都标成 floating（AX 树非标准），
-    // 生产线 app 的工作区窗口（标题带产品名，或带 .aep/.prproj 等工程后缀）
-    // 不得落进面板分支，否则整个 app 无法折叠（实测 2026-07）。
+    // Adobe 的面板通常是工作区窗口带出的小浮动窗口，默认不收起，免得和 Adobe 自己的面板布局冲突。
+    // After Effects、Premiere 连主工作区的 subrole 都标成 floating（辅助功能树不标准）：
+    // After Effects、Premiere、Audition、Media Encoder、Animate 这类影音制作应用程序的工作区窗口
+    // （标题带产品名，或带 .aep、.prproj 等工程后缀）不能归为面板，
+    // 否则整个应用程序都收不起来（2026-07 实测）。
     if subrole.contains("floating") && !hasDocumentishTitle &&
         !(isProductionWorkspace && titleLooksLikeWorkspace) {
         return AdobeChromeProfile(kind: .floatingPanel,
@@ -79,10 +79,9 @@ func adobeChromeProfile(for win: AXUIElement,
                                   reason: "panel-like-title")
     }
 
-    // 主屏/欢迎窗口（标题就是产品名、无文稿、无工具栏）：内容紧贴系统标题栏，
-    // 没有标签条/工作区 chrome 可保留。按标准标题栏高度裁切——84pt 的文档框
-    // 高度在 PS 2026 主屏会把 Ps 头部内容条拼进卷帘条（"灰标题栏+深色头部条"
-    // 两截拼接，实测 2026-07）。文档窗口标题都带文件名/缩放比等后缀，不会误中。
+    // 主屏或欢迎窗口（标题就是产品名，没有文档和工具栏）：内容紧贴系统标题栏，没有标签条要保留，
+    // 按标准标题栏高度裁切。若按 84 点的文档框裁，Photoshop 2026 的主屏会把下面的深色内容条
+    // 也裁进卷帘条（2026-07 实测）。文档窗口的标题带文件名或缩放比例，不会误判。
     let titleIsBareProductName = windowTitle.isEmpty || windowTitle == appName
     if titleIsBareProductName && !hasDocumentishTitle && !hasToolbar {
         return AdobeChromeProfile(kind: .tabbedDocumentFrame,
@@ -93,8 +92,8 @@ func adobeChromeProfile(for win: AXUIElement,
     }
 
     if isProductionWorkspace {
-        // AE / Premiere 用实测的专属裁切高度；其余生产线 app（Audition 等）
-        // 未实测，沿用通用值。hit 高度与裁切一致：可见 chrome 即双击折叠带。
+        // After Effects、Premiere 用实测的裁切高度；其余影音制作应用程序（Audition、Media Encoder、Animate）没有实测，用通用值。
+        // 双击判定高度和裁切高度一致：看得见的标题栏部分就是双击收起的范围。
         let isPremiere = bundle.contains("premiere") || appName.contains("premiere")
         let isAfterEffects = bundle.contains("aftereffects") || appName.contains("after effects")
         let base: CGFloat = isPremiere ? premiereWorkspaceChromeHeight
@@ -165,14 +164,19 @@ func windowLooksToolbarlessStandardTitleBar(_ win: AXUIElement,
     return true
 }
 
-// 折叠/双击热路径的 chrome profile 缓存：同一窗口在短 TTL 内反复折叠，或双击
-// 判定的第一下/第二下，都会重复执行同一批昂贵 AX IPC（firstToolbar、交通灯高度、
-// 深度 6 的整棵 AX 子树控件扫描）。以「窗口 ID + AX 元素身份 + 窗口尺寸」为
-// 失效条件：ID 被复用、元素被重建、窗口被拖拽改尺寸都立即重算。
-// 只能在主线程访问（事件 tap 回调、shade、双击判定全部在主线程执行）。
-final class ChromeProfileCache {
-    /// 见上：只在主线程访问。调用方 AppDelegate 迁到 @MainActor 时一起改成 @MainActor。
-    nonisolated(unsafe) static let shared = ChromeProfileCache()
+// 收起和双击判定共用的标题栏外形缓存：短时间内反复收起同一扇窗口，或者双击的第一下和第二下，
+// 都要重复一批耗时的辅助功能调用（找工具栏、量红绿灯高度、深度 6 的控件扫描）。
+// 窗口号、辅助功能元素、窗口尺寸任一变了就重新计算。
+// entries 只在持有 lock 时读写，可以从任意线程调用；收起时在后台队列解析。
+// 自己的窗口要读 AppKit 的几何信息，由调用方先在主线程用 localChromeHeight(id:pid:) 取好再传进来。
+final class ChromeProfileCache: @unchecked Sendable {
+    static let shared = ChromeProfileCache()
+    private let lock = NSLock()
+
+    /// 只在主线程调用：WindowShade 自己的窗口用 AppKit 给出的标题栏高度，其他应用程序返回 nil。
+    static func localChromeHeight(id: CGWindowID, pid: pid_t) -> CGFloat? {
+        localWindowChromeHeight(id: id, pid: pid)
+    }
 
     private struct Entry {
         let element: AXUIElement
@@ -186,49 +190,59 @@ final class ChromeProfileCache {
     private let sizeTolerance: CGFloat = 0.5
     private let maxEntries = 64
 
+    /// 只在主线程调用。
     func profile(id: CGWindowID, win: AXUIElement, pos: CGPoint, size: CGSize,
                  pid: pid_t, title: String) -> WindowChromeProfile {
-        if let entry = entries[id], isFresh(entry, id: id, win: win, size: size) {
-            return entry.profile
+        profile(id: id, win: win, pos: pos, size: size, pid: pid, title: title,
+                localChromeHeight: localWindowChromeHeight(id: id, pid: pid))
+    }
+
+    /// 任意线程：localChromeHeight 由调用方在主线程取好。
+    func profile(id: CGWindowID, win: AXUIElement, pos: CGPoint, size: CGSize,
+                 pid: pid_t, title: String, localChromeHeight: CGFloat?) -> WindowChromeProfile {
+        if let cached = lock.withLock({ entries[id].flatMap { isFresh($0, id: id, win: win, size: size) ? $0.profile : nil } }) {
+            return cached
         }
         let resolved = resolveWindowChromeProfileUncached(win: win, id: id, pos: pos,
                                                           size: size, pid: pid, title: title,
-                                                          localChromeHeight: localWindowChromeHeight(id: id, pid: pid))
-        entries[id] = Entry(element: win, profile: resolved, size: size,
-                            resolvedAt: CFAbsoluteTimeGetCurrent())
-        pruneIfNeeded()
+                                                          localChromeHeight: localChromeHeight)
+        lock.withLock {
+            entries[id] = Entry(element: win, profile: resolved, size: size,
+                                resolvedAt: CFAbsoluteTimeGetCurrent())
+            pruneIfNeeded()
+        }
         return resolved
     }
 
-    // 双击判定只需要标题栏命中高度：profile 新鲜时直接返回，第二次点击不必再
-    // 付一次完整的 chrome 解析。
-    // 并发预热。外框解析全是只读 AX 调用（工具栏探测、红绿灯几何、标题栏高度），
-    // 各窗口之间互不相干，实测每个窗口约 70ms、批量折叠时是最大的一块。
-    // 先在后台并发把 profile 算好，再回到主线程一次性写入——entries 本身没有锁，
-    // 仍然保持只在主线程读写这一点不变。
+    // 并发预取：外形解析只有只读的辅助功能调用（找工具栏、红绿灯位置、标题栏高度），各窗口互不相干；
+    // 实测每个约 70 毫秒，批量收起时最慢的就是这一段。先并发算好，再在 lock 里一次写入 entries。
+    // 要在主线程调用：开头先取 AppKit 的几何信息。
     @discardableResult
     func prewarm(
         _ requests: [(id: CGWindowID, win: AXUIElement, pos: CGPoint,
                       size: CGSize, pid: pid_t, title: String)]
     ) -> [CGWindowID: WindowChromeProfile] {
         guard requests.count > 1 else { return [:] }
-        // 各次写入都在下面的 NSLock 里；编译器看不见这把锁。
+        // 各次写入都在 resultsLock 里；编译器看不见这把锁。
         nonisolated(unsafe) var resolved = [WindowChromeProfile?](repeating: nil, count: requests.count)
-        // Snapshot AppKit geometry before entering the concurrent AX reads.
+        // 进入并发的辅助功能读取之前，先在主线程取好 AppKit 的几何信息。
         let localHeights = requests.map { localWindowChromeHeight(id: $0.id, pid: $0.pid) }
-        let lock = NSLock()
+        // 只保护 resolved；写 entries 要用 self.lock，才和其他线程读写 entries 互斥。
+        let resultsLock = NSLock()
         DispatchQueue.concurrentPerform(iterations: requests.count) { index in
             let request = requests[index]
             let profile = resolveWindowChromeProfileUncached(
                 win: request.win, id: request.id, pos: request.pos,
                 size: request.size, pid: request.pid, title: request.title,
                 localChromeHeight: localHeights[index])
-            lock.lock()
+            resultsLock.lock()
             resolved[index] = profile
-            lock.unlock()
+            resultsLock.unlock()
         }
         let now = CFAbsoluteTimeGetCurrent()
         var warmed: [CGWindowID: WindowChromeProfile] = [:]
+        self.lock.lock()
+        defer { self.lock.unlock() }
         for (index, request) in requests.enumerated() {
             guard let profile = resolved[index] else { continue }
             entries[request.id] = Entry(element: request.win, profile: profile,
@@ -239,9 +253,12 @@ final class ChromeProfileCache {
         return warmed
     }
 
+    // 双击判定只需要标题栏命中高度：外形缓存新鲜时直接返回，第二下点击不必再做一次完整的外形解析。
     func cachedHitBarHeight(id: CGWindowID, win: AXUIElement, size: CGSize) -> CGFloat? {
-        guard let entry = entries[id], isFresh(entry, id: id, win: win, size: size) else { return nil }
-        return entry.profile.hitBarHeight
+        lock.withLock {
+            guard let entry = entries[id], isFresh(entry, id: id, win: win, size: size) else { return nil }
+            return entry.profile.hitBarHeight
+        }
     }
 
     private func isFresh(_ entry: Entry, id: CGWindowID, win: AXUIElement, size: CGSize) -> Bool {
@@ -251,6 +268,7 @@ final class ChromeProfileCache {
             && abs(size.height - entry.size.height) <= sizeTolerance
     }
 
+    /// 调用方持有 lock。
     private func pruneIfNeeded() {
         guard entries.count > maxEntries else { return }
         let now = CFAbsoluteTimeGetCurrent()
@@ -278,8 +296,7 @@ private func localWindowChromeHeight(id: CGWindowID, pid: pid_t) -> CGFloat? {
         guard pid == ProcessInfo.processInfo.processIdentifier,
               let window = NSApp.windows.first(where: { $0.windowNumber == Int(id) }),
               window.styleMask.contains(.titled) else { return nil }
-        // AX can omit our own toolbar and traffic lights. AppKit provides the
-        // actual unobscured content boundary, including a unified toolbar.
+        // 辅助功能可能读不到我们自己窗口的工具栏和红绿灯；AppKit 给出的内容区边界是准的，统一工具栏也算在内。
         let content = window.convertToScreen(window.contentLayoutRect)
         return max(0, window.frame.maxY - content.maxY)
     }

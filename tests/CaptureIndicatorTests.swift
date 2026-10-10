@@ -1,4 +1,4 @@
-// 录屏胶囊清理：真实截图样本必须被清干净；没有胶囊、或者紫色是应用自己的界面时绝不改图。
+// 录屏指示器清理：真实截图样本必须被清干净；没有录屏指示器、或者紫色是应用自己的界面时绝不改图。
 
 import AppKit
 
@@ -26,7 +26,7 @@ enum CaptureIndicatorTests {
         }
     }
 
-    /// 合成一条 2x 标题栏：纵向渐变底色、三颗灯，可选胶囊或整片紫色工具栏。
+    /// 合成一条 2x 标题栏：纵向渐变底色、三个按钮，可选录屏指示器或整片紫色工具栏。
     static func synthetic(dark: Bool, capsule: Bool, purpleToolbar: Bool = false) -> CGImage {
         let scale: CGFloat = 2, size = CGSize(width: 600, height: 52)
         let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale),
@@ -112,18 +112,18 @@ enum CaptureIndicatorTests {
                 expect(false, "\(label): synthetic capsule is detected"); continue
             }
             expect(purpleCount(cleaned, scale: 2) == 0, "\(label): synthetic capsule is removed")
-            // 胶囊中部（两灯之间）应还原成同一行的标题栏底色。
+            // 录屏指示器中部（两个按钮之间）应还原成同一行的标题栏底色。
             let before = RGBAPixels(plain)!, after = RGBAPixels(cleaned)!
             let x = 2 * 72, y = 2 * 26
             let a = after.pixel(x: x, y: y), b = before.pixel(x: 2 * 120, y: y)
             let distance = abs(Int(a.r) - Int(b.r)) + abs(Int(a.g) - Int(b.g)) + abs(Int(a.b) - Int(b.b))
             expect(distance <= 6, "\(label): repaint matches the title bar row (distance \(distance))")
-            // 胶囊外面（标题文字区域）一个像素都不动。
+            // 录屏指示器外面（标题文字区域）一个像素都不动。
             let far = RGBAPixels(withCapsule)!.pixel(x: 2 * 300, y: y), farAfter = after.pixel(x: 2 * 300, y: y)
             expect(far == farAfter, "\(label): pixels outside the capsule are unchanged")
         }
 
-        // 实时帧：胶囊取代了红绿灯。原地修补 BGRA 缓冲；有底片时灯要原样回来。
+        // 实时帧：录屏指示器取代了红绿灯。原地修补 BGRA 缓冲。
         let frame = load("capture-indicator-stream-frame@2x.png")
         let before = load("capture-indicator-before-stream@2x.png")
         expect(purpleCount(frame, scale: 2) > 1000, "stream frame fixture contains the capsule")
@@ -135,26 +135,13 @@ enum CaptureIndicatorTests {
         let unchanged = pixelBuffer(before)
         expect(!CaptureIndicatorRemoval.clean(unchanged, content: bufferRect(unchanged), scale: 2),
                "a live frame without the capsule is not touched")
-        if let plate = CleanPlate(image: before, scale: 2) {
-            let restored = pixelBuffer(frame)
-            CaptureIndicatorRemoval.clean(restored, content: bufferRect(restored), scale: 2, plate: plate)
-            let out = RGBAPixels(image(restored))!, ref = RGBAPixels(before)!
-            // 第一颗灯中心（约 16,16 pt）应与流开始前一样。
-            let a = out.pixel(x: 32, y: 32), b = ref.pixel(x: 32, y: 32)
-            let distance = abs(Int(a.r) - Int(b.r)) + abs(Int(a.g) - Int(b.g)) + abs(Int(a.b) - Int(b.b))
-            expect(distance <= 12, "clean plate brings the traffic lights back (distance \(distance))")
-            expect(purpleCount(image(restored), scale: 2) == 0, "no capsule left after pasting the plate")
-        } else {
-            expect(false, "a pre-stream shot is accepted as a clean plate")
-        }
-        expect(CleanPlate(image: frame, scale: 2) == nil, "a frame that still shows the capsule is refused as a plate")
 
         let toolbar = synthetic(dark: false, capsule: false, purpleToolbar: true)
         expect(CaptureIndicatorRemoval.removingIndicator(from: toolbar, scale: 2) == nil,
                "an app whose own title bar is purple is left untouched")
 
         if failures == 0 {
-            print("PASS: capture indicator removed from real strip samples and live frames, clean plate restores the lights; plain, dark and purple-toolbar title bars untouched")
+            print("PASS: capture indicator removed from real strip samples and live frames; plain, dark and purple-toolbar title bars untouched")
         } else {
             print("FAILED: \(failures) capture indicator checks")
             exit(1)

@@ -2,17 +2,16 @@
 
 import Cocoa
 
-// 全量窗口列表的短 TTL 缓存。
-// 折叠/展开事务内部会多次触发 CGWindowListCopyWindowInfo 全量枚举（AX→CGWindowID
-// 匹配、在屏 ID 集合、app 窗口计数、标题栏带预过滤……），同一事务里它们读到的
-// 应该是同一份列表，只需向 WindowServer 要一次。TTL 150ms 覆盖单次事务内的全部
-// 重复读取。windowID(of:) 优先读取元素自身的 ID；这些快照仅用于发现和兼容匹配，
-// 不作为动作提交、移动或隐藏完成的实时证明。
-// 单窗口查询 cgWindowInfo(id:) 不经过这里：watchdog 和折叠验证必须看到实时值。
-// 线程安全：PinnedPreview 的后台 AX 队列也会走 windowID(of:)，缓存读写用锁保护。
+// 全量窗口列表的短时缓存（150 毫秒）。一次收起或展开会多次枚举全部窗口（辅助功能元素对应窗口号、
+// 屏幕上的窗口、应用程序的窗口数、标题栏预筛……），这些读取应当看到同一份列表，只向窗口服务器要一次。
+// windowID(of:) 先读元素自己的窗口号；这里的列表只用来查找和兼容匹配，不用来证明移动或隐藏已经完成。
+// 单窗口查询 cgWindowInfo(_:) 不经过这里：Reconcile 的定时核对和收起验证必须看到实时值。
+// 线程安全：后台 AX 队列也会走 windowID(of:)，缓存读写用锁保护。
 // 可变状态只在持有 `lock` 时读写；`provider` 构造后不变。
 final class WindowListCache: @unchecked Sendable {
     static let shared = WindowListCache()
+    /// 等另一方刷新的时限（秒）。
+    static let refreshWait: TimeInterval = 1.0
 
     private struct Snapshot {
         let windows: [[String: Any]]
@@ -40,10 +39,8 @@ final class WindowListCache: @unchecked Sendable {
     private let ttl: TimeInterval
     private var onScreenEntry: Entry?
     private var allEntry: Entry?
-    // 每个 kind 各自的 single-flight 标记：为真表示已有调用在锁外枚举 WindowServer。
-    // 多个 AX/缩略图队列可能在同一 TTL 边界同时 miss，只允许每种快照有一个 IPC，
-    // 其余调用（任意数量）在此条件变量上等待，刷新完成后被 broadcast 全部唤醒并
-    // 重新检查 TTL（而不是各自再枚举一次）。
+    // 两种列表各有一个“正在刷新”标记：多个队列可能同时发现缓存过期，每种列表只发一次枚举，
+    // 其余调用在条件变量上等，刷新完一起被唤醒，再查一次是否过期，不各自重新枚举。
     private var onScreenRefreshing = false
     private var allRefreshing = false
 
@@ -64,6 +61,16 @@ final class WindowListCache: @unchecked Sendable {
         snapshot(.onScreen).windows
     }
 
+    /// 现查一次在屏列表，顺带刷新缓存。只给要看准前后顺序的少数地方用（双击标题栏时问哪个应用程序）：
+    /// 缓存最多晚 ttl，一个应用程序刚到前面时，缓存里排在前面的还是原来那个。
+    func onScreenWindowsNow() -> [[String: Any]] {
+        let fresh = build(provider(.onScreen))
+        lock.lock()
+        setEntry(.onScreen, Entry(snapshot: fresh, at: CFAbsoluteTimeGetCurrent()))
+        lock.unlock()
+        return fresh.windows
+    }
+
     func onScreenWindows(ofPID pid: pid_t) -> [[String: Any]] {
         snapshot(.onScreen).byPID[pid] ?? []
     }
@@ -76,9 +83,9 @@ final class WindowListCache: @unchecked Sendable {
         snapshot(.all).byPID[pid] ?? []
     }
 
-    // 拥有至少一个窗口的进程集合。用于在昂贵的 AX 枚举之前筛掉纯后台进程：
-    // 一个窗口都没有的进程，appWindows(pid:) 只可能返回空数组，却要为此付一次
-    // 同步 AX 往返——目标进程无响应时最坏会卡满 2s 消息超时。
+    // 拥有至少一个窗口的进程集合。用于在耗时的辅助功能枚举之前筛掉纯后台进程：
+    // 一个窗口都没有的进程，appWindows(pid:) 只可能返回空数组，却要为此做一次同步的辅助功能调用；
+    // 目标进程无响应时，最多要等满一次辅助功能超时（axMessagingTimeout，1 秒）。
     func pidsWithWindows() -> Set<pid_t> {
         Set(snapshot(.all).byPID.keys)
     }
@@ -113,9 +120,13 @@ final class WindowListCache: @unchecked Sendable {
 
             // 已有调用在锁外刷新同一种快照：等待其完成（锁在此期间被释放，
             // 因此慢 provider 不会阻塞状态锁），被唤醒后回到循环顶部重查 TTL。
+            // 最多等 refreshWait：另一方迟迟没有结果时自己取一份，不再等下去。
             if isRefreshing(kind) {
-                lock.wait()
-                continue
+                if lock.wait(until: Date(timeIntervalSinceNow: Self.refreshWait)) { continue }
+                lock.unlock()
+                let fresh = build(provider(kind))
+                lock.lock()
+                return fresh
             }
 
             // 成为该 kind 的唯一刷新者。锁外取数，完成后写回缓存并广播唤醒全部等待者。
@@ -169,9 +180,24 @@ final class WindowListCache: @unchecked Sendable {
     }
 }
 
+/// 点落在哪个应用程序的普通窗口上：按窗口列表从前到后，找第一扇层级在 0–19、不透明度大于 0、包含这个点的窗口，返回它所属的进程。
+/// Dock（层级 20，一扇铺满屏幕的透明窗口）、菜单栏等系统层级不算：它们不接点击。
+/// 要看准前后顺序时传 onScreenWindowsNow()（场景 B16）。
+func ordinaryWindowOwner(at point: CGPoint, in windows: [[String: Any]]) -> pid_t? {
+    for info in windows {
+        let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+        guard layer >= 0, layer < 20,
+              ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
+              let raw = info[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: raw as CFDictionary), bounds.contains(point) else { continue }
+        return (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
+    }
+    return nil
+}
+
 func cgWindowInfo(_ id: CGWindowID) -> [String: Any]? {
-    // 单窗口直连查询，不走 WindowListCache：watchdog 追踪窗口移动、折叠验证、
-    // SLS alpha 读回都需要实时值，且这里每次只取一个窗口，本来就很廉价。
+    // 单窗口直接查询，不走 WindowListCache：Reconcile 的定时核对、收起验证、读回 SkyLight 透明度
+    // 都要实时值，而且每次只查一个窗口，开销很小。
     let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]]
     return info?.first
 }

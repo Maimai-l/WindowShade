@@ -4,13 +4,13 @@
 # 用法：
 #   ./build.sh            构建 + 签名（需要签名身份，见下）
 #   ./build.sh --check    隔离优化编译与链接验证，不签名、不修改 app bundle
-#   ./build.sh --stage    隔离构建到 .build/duo-validation/（发布包从这里打），写入更新清单地址 SUFeedURL
+#   ./build.sh --stage    隔离构建到 .build/stage/（发布包从这里打），写入更新清单地址 SUFeedURL
 #   ./build.sh --local-parallel  本地全模块优化，使用四个后端线程；发布仍用 --stage
 #
 # 应用内更新（docs/update.md）：主程序链接 prototype/Vendor/Sparkle.framework（2.10.0，已删 XPCServices），
-# 包里另有 Contents/Helpers/WindowShadeUpdateGuard.app（看护，源码在 Watchdog/）。嵌套代码从里往外逐个签，
-# 全部用同一个身份，不用 --deep。--check 与应用一样编译并链接 Sparkle；
-# 缺少该依赖时检查失败，不能把条件编译跳过接口误写成完整链接通过。
+# 用 Sparkle 的标准流程和界面。嵌套代码从里往外逐个签，全部用同一个身份，不用 --deep。
+# --check 与应用一样编译并链接 Sparkle；
+# 缺少 Sparkle 时检查直接失败，不会把“跳过了 Sparkle 接口的编译”当成完整链接通过。
 # 日常 ./build.sh 出来的开发版不写 SUFeedURL，更新器不启动，不会被线上版本换掉。
 #
 # 签名身份（二选一）：
@@ -25,28 +25,29 @@ cd "$(dirname "$0")"
 stage_only=0
 if [ "${1:-}" = "--stage" ]; then stage_only=1; fi
 OPTIMIZATION_FLAGS=(-O -whole-module-optimization)
-# Toolchain version is not the language mode. Keep all four Swift builds identical.
+# 工具链版本不等于语言模式。四次 Swift 编译都用同一组语言参数。
 SWIFT_LANGUAGE_FLAGS=(-swift-version 6 -strict-concurrency=complete -warnings-as-errors)
 if [ "${1:-}" = "--local-parallel" ]; then OPTIMIZATION_FLAGS+=(-num-threads 4); fi
 APP="WindowShade.app"
 if [ "$stage_only" = "1" ]; then
-  APP="$(cd .. && pwd)/.build/duo-validation/WindowShade.app"
+  APP="$(cd .. && pwd)/.build/stage/WindowShade.app"
 fi
 BIN="$APP/Contents/MacOS/WindowShade"
 TMP_BIN="windowshade"
-if [ "$stage_only" = "1" ]; then TMP_BIN="$(cd .. && pwd)/.build/duo-validation/windowshade"; fi
+if [ "$stage_only" = "1" ]; then TMP_BIN="$(cd .. && pwd)/.build/stage/windowshade"; fi
 MODULE_CACHE="$(cd .. && pwd)/.build/module-cache"
 # 更新清单地址与 EdDSA 公钥：只由 --stage 写进发布包；公钥必须和仓库 Info.plist 里的一致。
 FEED_URL="https://windowshade.aaronlau.me/appcast.xml"
 EXPECTED_ED_KEY="D/MZytH+oxawqKQsskoXBdwbvoPentrqfaj7Tj2pnkw="
 SPARKLE_FRAMEWORK="$(pwd)/Vendor/Sparkle.framework"
-# macOS 自带 bash 3.2：`set -u` 下展开空数组会直接致命，而且有 EXIT trap 时还会以 0 退出，
-# 让 --check 在缺少 Vendor/Sparkle.framework 时「什么都不编也返回成功」。下面一律用 + 展开形式。
+# macOS 自带的 bash 3.2 在 `set -u` 下展开空数组会报错退出，有 EXIT trap 时退出码还是 0，
+# 于是缺少 Vendor/Sparkle.framework 时 --check 什么都没编也返回成功。可能为空的数组（SPARKLE_FLAGS）用 + 展开形式。
 SPARKLE_FLAGS=()
 if [ -d "$SPARKLE_FRAMEWORK" ]; then SPARKLE_FLAGS=(-F "$(pwd)/Vendor"); fi
 
 FRAMEWORKS=(
   -framework Cocoa
+  -framework SwiftUI
   -framework Carbon
   -framework ApplicationServices
   -framework ScreenCaptureKit
@@ -55,8 +56,6 @@ FRAMEWORKS=(
   -framework AVFoundation
   -framework Vision
   -framework ServiceManagement
-  -framework Metal
-  -framework MetalKit
   -framework IOKit
   -framework CoreImage
   -framework VideoToolbox
@@ -70,15 +69,15 @@ FRAMEWORKS=(
 
 # 自动收集源文件：只扫 prototype/ 与它的模块子目录，顺序稳定（按路径排序）。
 # 用 -prune 排除 app bundle、dist、.build，避免把构建产物或其它仓库内容扫进来。
-# Watchdog/ 是单独编译的看护小 App，Vendor/ 是第三方框架，都不进主程序的源文件清单。
+# Vendor/ 是第三方框架，不进源文件清单。TapHelper/ 是另一个程序（鼠标钩子进程），单独编译。
 # macOS 自带 Bash 3.2 可运行（只用 find + sort + grep）。
 collect_sources() {
   find . \
     -path "./WindowShade.app" -prune -o \
     -path ./dist -prune -o \
     -path ./.build -prune -o \
-    -path ./Watchdog -prune -o \
     -path ./Vendor -prune -o \
+    -path ./TapHelper -prune -o \
     -name '*.swift' -print \
     | sed 's|^\./||' \
     | sort
@@ -107,10 +106,9 @@ if [ -f "$(xcrun --show-sdk-path --sdk macosx)/System/Library/Frameworks/AppKit.
   GLASS_DEFINE="-DWINDOWSHADE_SDK_HAS_GLASS"
 fi
 ARCH="${WINDOWSHADE_ARCH:-$(uname -m)}"
-# Compile one coherent source snapshot. Edits made while a long optimized build runs
-# cannot invalidate Swift inputs or mix newer shaders into the signed bundle.
+# 先复制一份源码快照再编译：长时间的优化编译期间改动文件，也不会影响签名包里的程序。
 mkdir -p "$(cd .. && pwd)/.build"
-WORK="$(mktemp -d "$(cd .. && pwd)/.build/duo-build.XXXXXX")"
+WORK="$(mktemp -d "$(cd .. && pwd)/.build/build.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 COMPILE_SOURCES=()
 for source in $SOURCES; do
@@ -118,47 +116,34 @@ for source in $SOURCES; do
   cp "$source" "$WORK/$source"
   COMPILE_SOURCES+=("$WORK/$source")
 done
-cp Effects/Duo.metal "$WORK/Duo.metal"
-# 看护：Watchdog/ 下的源码（入口和它自己的菜单栏图标）加上和 App 共用的更新代码（日志、判断、换回、文案），
-# 单独成一个可执行文件。共用的只有 Core/Update*.swift、App/UpdaterSystem.swift、App/UpdaterCopy.swift，
-# 它们只能依赖 Foundation/AppKit 和彼此；别的 App 文件不进看护，改它们不会让 --check 的第二次类型检查失败。
-mkdir -p "$WORK/Watchdog"
-cp Watchdog/*.swift "$WORK/Watchdog/"
-GUARD_SOURCES=()
-for source in Watchdog/main.swift Watchdog/GuardIcon.swift Core/UpdateVersion.swift Core/UpdateModels.swift \
-  Core/UpdateDecisions.swift App/UpdaterSystem.swift App/UpdaterCopy.swift; do
-  GUARD_SOURCES+=("$WORK/$source")
-done
-GUARD_FRAMEWORKS=(-framework AppKit -framework Security -framework ServiceManagement)
-
-# Original C process supervisor is compiled from the SAME isolated snapshot as Swift.
-mkdir -p "$WORK/Native"
-cp Native/WS2Child.c Native/WS2Child.h Native/module.modulemap "$WORK/Native/"
-xcrun -sdk macosx clang -std=c11 -O2 -Wall -Wextra -Werror -target "$ARCH-apple-macosx14.0" \
-  -c "$WORK/Native/WS2Child.c" -o "$WORK/WS2Child.o"
-NATIVE_FLAGS=(-I "$WORK/Native" "$WORK/WS2Child.o")
-
-# Shader checks and normal builds use the same source and deployment target.
-METAL_BUILD="$(cd .. && pwd)/.build/duo-metal"
-mkdir -p "$METAL_BUILD"
-xcrun -sdk macosx metal -mmacosx-version-min=14.0 -fmodules-cache-path="$MODULE_CACHE" -c "$WORK/Duo.metal" -o "$WORK/Duo.air"
-xcrun -sdk macosx metallib "$WORK/Duo.air" -o "$WORK/Duo.metallib"
-cp "$WORK/Duo.metallib" "$METAL_BUILD/Duo.metallib"
-
+# 鼠标钩子进程（docs/design.md 第 5.9 节）：只有 TapHelper/main.swift 和两边共用的 Core/TapProtocol.swift，
+# 只链接 Foundation 和 CoreGraphics。语言参数和主程序相同。
+HELPER_NAME="WindowShadeTapHelper"
+compile_tap_helper() {
+  mkdir -p "$WORK/TapHelper" "$WORK/helper-tmp"
+  cp TapHelper/main.swift "$WORK/TapHelper/main.swift"
+  env TMPDIR="$WORK/helper-tmp" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
+    swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" \
+      -O -whole-module-optimization -o "$1" \
+      "$WORK/TapHelper/main.swift" "$WORK/Core/TapProtocol.swift" -framework CoreGraphics
+}
 if [ "$check_only" = "1" ]; then
   # 和发布构建用同一套编译参数（-O -whole-module-optimization），只把产物写到临时目录、不签名、
-  # 不碰 app bundle。旧的 -typecheck 看不到整模块优化下才报的隔离/所有性问题（TrackpadGestures
-  # 那次主线程命中测试就是 --check 通过、真构建失败），门禁要真挡住这类错误。
+  # 不碰 app bundle。只做 -typecheck 看不到整模块优化下才报的隔离、所有权问题。
   echo "==> 编译验证（--check，和发布构建同样的优化参数；不签名、不修改 app bundle）"
   mkdir -p "$MODULE_CACHE"
   env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
     swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -whole-module-optimization ${GLASS_DEFINE} -o "$WORK/windowshade-check" \
-      "${COMPILE_SOURCES[@]}" "${NATIVE_FLAGS[@]}" "${FRAMEWORKS[@]}" \
+      "${COMPILE_SOURCES[@]}" "${FRAMEWORKS[@]}" \
       "${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"}" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
-  env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
-    swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -o "$WORK/WindowShadeUpdateGuard-check" \
-      "${GUARD_SOURCES[@]}" "${GUARD_FRAMEWORKS[@]}"
+  compile_tap_helper "$WORK/$HELPER_NAME-check"
   echo "==> 编译验证通过"
+  # CI 的演示录屏要用这次编出来的程序：设了 WINDOWSHADE_CHECK_OUTPUT 就把它留下来。
+  if [ -n "${WINDOWSHADE_CHECK_OUTPUT:-}" ]; then
+    mkdir -p "$WINDOWSHADE_CHECK_OUTPUT"
+    cp "$WORK/windowshade-check" "$WINDOWSHADE_CHECK_OUTPUT/WindowShade"
+    cp "$WORK/$HELPER_NAME-check" "$WINDOWSHADE_CHECK_OUTPUT/$HELPER_NAME"
+  fi
   exit 0
 fi
 
@@ -179,9 +164,9 @@ if [ ! -f "$SPARKLE_FRAMEWORK/Versions/B/Sparkle" ]; then
   exit 1
 fi
 
-# 没有现成 bundle 时，用仓库里的 Info.plist + app icon bootstrap 一个最小 bundle。
-# 全新 clone 没有旧 TCC 权限需要保护，所以不必要求先下载一份预编译 binary；
-# 已有 bundle 则继续原地替换 Mach-O，保留 TCC 身份。
+# 没有现成的 app bundle 时，用仓库里的 Info.plist 和应用图标搭一个最小的 bundle。
+# 新克隆的仓库没有旧的 TCC 授权需要保护，所以不必先下载一份编译好的程序；
+# 已有 bundle 时，仍原地替换 Mach-O，保留 TCC 身份。
 if [ ! -d "$APP/Contents/MacOS" ]; then
   echo "==> 未找到现有 ${APP}，从源码仓库资源 bootstrap 最小 bundle"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -198,12 +183,9 @@ mkdir -p "$MODULE_CACHE"
 mkdir -p "$WORK/compiler-tmp"
 env TMPDIR="$WORK/compiler-tmp" CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
   swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" "${OPTIMIZATION_FLAGS[@]}" ${GLASS_DEFINE} -o "$TMP_BIN" \
-    "${COMPILE_SOURCES[@]}" "${NATIVE_FLAGS[@]}" "${FRAMEWORKS[@]}" \
+    "${COMPILE_SOURCES[@]}" "${FRAMEWORKS[@]}" \
     "${SPARKLE_FLAGS[@]+"${SPARKLE_FLAGS[@]}"}" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
-echo "==> 编译看护（WindowShadeUpdateGuard）"
-env CLANG_MODULE_CACHE_PATH="$MODULE_CACHE" \
-  swiftc "${SWIFT_LANGUAGE_FLAGS[@]}" -module-cache-path "$MODULE_CACHE" -target "$ARCH-apple-macosx14.0" -O -o "$WORK/WindowShadeUpdateGuard" \
-    "${GUARD_SOURCES[@]}" "${GUARD_FRAMEWORKS[@]}"
+compile_tap_helper "$WORK/$HELPER_NAME"
 
 if [ "$stage_only" != "1" ]; then
   echo "==> 停止这个 bundle 的 WindowShade（编译通过后才替换）"
@@ -214,13 +196,12 @@ if [ "$stage_only" != "1" ]; then
 fi
 echo "==> 替换 Mach-O（保留 bundle、Info.plist、Resources）"
 cp "$TMP_BIN" "$BIN"
-cp "$WORK/Duo.metallib" "$APP/Contents/Resources/Duo.metallib"
-cp ../docs/third-party-lock-overlay.txt "$APP/Contents/Resources/LockOverlay-LICENSE.txt"
+cp "$WORK/$HELPER_NAME" "$APP/Contents/MacOS/$HELPER_NAME"
+rm -f "$APP/Contents/Resources/Duo.metallib"
+rm -f "$APP/Contents/Resources/LockOverlay-LICENSE.txt"
 rm -rf "$APP/Contents/Resources/ThirdParty"
-# The released bundle historically carries the Swift concurrency runtime in
-# Contents/Frameworks. Preserve that runtime in isolated stage builds too;
-# otherwise the stage zip differs from the known-good app bundle and can fail
-# before application code starts on systems without the matching toolchain.
+# 发布包一直在 Contents/Frameworks 里带着 Swift 并发运行时。隔离的发布构建也保留它；
+# 否则发布包和已验证过的 app bundle 不一致，在没有对应工具链的系统上，可能在程序代码运行之前就失败。
 SOURCE_FRAMEWORKS="$(pwd)/WindowShade.app/Contents/Frameworks"
 if [ "$stage_only" = "1" ] && [ -d "$SOURCE_FRAMEWORKS" ]; then
   mkdir -p "$APP/Contents/Frameworks"
@@ -252,47 +233,15 @@ for lproj in "$EMBED_FW/Versions/B/Resources/"*.lproj; do
 done
 echo "==> Sparkle.framework：${SPARKLE_KB_BEFORE} KB → $(du -sk "$EMBED_FW" | cut -f1) KB（写进发布说明草稿）"
 
-# 看护：LSUIElement 小 App，放在 Contents/Helpers/（Apple 给辅助程序定的位置）。
-GUARD_APP="$APP/Contents/Helpers/WindowShadeUpdateGuard.app"
-rm -rf "$GUARD_APP"
-mkdir -p "$GUARD_APP/Contents/MacOS"
-cp "$WORK/WindowShadeUpdateGuard" "$GUARD_APP/Contents/MacOS/WindowShadeUpdateGuard"
-GUARD_VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Info.plist)
-GUARD_BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" Info.plist)
-cat > "$GUARD_APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleExecutable</key>
-	<string>WindowShadeUpdateGuard</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.windowshade.prototype.update-guard</string>
-	<key>CFBundleName</key>
-	<string>WindowShade</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>${GUARD_VERSION}</string>
-	<key>CFBundleVersion</key>
-	<string>${GUARD_BUILD}</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
-	<key>LSUIElement</key>
-	<true/>
-</dict>
-</plist>
-PLIST
-
-# Info.plist in the source tree owns release versions; synchronize only these
-# fields so existing bundle identity and local resources remain intact.
+# 版本号以源码树里的 Info.plist 为准；只同步这两项，保留现有 bundle 的身份和本地资源。
 for version_key in CFBundleShortVersionString CFBundleVersion; do
   release_value=$(/usr/libexec/PlistBuddy -c "Print $version_key" Info.plist)
   /usr/libexec/PlistBuddy -c "Set :$version_key $release_value" "$APP/Contents/Info.plist"
 done
+# 删掉旧版本留下的 Apple 事件、相机用途说明（源码树的 Info.plist 里已经没有这两项）。
+plutil -remove NSAppleEventsUsageDescription "$APP/Contents/Info.plist" 2>/dev/null || true
+plutil -remove NSCameraUsageDescription "$APP/Contents/Info.plist" 2>/dev/null || true
 # 更新器的设置同样以源码树为准（SUFeedURL 除外：只有 --stage 写，开发版不写就不启动更新器）。
-music_usage=$(plutil -extract NSAppleEventsUsageDescription xml1 -o - Info.plist)
-plutil -replace NSAppleEventsUsageDescription -xml "$music_usage" "$APP/Contents/Info.plist"
 for su_key in SUPublicEDKey SUVerifyUpdateBeforeExtraction SURequireSignedFeed SUEnableAutomaticChecks \
   SUScheduledCheckInterval SUAllowsAutomaticUpdates SUAutomaticallyUpdate SUEnableSystemProfiling; do
   su_value=$(plutil -extract "$su_key" xml1 -o - Info.plist)
@@ -305,13 +254,17 @@ else
 fi
 
 echo "==> 用 Apple Development 证书签名（TCC 授权可跨重编保留）"
-# 从里往外逐个签，全部同一个身份，不用 --deep：Sparkle 的安装器、Updater.app、看护都要和 App 同一个 Team，
+# 从里往外逐个签，全部同一个身份，不用 --deep：Sparkle 的安装器和 Updater.app 都要和 App 同一个 Team，
 # 否则安装器和 App 之间的连接校验不过，新版替换自己也会被“App 管理”拦下。
 # 主程序照旧：不加新标志（不加 hardened runtime），标识符不变，DR 不变。
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW/Versions/B/Autoupdate"
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW/Versions/B/Updater.app"
 codesign --force -s "$IDENTITY" -o runtime "$EMBED_FW"
-codesign --force -s "$IDENTITY" -o runtime -i com.windowshade.prototype.update-guard "$GUARD_APP"
+# 旧版本在这里放过 WindowShadeUpdateGuard.app；原地替换的开发版里可能还留着，删掉。
+rm -rf "$APP/Contents/Helpers/WindowShadeUpdateGuard.app"
+rmdir "$APP/Contents/Helpers" 2>/dev/null || true
+# 鼠标钩子进程和主程序一样不加 hardened runtime：它由 WindowShade 启动，辅助功能授权算在 WindowShade 身上。
+codesign --force -s "$IDENTITY" "$APP/Contents/MacOS/$HELPER_NAME"
 codesign --force -s "$IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"
 
@@ -323,7 +276,8 @@ if [ "$stage_only" = "1" ]; then
   fi
   team_of() { codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p'; }
   MAIN_TEAM="$(team_of "$APP")"
-  for nested in "$EMBED_FW/Versions/B/Autoupdate" "$EMBED_FW/Versions/B/Updater.app" "$EMBED_FW" "$GUARD_APP"; do
+  for nested in "$EMBED_FW/Versions/B/Autoupdate" "$EMBED_FW/Versions/B/Updater.app" "$EMBED_FW" \
+    "$APP/Contents/MacOS/$HELPER_NAME"; do
     if [ -z "$MAIN_TEAM" ] || [ "$(team_of "$nested")" != "$MAIN_TEAM" ]; then
       echo "ERROR: ${nested#"$APP"/} 的 Team 和主程序不同（${MAIN_TEAM:-无}）。" >&2
       exit 1
@@ -333,27 +287,9 @@ if [ "$stage_only" = "1" ]; then
     echo "ERROR: SUPublicEDKey 和记下的公钥不同；换密钥要单独发一版，见 docs/update.md。" >&2
     exit 1
   fi
-  # 更新器的入口要由 main.swift / WindowShade.swift 接上（见 App/UpdaterLaunch.swift、App/Updater.swift 头部注释）。
-  # 少接 --self-check：安装前的试跑会拉起一整个 WindowShade；少接 recordLaunch 或 start()：新版写不了 healthy，每次更新都被换回。
-  # 没接齐时只警告、不跑二进制（别的验证也用 --stage）；这样的包不能发布，DEVELOPMENT.md 的发布流程把它列为阻断项。
-  UPDATER_WIRED=1
-  for wiring in "main.swift:UpdateLaunch.handleEarlyArguments" "main.swift:UpdateLaunch.recordLaunch" \
-    "WindowShade.swift:UpdaterController.shared.start()" "WindowShade.swift:UpdaterController.shared.applicationWillTerminate()" \
-    "WindowShade.swift:UpdaterController.shared.applicationShouldTerminate()"; do
-    if ! grep -qF "${wiring#*:}" "${wiring%%:*}"; then
-      echo "WARNING: ${wiring%%:*} 里没有 ${wiring#*:}：更新器没接齐，这个包不能发布。" >&2
-      UPDATER_WIRED=0
-    fi
-  done
-  if [ "$UPDATER_WIRED" = "1" ]; then
-    # 试跑：5 秒内返回 0，输出里有这次的 build 号（安装前的关给 10 秒；这里留余量给高负载，正常不到 1 秒）。
-    STAGE_BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$APP/Contents/Info.plist")
-    if ! SELF_CHECK_OUT=$(perl -e 'alarm 5; exec @ARGV' "$BIN" --self-check 2>&1) \
-      || ! printf '%s' "$SELF_CHECK_OUT" | grep -qF "build=$STAGE_BUILD"; then
-      echo "ERROR: --self-check 没有在 5 秒内返回 0 并输出 build=$STAGE_BUILD：${SELF_CHECK_OUT:-无输出}" >&2
-      exit 1
-    fi
-    echo "==> --self-check 通过：$SELF_CHECK_OUT"
+  if ! grep -qF "UpdaterController.shared.start()" WindowShade.swift; then
+    echo "ERROR: WindowShade.swift 没有启动更新器（UpdaterController.shared.start()）。" >&2
+    exit 1
   fi
 fi
 touch "$APP"

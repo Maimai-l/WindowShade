@@ -1,44 +1,15 @@
-// 折叠相关的值类型：隐藏方式、生命周期、外观模式、策略、外框画像、专注会话与 ShadeState。
+// 收起相关的值类型：生命周期阶段、标题栏外形（AdobeChromeProfile、WindowChromeProfile）、ShadeState、
+// 收起时的调用选项。隐藏方式、外观模式、隐藏策略和收起计划在 Domain/。
 
 import Cocoa
 
-enum ClassicAction { case close, zoom, expand }
-enum HideMethod: String { case none, offscreen, privateOffscreen, privateAlpha, hidden, minimized, ownWindowOrderedOut, quickLookClosed }   // 真窗口的隐藏方式
 enum ShadeLifecycleStage: String {
-    case preparing   // 折叠事务已写入 durable recovery intent，但真实窗口尚未完成隐藏
+    case preparing   // 恢复记录已写入，原窗口还没隐藏完
     case folded
     case restoring
     case cleaned
     case forwarded
 }
-enum ShadeAppearanceMode: String {
-    case interactiveNative
-    case nativeScreenshot
-    case classicSemantic
-    case proxyTitleBar
-    /// 收起后窗口在原处缩成一张缩略图（设置里“收起后的样子”的第三项，见 App/Thumbnail.swift）。
-    case thumbnail
-}
-
-// Product semantic: shading is a per-window temporary state in macOS's
-// app/window/document model. These policies describe how to keep the real
-// window out of sight; they must not leak into user-facing language as
-// "hide this app" or "close this document".
-enum ShadePolicy {
-    case offscreenThenFallback(allowAppHide: Bool)
-    case offscreenForLivePreview
-    case hiddenIfSingleWindowElseMinimized(allowAppHide: Bool)
-    case closeQuickLookPreview
-}
-
-enum AdobeChromeKind: String {
-    case none
-    case applicationFrame
-    case tabbedDocumentFrame
-    case floatingDocumentWindow
-    case floatingPanel
-}
-
 struct AdobeChromeProfile {
     let kind: AdobeChromeKind
     let preservedChromeHeight: CGFloat
@@ -78,45 +49,10 @@ struct WindowChromeProfile {
     }
 }
 
-enum FocusSessionStage {
-    case arrangedAway
-    case barsRestoredHome
-}
+// MARK: - 收起状态
 
-struct FocusSessionEntry {
-    let id: CGWindowID
-    let wasAlreadyShaded: Bool
-    let homeOverlayFrame: NSRect?
-    let pid: pid_t
-    let appName: String
-}
-
-struct FocusSession {
-    let focusedPID: pid_t
-    let focusedAppName: String
-    let focusedWindowID: CGWindowID?
-    var stage: FocusSessionStage
-    var entries: [CGWindowID: FocusSessionEntry]
-}
-
-func shadePolicyDescription(_ policy: ShadePolicy) -> String {
-    switch policy {
-    case .offscreenThenFallback(let allowAppHide):
-        return "offscreenThenFallback(allowAppHide:\(allowAppHide))"
-    case .offscreenForLivePreview:
-        return "offscreenForLivePreview"
-    case .hiddenIfSingleWindowElseMinimized(let allowAppHide):
-        return "hiddenIfSingleWindowElseMinimized(allowAppHide:\(allowAppHide))"
-    case .closeQuickLookPreview:
-        return "closeQuickLookPreview"
-    }
-}
-
-// MARK: - 折叠状态
-
-// ShadeState follows one real window, not one app. The stored CGWindowID and
-// geometry are the continuity contract: unfold should restore the same window
-// identity and the strip's current spatial anchor whenever macOS allows it.
+// ShadeState 跟的是一扇真实的窗口，不是一个应用程序。存下的 CGWindowID 和几何信息是展开的依据：
+// 只要系统允许，展开时就放回同一扇窗口，并对齐卷帘条当前的位置。
 struct ShadeState {
     let foldTransactionID = UUID()
     let element: AXUIElement
@@ -127,7 +63,7 @@ struct ShadeState {
     let sourceSpaceID: UInt64?
     let overlay: NSWindow?
     let overlayID: CGWindowID?
-    var hide: HideMethod         // 真窗口的隐藏方式：不隐藏 / 挪屏外 / 整体隐藏 / 最小化（延迟验证补救时可改写）
+    var hide: HideMethod         // 原窗口实际被移开的方式（见 HideMethod）；延迟验证补救时可能改写
     let pid: pid_t
     let bundleID: String
     let appName: String
@@ -137,13 +73,7 @@ struct ShadeState {
     var previewImage: NSImage?
     let quickLookReopenURL: URL?
     let ignoreAppRevealUntil: Date
-    var observer: AXObserver?    // 监听窗口被外部唤回（折叠后下一轮 runloop 才注册）
-}
-
-struct ShadePlan {
-    let mode: ShadeAppearanceMode
-    let policy: ShadePolicy
-    let reason: String
+    var observer: AXObserver?    // 监听窗口被外部唤回（收起后下一轮 RunLoop 才注册）
 }
 
 struct ShadeInvocationOptions {

@@ -1,5 +1,5 @@
-// 折叠事务：真实窗口隐藏/恢复、焦点交接、折叠验证与回滚、
-// 交通灯转发、AX 观察器与会话生命周期通知。作为 AppDelegate 扩展实现。
+// 收起事务：原窗口的隐藏和恢复、焦点交接、收起验证与回滚、
+// 红绿灯转发、辅助功能观察器与会话生命周期通知。作为 AppDelegate 扩展实现。
 
 import Cocoa
 
@@ -24,93 +24,42 @@ extension AppDelegate {
         if let pid = pid { activateApp(pid: pid) }
     }
 
-    // MARK: 折叠事务：焦点交接
+    // MARK: 收起事务：焦点交接
     //
-    // 病灶：对焦点所在的 app/窗口执行 app-hide/minimize 时，macOS 自行挑选焦点
-    // 继承人，其"下一个 app"逻辑遵循全局最近使用顺序、不限当前 Space——继承人在
-    // 别的 Space 就跳 Space，继承人是同 app 其他窗口就"激活兄弟窗口"。而隐藏
-    // 非前台 app/窗口没有任何焦点级联。所以隐藏之前由我们显式把焦点交给当前
-    // Space 上的继承人：同 app 同 Space 其他窗口（菜单栏不变）→ 当前 Space
-    // 最顶层其他 regular app 窗口（与系统自身最小化行为一致）→ Finder。
-    // 返回值 = app-hide 是否安全（会不会触发系统的前台 app 重新选举）。
-    // 隐藏整个 app 时，若它是前台 app，macOS 按全局最近使用顺序选举继任者，
-    // 继任者的窗口在别的 Space 就会跳过去——这个选举我们无法干预。
-    // 只有当焦点已交接到当前 Space 的其他窗口（或目标 app 本就不在前台）时，
-    // app-hide 才不会触发选举。
+    // 对当前有焦点的应用程序或窗口执行隐藏应用程序或最小化时，macOS 按全局最近使用顺序挑下一扇获得焦点的窗口，
+    // 不限当前桌面：挑中的窗口在别的桌面上，就会切换桌面；挑中同一应用程序的其他窗口，就会激活那扇窗口。
+    // 隐藏不在前台的应用程序或窗口没有这个问题。
+    // 所以隐藏之前，先把焦点交给当前桌面上的下一扇窗口：同一应用程序在当前桌面的其他窗口（菜单栏不变），
+    // 其次是当前桌面最上层的其他普通应用程序窗口（和系统最小化时一致）；都没有时不交接，
+    // 由调用方改用不会换前台应用程序的方式（见 FocusHandoff）。
+    // 不会隐藏整个应用程序的方式改为藏好之后再交接（见 shade 里的说明）。
+    // 返回值表示隐藏应用程序是否安全：只有焦点已交给当前桌面的其他窗口，或目标应用程序本来就不在前台时才安全。
     @discardableResult
-    func handOffFocusBeforeHiding(win: AXUIElement, pid: pid_t, id: CGWindowID) -> Bool {
-        let selfPid = ProcessInfo.processInfo.processIdentifier
-        let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        // 交接后撤掉截图期的焦点停靠（成功路径此前从不释放）。
+    func handOffFocus(win: AXUIElement, pid: pid_t, id: CGWindowID) -> Bool {
+        // 交接后撤掉截图时用的焦点停靠窗口。
         defer { focusParkingWindow?.orderOut(nil) }
-        guard frontmostPid == pid || frontmostPid == selfPid else {
-            return true   // 目标 app 本就不在前台，隐藏它不会触发焦点级联
-        }
-
-        let onScreenIDs = currentOnScreenWindowIDs()
-
-        // 1) 同 app 在当前 Space 的另一个窗口：焦点交给它，app 保持前台，菜单栏不变。
-        for candidate in appWindows(pid: pid) {
-            guard !CFEqual(candidate, win),
-                  !axBoolAttribute(candidate, kAXMinimizedAttribute as String),
-                  let cid = windowID(of: candidate), cid != id,
-                  onScreenIDs.contains(cid) else { continue }
-            focusAXWindow(candidate, pid: pid)
-            wlog("focus: handoff strategy=same-app heir=\(cid) id=\(id)")
-            return true
-        }
-
-        // 2) 当前 Space 最顶层的其他 regular app 窗口。
-        let windows = WindowListCache.shared.onScreenWindows()
-        for info in windows {
-            guard let owner = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
-                  owner != pid, owner != selfPid,
-                  ((info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1) == 0,
-                  ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
-                  let number = info[kCGWindowNumber as String] as? NSNumber,
-                  !overlayIDs.contains(CGWindowID(number.uint32Value)),
-                  let bounds = cgWindowBounds(info), bounds.width > 1, bounds.height > 1,
-                  let heirApp = NSRunningApplication(processIdentifier: owner),
-                  heirApp.activationPolicy == .regular else { continue }
-            heirApp.activate(options: [])
-            var best: (win: AXUIElement, delta: CGFloat)?
-            for heirWin in appWindows(pid: owner) {
-                guard let p = axPosition(heirWin), let s = axSize(heirWin) else { continue }
-                let delta = frameDistance(CGRect(origin: p, size: s), bounds)
-                if delta <= 96, best == nil || delta < best!.delta {
-                    best = (heirWin, delta)
-                }
-            }
-            if let heirWin = best?.win {
-                focusAXWindow(heirWin, pid: owner)
-            }
-            wlog("focus: handoff strategy=top-window heir=\(heirApp.localizedName ?? String(owner)) id=\(id)")
-            return true
-        }
-
-        // 3) 当前 Space 没有任何其他窗口：无处交接。
-        //    实测教训（13:37/13:49）：激活 Finder 会被 Mission Control 拉去它有
-        //    窗口的 Space；焦点停靠 + app-hide 也躲不过系统的前台选举跳变；
-        //    补偿式跳回受限于"新 Space 值在动画提交前读不到"，永远慢一拍。
-        //    根治 = 不交接、返回 app-hide 不安全：调用方将禁用 app-hide 改走
-        //    minimize——最小化不触发前台选举（app 保持前台，菜单栏不变），
-        //    这是 macOS 的稳定语义（⌘M 从不切 Space）。
-        wlog("focus: handoff strategy=stay-minimize id=\(id)")
-        return false
+        return FocusHandoff(control: FocusControlSystem()).handOff(focusHandoffRequest(win: win, pid: pid, id: id)).appHideSafe
     }
 
-    // Compatibility Bool now reports only a positive observation, never an AX read failure.
-    func hideTookEffect(_ hide: HideMethod, win: AXUIElement, pid: pid_t,
-                       id: CGWindowID, size: CGSize) -> Bool {
-        observeFoldHide(hide, win: win, pid: pid, id: id) == .hidden
+    /// 只在主线程调用：取当前的前台应用程序和卷帘条窗口号。
+    func focusHandoffRequest(win: AXUIElement, pid: pid_t, id: CGWindowID) -> FocusHandoffRequest {
+        FocusHandoffRequest(window: WindowHandle(ax: win), id: id, pid: pid,
+                            frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                            selfPID: ProcessInfo.processInfo.processIdentifier,
+                            overlayIDs: overlayIDs, foldedIDs: Set(shaded.keys))
     }
 
     func scheduleFoldVerification(id: CGWindowID) {
         guard let installed = shaded[id] else { return }
         let expected = foldCallbackStamp(id: id, state: installed)
         FoldVerifier(
-            schedule: { delay, action in DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: action) },
-            isCurrent: { [weak self] in self?.foldCallbackIsCurrent(expected) == true },
+            schedule: { delay, action in runOnMainQueue(after: delay, action) },
+            isCurrent: { [weak self] in
+                guard let self else { return false }
+                let current = self.foldCallbackIsCurrent(expected)
+                if !current { wlog("shade: hide verification dropped as stale id=\(id)") }
+                return current
+            },
             observation: { [weak self] in
                 guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return .unknown }
                 return self.observeFoldHide(state.hide, win: state.element, pid: state.pid, id: id)
@@ -121,8 +70,7 @@ extension AppDelegate {
                 var pid: pid_t = 0
                 guard AXUIElementGetPid(state.element, &pid) == .success, pid == state.pid,
                       self.foldCallbackIsCurrent(expected) else { return false }
-                // Retry only the SAME strategy. Crossing from hidden/offscreen/alpha to
-                // minimized would need a restore record for both attempted mutations.
+                // 只重试同一种方式。从隐藏、移到屏幕外、透明改成最小化，就要为两次改动都留恢复记录。
                 setAXMinimized(state.element, true)
                 return true
             },
@@ -132,6 +80,7 @@ extension AppDelegate {
             },
             result: { [weak self] result in
                 guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return }
+                wlog("shade: hide verification id=\(id) hide=\(state.hide) result=\(result)")
                 switch result {
                 case .hidden:
                     self.revealOverlayAfterVerification(id: id, state: state)
@@ -146,27 +95,19 @@ extension AppDelegate {
 
     func revealOverlayAfterVerification(id: CGWindowID, state: ShadeState) {
         guard shaded[id]?.foldTransactionID == state.foldTransactionID else { return }
-        publishFoldObservation(id: id, state: state)
-        guard shaded[id]?.foldTransactionID == state.foldTransactionID,
-              MainActor.assumeIsolated({ AuthorizationService.shared.lockState() == .unlocked }) else { return }
         if let overlay = state.overlay,
            enforceOverlaySpaceInvariant(id: id, state: state, reason: "hide-verified") {
             overlay.contentView?.toolTip = nil
             revealPreparedOverlay(overlay)
-            duoController.windowEffects.didVerifyFold(id: id, state: state)
         }
-        // The exact transaction settles even when its proxy is on another Space.
-        MainActor.assumeIsolated {
-            settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: true)
-        }
+        // 即使卷帘条在别的桌面上，这次事务也照样了结。
+        settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: true)
     }
 
-    // 回滚折叠事务：按已尝试的隐藏方式逐项逆操作（此前的回滚漏了这步，
-    // 曾把实际已 app-hide 的 Safari 留在隐藏态、无卷帘条），再恢复几何、
-    // 撤 overlay/状态/journal。
+    // 回滚收起事务：按已尝试的隐藏方式做反向操作（漏掉这一步会把已隐藏的应用程序留在隐藏状态，又没有卷帘条），
+    // 再恢复位置和大小，撤掉卷帘条、状态和恢复记录。
     func rollbackFoldTransaction(id: CGWindowID, expectedTransaction: UUID? = nil) {
         if let expectedTransaction, shaded[id]?.foldTransactionID != expectedTransaction { return }
-        duoController.windowEffects.cancel(id)
         guard let state = shaded[id] else { return }
         if let expectedTransaction, state.foldTransactionID != expectedTransaction { return }
         switch state.hide {
@@ -177,7 +118,7 @@ extension AppDelegate {
         case .minimized:
             setAXMinimized(resolvedWindowElement(for: state), false)
         case .privateAlpha:
-            let alpha = privateAlphaOriginalValues.removeValue(forKey: id) ?? 1
+            let alpha = windowHider.takeOriginalAlpha(id: id) ?? 1
             _ = PrivateSLSWindowMover.shared.setAlpha(id: id, alpha: alpha)
         case .none, .offscreen, .privateOffscreen, .ownWindowOrderedOut, .quickLookClosed:
             break
@@ -185,7 +126,7 @@ extension AppDelegate {
         _ = applyRestoredGeometry(state, to: state.originalPosition, label: "rollback", reason: "restore")
         forceCleanup(id, preserveRecovery: true)
         verifyRestoredWindow(state, to: state.originalPosition, completion: nil)
-        quietNotice("这个窗口暂时收不起来",
+        quietNotice("没能收起这个窗口",
                     log: "shade: transaction rolled back id=\(id) app=\(state.appName)")
     }
 
@@ -200,10 +141,10 @@ extension AppDelegate {
         if let id { restoreFocusTokens[id]=token }
         func attempt(_ label: String) {
             if let id { guard restoreFocusTokens[id] == token,shaded[id] == nil,!shadeOperationIDs.contains(id) else { return } }
-            // 只在 app 尚未前台时 activate：250ms 内连发 activate 会反复重启
-            // 菜单栏的交叉淡入，赶上时机就把两套菜单叠印留在屏幕上（系统级
-            // 渲染残影，实测截图 2026-07）。激活已生效的重试只做 AX raise/focus
-            // （不触碰菜单栏）；unhide 保留（.hidden 恢复路径依赖，且幂等）。
+            // 只在应用程序还不在前台时激活它：250 毫秒内连续激活会让菜单栏的交叉淡入反复重来，
+            // 时机不巧时两套菜单会叠在一起留在屏幕上（系统自身的绘制残影，2026-07 截图为证）。
+            // 已经激活后的重试只做辅助功能的升起和聚焦，不碰菜单栏；
+            // 取消隐藏保留（.hidden 的恢复依赖它，重复执行也没有影响）。
             if NSWorkspace.shared.frontmostApplication?.processIdentifier != pid {
                 activateApp(pid: pid)
             } else {
@@ -222,207 +163,142 @@ extension AppDelegate {
         }
     }
 
-    func prepareForwardedTrafficAction(_ win: AXUIElement, pid: pid_t, reason: String) {
-        activateApp(pid: pid)
-        raiseAXWindow(win)
-        focusAXWindow(win, pid: pid)
-        wlog("front: \(reason) immediate-only")
-    }
-
-    func restoredWindowIsGeometryReady(_ win: AXUIElement) -> Bool {
-        guard let pos = axPosition(win), let size = axSize(win) else { return false }
-        return pos.x.isFinite && pos.y.isFinite && size.width > 1 && size.height > 1
-    }
-
-    func buttonIsReady(_ win: AXUIElement, _ attr: String) -> Bool {
-        guard let button = axButtonElement(win, attr),
-              let pos = axPosition(button),
-              let size = axSize(button),
-              size.width > 1,
-              size.height > 1,
-              pos.x.isFinite,
-              pos.y.isFinite else { return false }
-        var ref: CFTypeRef?
-        if AXUIElementCopyAttributeValue(button, kAXEnabledAttribute as CFString, &ref) == .success,
-           let value = ref {
-            return cfBooleanValue(value) ?? true
-        }
-        return true
-    }
-
-    func forwardedTrafficActionSucceeded(state: ShadeState, id: CGWindowID,
-                                                 win: AXUIElement,
-                                                 action: TrafficAction) -> Bool {
-        switch action {
-        case .minimize:
-            return axBoolAttribute(win, kAXMinimizedAttribute as String)
-        case .close:
-            guard runningApp(pid: state.pid) != nil else { return true }
-            let windows = appWindows(pid: state.pid)
-            guard !windows.isEmpty else { return true }
-            let sameWindowExists = windows.contains { window in
-                if let currentID = windowID(of: window), currentID == id { return true }
-                let expectedTitle = cleanDisplayTitle(state.title)
-                return !expectedTitle.isEmpty && cleanDisplayTitle(axTitle(window)) == expectedTitle
-            }
-            guard sameWindowExists else { return true }
-            guard let pos = axPosition(win), let size = axSize(win) else { return true }
-            return !windowIsVisible(pos: pos, size: size)
-        case .zoom, .fullScreen:
-            return true
-        }
-    }
-
+    /// 卷帘条上的红绿灯转给原窗口（docs/design.md S3）：先把原窗口放回原处、带到最前，再按它自己的按钮。
+    /// 全部在该应用程序的队列上做，主线程不等（R5）；按钮还没就绪时在同一条队列上过一会儿再看。
     func performForwardedTrafficAction(state: ShadeState, pos: CGPoint,
-                                               id: CGWindowID, action: TrafficAction) {
-        let attrs: [String]
+                                       id: CGWindowID, action: TrafficAction) {
+        let forwarded: ForwardedTrafficAction
         switch action {
-        case .close:
-            attrs = [kAXCloseButtonAttribute as String]
-        case .minimize:
-            attrs = [kAXMinimizeButtonAttribute as String]
-        case .zoom:
-            attrs = [kAXFullScreenButtonAttribute as String, kAXZoomButtonAttribute as String]
-        case .fullScreen:
-            attrs = [kAXFullScreenButtonAttribute as String]
+        case .close: forwarded = .close
+        case .minimize: forwarded = .minimize
+        case .zoom: forwarded = .zoom
+        case .fullScreen: forwarded = .fullScreen
         }
-
-        func retryOrFallback(_ index: Int, note: String) {
-            if action == .minimize, index >= forwardedTrafficRetryDelays.count - 1 {
-                let win = resolvedWindowElement(for: state)
-                setAXMinimized(win, true)
-                wlog("traffic: minimize fallback AXMinimized id=\(id) note=\(note)")
-                return
-            }
-            if action == .zoom, index >= forwardedTrafficRetryDelays.count - 1 {
-                pressFullScreenShortcut()
-                wlog("traffic: zoom fallback ctrl-cmd-f id=\(id) note=\(note)")
-                return
-            }
-            if action == .fullScreen, index >= forwardedTrafficRetryDelays.count - 1 {
-                pressFullScreenShortcut()
-                wlog("traffic: fullscreen fallback ctrl-cmd-f id=\(id) note=\(note)")
-                return
-            }
-            if action == .close, index >= forwardedTrafficRetryDelays.count - 1 {
-                wlog("traffic: close failed id=\(id) note=\(note)")
-                return
-            }
-            schedule(index + 1, note: note)
+        let own = state.hide == .ownWindowOrderedOut
+        // WindowShade 自己的窗口先在主线程上用 AppKit 放回。
+        if own { restoreWindow(state, to: pos) }
+        let request = restoreRequest(state, to: pos)
+        let restorer = windowRestorer
+        restorer.run(pid: state.pid) {
+            if !own { _ = restorer.restore(request) }
+            forwardTrafficAttempt(forwarded, request: request, restorer: restorer, attempt: 0)
         }
-
-        func verifyAfterAXPress(_ win: AXUIElement, index: Int, attr: String) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
-                let latest = self.resolvedWindowElement(for: state)
-                if self.forwardedTrafficActionSucceeded(state: state, id: id,
-                                                        win: latest, action: action) {
-                    wlog("traffic: \(action) AXPress verified id=\(id) attr=\(attr) attempt=\(index)")
-                    return
-                }
-                retryOrFallback(index, note: "axpress-no-effect")
-            }
-        }
-
-        func verifyAfterPointerClick(_ win: AXUIElement, index: Int, attr: String) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                let latest = self.resolvedWindowElement(for: state)
-                if self.forwardedTrafficActionSucceeded(state: state, id: id,
-                                                        win: latest, action: action) {
-                    wlog("traffic: \(action) pointer-click verified id=\(id) attr=\(attr) attempt=\(index)")
-                    return
-                }
-                if pressAXButton(latest, attr) {
-                    wlog("traffic: \(action) AXPress fallback id=\(id) attr=\(attr) attempt=\(index)")
-                    verifyAfterAXPress(latest, index: index, attr: attr)
-                    return
-                }
-                retryOrFallback(index, note: "click-no-effect")
-            }
-        }
-
-        func attempt(_ index: Int) {
-            let win = applyRestoredGeometry(state, to: pos,
-                                            label: "traffic-\(index)",
-                                            reason: "traffic \(action) id=\(id)")
-            prepareForwardedTrafficAction(win, pid: state.pid,
-                                          reason: "traffic-\(action) id=\(id) attempt=\(index)")
-            guard restoredWindowIsGeometryReady(win) else {
-                schedule(index + 1, note: "geometry-not-ready")
-                return
-            }
-
-            if let attr = attrs.first(where: { buttonIsReady(win, $0) }) {
-                // Forward as a real pointer click at the real traffic-light
-                // center. Nonstandard apps such as WeChat may ignore AXPress
-                // here, but they still honor the native mouse path.
-                if clickAXButton(win, attr) {
-                    wlog("traffic: \(action) pointer-click forwarded id=\(id) attr=\(attr) attempt=\(index)")
-                    if action == .zoom || action == .fullScreen { return }
-                    verifyAfterPointerClick(win, index: index, attr: attr)
-                    return
-                }
-                if pressAXButton(win, attr) {
-                    wlog("traffic: \(action) AXPress forwarded id=\(id) attr=\(attr) attempt=\(index)")
-                    verifyAfterAXPress(win, index: index, attr: attr)
-                    return
-                }
-            }
-
-            retryOrFallback(index, note: "button-not-ready")
-        }
-
-        func schedule(_ index: Int, note: String) {
-            guard index < forwardedTrafficRetryDelays.count else {
-                wlog("traffic: \(action) failed id=\(id) note=\(note)")
-                return
-            }
-            let delay = forwardedTrafficRetryDelays[index]
-            wlog("traffic: \(action) retry id=\(id) attempt=\(index) delay=\(String(format: "%.2f", delay)) note=\(note)")
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                attempt(index)
-            }
-        }
-
-        attempt(0)
     }
 
-    func showRealWindowManagementPopover(_ id: CGWindowID) {
-        guard let state = shaded[id], let overlay = state.overlay else { return }
-        guard state.hide != .quickLookClosed else {
-            wlog("proxy wm: skip QuickLook proxy id=\(id)")
+    /// 放回原窗口所需的输入：位置夹到屏幕可见范围内；用 SkyLight 设成透明的，取出原来的透明度。
+    func restoreRequest(_ state: ShadeState, to pos: CGPoint) -> RestoreRequest {
+        let alpha = state.hide == .privateAlpha ? windowHider.takeOriginalAlpha(id: state.sourceWindowID) : nil
+        return RestoreRequest(window: WindowHandle(ax: state.element), id: state.sourceWindowID, pid: state.pid,
+                              hide: state.hide, position: safeRestorePosition(for: state, desired: pos),
+                              size: state.originalSize, alpha: alpha)
+    }
+
+    /// 展开其他应用程序的窗口（docs/design.md 第 5.5 节）：放回、带到最前在该应用程序的队列上做；
+    /// 做完回到主线程撤卷帘条（dismissOverlayAfter）、安排之后的校正，并开始确认窗口已回到原处。
+    func restoreInBackground(_ state: ShadeState, id: CGWindowID, to pos: CGPoint, dismissOverlayAfter: Bool,
+                             pin: Bool, reason: String, onVerified: ((Bool) -> Void)?) {
+        let request = restoreRequest(state, to: pos)
+        let restorer = windowRestorer
+        let focusToken = UUID()
+        restoreFocusTokens[id] = focusToken
+        let pinToken: UUID? = pin ? UUID() : nil
+        if let pinToken { restorePinTokens[id] = pinToken } else { cancelRestorePin(for: id) }
+        let held = HandOff(state)
+        let verified = HandOff(onVerified)
+        restorer.run(pid: state.pid, { () -> WindowHandle in
+            let window = restorer.restore(request)
+            restorer.bringToFront(window, pid: request.pid)
+            wlog("front: \(reason) immediate")
+            return window
+        }, then: { [weak self] window in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if dismissOverlayAfter, let overlay = held.value.overlay {
+                    overlay.ignoresMouseEvents = true      // 窗口已经展开：等待期间卷帘条只是挡着，不再接点击
+                    // 最小化的窗口要等它从程序坞飞回来，多给 0.3 秒。
+                    let wait = held.value.hide == .minimized ? 0.8 : 0.5
+                    self.dismissOverlayWhenSourceInFront(overlay, id: id, until: Date().addingTimeInterval(wait))
+                }
+                self.scheduleRestoreFollowUps(id: id, request: request, window: window, focusToken: focusToken,
+                                              pinToken: pinToken, hide: held.value.hide, reason: reason)
+                self.verifyRestoredWindow(held.value, to: pos, completion: verified.value)
+            }
+        })
+    }
+
+    /// 窗口已放回原处，但带到最前（激活应用程序）要过一会儿才生效：这期间别的应用程序的窗口还压在它的标题栏上，
+    /// 卷帘条一撤就露出来（CI 访达录像：文本编辑的窗口在标题栏位置露了 5 帧）。应用程序成为当前应用程序时，
+    /// 窗口从非活跃样式换成活跃样式，重画标题栏的一两帧是空的（同一录像又露了 2 帧）。所以等标题栏之上没有别的窗口、
+    /// 应用程序已在前台，再过两帧才撤（和“看一眼”的卡片同一条件），最多等到 deadline。
+    func dismissOverlayWhenSourceInFront(_ overlay: NSWindow, id: CGWindowID, until deadline: Date,
+                                         readySince: Date? = nil) {
+        let now = Date()
+        let ready = GlanceController.sourceIsInFront(id) && GlanceController.sourceAppIsActive(id)
+        let settled = ready && (readySince.map { now.timeIntervalSince($0) >= 2.0 / 60 } ?? false)
+        if settled || now >= deadline {
+            if !settled { wlog("overlay: source not in front and active before deadline id=\(id); dismissing") }
+            dismissOverlay(overlay)
             return
         }
-        let pos = axPosition(fromCocoaFrame: restoreReferenceFrame(id: id, overlay: overlay))
-        removeProxyForForwardedAction(id, state: state)
-        let immediate = restoreWindow(state, to: pos)
-        prepareForwardedTrafficAction(immediate, pid: state.pid,
-                                      reason: "wm-popover id=\(id) immediate")
+        let since = ready ? (readySince ?? now) : nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self] in
+            self?.dismissOverlayWhenSourceInFront(overlay, id: id, until: deadline, readySince: since)
+        }
+    }
 
-        let delays: [TimeInterval] = [0.05, 0.12, 0.22, 0.38, 0.60]
-        func attempt(_ index: Int) {
-            let win = applyRestoredGeometry(state, to: pos,
-                                            label: "wm-\(index)",
-                                            reason: "wm-popover id=\(id)")
-            prepareForwardedTrafficAction(win, pid: state.pid,
-                                          reason: "wm-popover id=\(id) attempt=\(index)")
-            let attrs = [kAXFullScreenButtonAttribute as String, kAXZoomButtonAttribute as String]
-            if let attr = attrs.first(where: { buttonIsReady(win, $0) }),
-               hoverAXButtonForWindowManagement(win, attr) {
-                wlog("proxy wm: forwarded hover to real green button id=\(id) attr=\(attr) attempt=\(index)")
-                return
-            }
-            if index + 1 < delays.count {
-                wlog("proxy wm: retry hover id=\(id) attempt=\(index + 1)")
-                DispatchQueue.main.asyncAfter(deadline: .now() + delays[index + 1]) {
-                    attempt(index + 1)
+    /// 放回之后的补救：80、250 毫秒时再带到最前一次；之后几次再校正位置和大小（有的应用程序取消隐藏、
+    /// 解除最小化后会自己把窗口改回别的大小，可晚于 550 毫秒）。每一次先在主线程上看是否已被取消，
+    /// 再把辅助功能调用交给该应用程序的队列。
+    func scheduleRestoreFollowUps(id: CGWindowID, request: RestoreRequest, window: WindowHandle, focusToken: UUID,
+                                  pinToken: UUID?, hide: HideMethod, reason: String) {
+        let restorer = windowRestorer
+        let resolved = RestoredWindowBox(window)
+        for (label, delay) in [("after-80ms", 0.08), ("after-250ms", 0.25)] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.restoreFocusTokens[id] == focusToken, self.shaded[id] == nil,
+                      !self.shadeOperationIDs.contains(id) else { return }
+                restorer.run(pid: request.pid) {
+                    restorer.bringToFront(resolved.window, pid: request.pid)
+                    wlog("front: \(reason) \(label)")
                 }
-            } else {
-                wlog("proxy wm: cannot find real green button id=\(id)")
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            if self?.restoreFocusTokens[id] == focusToken { self?.restoreFocusTokens.removeValue(forKey: id) }
+        }
+        guard let pinToken else { return }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + delays[0]) {
-            attempt(0)
+        // 第一次（80 毫秒）和最后一次才升起、聚焦，中间几次只校正位置和大小：每次都聚焦的话，批量展开时焦点会连着跳。
+        // 取消隐藏、解除最小化的窗口多校正一次；那时窗口又是最小化的，说明用户或应用程序刚把它最小化了，不再把它放回来。
+        let needsLatePin = hide == .hidden || hide == .minimized
+        var steps: [(label: String, delay: TimeInterval, focus: Bool, verify: Bool, late: Bool)] = [
+            ("after-80ms", 0.08, true, true, false),
+            ("after-250ms", 0.25, false, false, false),
+        ]
+        if needsLatePin {
+            steps.append(("after-550ms", 0.55, false, false, false))
+            steps.append(("after-1100ms", 1.10, true, true, true))
+        } else {
+            steps.append(("after-550ms", 0.55, true, true, false))
+        }
+        for step in steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + step.delay) { [weak self] in
+                guard let self, self.restorePinTokens[id] == pinToken else { return }
+                restorer.run(pid: request.pid) {
+                    if step.late, restorer.control.isMinimized(resolved.window) {
+                        wlog("restore: id=\(id) minimized again after restore; late pin skipped")
+                        return
+                    }
+                    resolved.window = restorer.place(request, label: step.label, verify: step.verify, element: resolved.window)
+                    if step.focus {
+                        restorer.control.raise(resolved.window)
+                        restorer.control.focus(resolved.window, pid: request.pid)
+                    }
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (needsLatePin ? 1.25 : 0.70)) { [weak self] in
+            if self?.restorePinTokens[id] == pinToken { self?.restorePinTokens.removeValue(forKey: id) }
         }
     }
 
@@ -435,98 +311,6 @@ extension AppDelegate {
         }
         guard let pos = axPosition(win) else { return false }
         return !windowIsVisible(pos: pos, size: size)
-    }
-
-    func privateSLSOffscreenHide(_ win: AXUIElement, id: CGWindowID,
-                                         originalPosition pos: CGPoint,
-                                         size: CGSize,
-                                         pid: pid_t,
-                                         reason: String) -> HideMethod? {
-        let mover = PrivateSLSWindowMover.shared
-        guard mover.isAvailable else {
-            wlog("    private SLS offscreen unavailable（pid=\(pid), reason=\(reason)）")
-            return nil
-        }
-
-        let spots = [
-            offscreen,
-            CGPoint(x: -12000, y: pos.y),
-            CGPoint(x: pos.x, y: -12000),
-            CGPoint(x: -12000, y: -12000)
-        ]
-        for spot in spots {
-            guard mover.moveWindow(id: id, to: spot) else {
-                wlog("    private SLS move failed id=\(id) target=(\(Int(spot.x)),\(Int(spot.y))) reason=\(reason)")
-                continue
-            }
-
-            if windowIsParkedOffscreen(id: id, win: win, size: size) {
-                wlog("    private SLS offscreen → parked id=\(id) pid=\(pid) target=(\(Int(spot.x)),\(Int(spot.y))) reason=\(reason)")
-                return .privateOffscreen
-            }
-        }
-
-        if !windowIsParkedOffscreen(id: id, win: win, size: size) {
-            _ = mover.moveWindow(id: id, to: pos)
-        }
-        wlog("    private SLS offscreen did not park id=\(id) pid=\(pid) reason=\(reason)")
-        return nil
-    }
-
-    func privateSLSAlphaHide(id: CGWindowID, pid: pid_t, reason: String) -> HideMethod? {
-        // SIP 开启的系统上，跨进程的 SkyLight 窗口改动会被静默忽略：调用返回成功，
-        // 回读却发现 alpha 没变（实测本机 15 次尝试全部如此）。第一次确认无效之后
-        // 就不再重试，免得批量折叠时每个窗口都白付一次写入 + 一次回读。
-        guard !privateAlphaKnownIneffective else { return nil }
-        let mover = PrivateSLSWindowMover.shared
-        guard mover.canSetAlpha else {
-            wlog("    private SLS alpha unavailable（pid=\(pid), reason=\(reason)）")
-            return nil
-        }
-
-        let originalAlpha = mover.windowAlpha(id: id) ?? Float((cgWindowInfo(id)?[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
-        guard mover.setAlpha(id: id, alpha: 0) else {
-            wlog("    private SLS alpha failed id=\(id) pid=\(pid) reason=\(reason)")
-            return nil
-        }
-
-        let currentAlpha = mover.windowAlpha(id: id)
-            ?? Float((cgWindowInfo(id)?[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
-        guard currentAlpha <= 0.05 else {
-            _ = mover.setAlpha(id: id, alpha: originalAlpha)
-            wlog("    private SLS alpha did not apply id=\(id) pid=\(pid) current=\(String(format: "%.2f", currentAlpha)) reason=\(reason)")
-            privateAlphaKnownIneffective = true
-            wlog("    private SLS alpha 在本机无效（很可能是 SIP 限制），本会话不再尝试")
-            return nil
-        }
-
-        privateAlphaOriginalValues[id] = max(0.05, min(originalAlpha, 1.0))
-        wlog("    private SLS alpha → hidden id=\(id) pid=\(pid) original=\(String(format: "%.2f", originalAlpha)) reason=\(reason)")
-        return .privateAlpha
-    }
-
-    func axOffscreenHide(_ win: AXUIElement,
-                                 originalPosition pos: CGPoint,
-                                 size: CGSize,
-                                 pid: pid_t,
-                                 reason: String) -> HideMethod? {
-        let spots = [
-            offscreen,
-            CGPoint(x: -12000, y: pos.y),
-            CGPoint(x: pos.x, y: -12000),
-            CGPoint(x: -12000, y: -12000)
-        ]
-        for spot in spots {
-            setAXPosition(win, spot)
-            guard let p2 = axPosition(win) else { continue }
-            if !windowIsVisible(pos: p2, size: size) {
-                wlog("    AX offscreen → parked（pid=\(pid), pos=(\(Int(p2.x)),\(Int(p2.y))), reason=\(reason)）")
-                return .offscreen
-            }
-            wlog("    AX offscreen clamped（pid=\(pid), target=(\(Int(spot.x)),\(Int(spot.y))), actual=(\(Int(p2.x)),\(Int(p2.y))), reason=\(reason)）")
-        }
-        setAXPosition(win, pos)
-        return nil
     }
 
     func ownWindow(id: CGWindowID?) -> NSWindow? {
@@ -547,95 +331,37 @@ extension AppDelegate {
         return .ownWindowOrderedOut
     }
 
-    func hideWindow(_ win: AXUIElement, pid: pid_t, originalPosition pos: CGPoint,
-                            size: CGSize, policy: ShadePolicy,
-                            appHideSafe: Bool = true) -> HideMethod {
+    /// 移开原窗口。WindowShade 自己的窗口在主线程 orderOut；其他应用程序的窗口交给
+    /// WindowHider（Platform/WindowHider.swift）在后台队列上做，做完在主线程调用 completion。
+    /// delay：开始移开之前等多久（卷帘条刚亮出来时等两帧，让它先上屏）。
+    func hideWindowInBackground(_ win: AXUIElement, pid: pid_t, originalPosition pos: CGPoint,
+                                size: CGSize, policy: ShadePolicy, appHideSafe: Bool,
+                                delay: TimeInterval = 0, handOffFocusAfter: Bool = false, noFocusHeir: Bool = false,
+                                completion: @escaping (HideMethod, FoldVerifier.Observation) -> Void) {
         let id = windowID(of: win)
         if let hide = orderOutOwnWindowIfNeeded(id: id, pid: pid, reason: "shade") {
-            return hide
+            if handOffFocusAfter, let id { _ = handOffFocus(win: win, pid: pid, id: id) }
+            completion(hide, id.map { observeFoldHide(hide, win: win, pid: pid, id: $0) } ?? .unknown)
+            return
         }
-        switch policy {
-        case .closeQuickLookPreview:
-            if pressAXButton(win, kAXCloseButtonAttribute as String) {
-                wlog("    quicklook → closed via AX close（pid=\(pid)）")
-                return .quickLookClosed
-            }
-            wlog("    quicklook close rejected; fallback offscreen（pid=\(pid)）")
-            return fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                size: size, allowAppHide: false)
-        case .hiddenIfSingleWindowElseMinimized(let allowAppHide):
-            return fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                size: size, allowAppHide: allowAppHide && appHideSafe)
-        case .offscreenForLivePreview:
-            let livePreviewParkingSpots = [
-                offscreen,
-                CGPoint(x: -12000, y: pos.y),
-                CGPoint(x: pos.x, y: -12000),
-                CGPoint(x: -12000, y: -12000)
-            ]
-            for spot in livePreviewParkingSpots {
-                setAXPosition(win, spot)
-                if let p2 = axPosition(win), !windowIsVisible(pos: p2, size: size) {
-                    wlog("    live preview parking → offscreen（pid=\(pid), pos=(\(Int(p2.x)),\(Int(p2.y))))")
-                    return .offscreen
-                }
-            }
-            setAXPosition(win, pos)
-            wlog("    live preview parking failed; fallback to app-hide when single-window（pid=\(pid)）")
-            return fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                size: size, allowAppHide: appHideSafe)
-        case .offscreenThenFallback(let allowAppHide):
-            let bundleID = appBundleID(pid: pid)
-            if allowAppHide && appHideSafe && appCurrentUserWindowCount(pid) <= 1 {
-                wlog("    single-window app → prefer hide fallback（pid=\(pid), bundle=\(bundleID)）")
-                return fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                    size: size, allowAppHide: true)
-            }
-            if let hide = axOffscreenHide(win, originalPosition: pos, size: size,
-                                          pid: pid, reason: "shade") {
-                return hide
-            } else {
-                // 被钳制回可见区。不记成“这个应用挪不出去”：能否挪出屏幕取决于窗口大小、
-                // 位置与显示器布局，下次仍先试挪屏外——它比最小化更接近“收起”。
-                let hide = fallbackHide(win, pid: pid, id: id, originalPosition: pos,
-                                        size: size, allowAppHide: allowAppHide && appHideSafe)
-                wlog("    挪屏外被钳制 → \(hide)（pid=\(pid), bundle=\(bundleID), allowAppHide=\(allowAppHide && appHideSafe)）")
-                return hide
-            }
+        let request = HideRequest(window: WindowHandle(ax: win), id: id, pid: pid, position: pos, size: size,
+                                  policy: policy, appHideSafe: appHideSafe, layout: .current(),
+                                  otherFoldedWindows: shaded.filter { $0.key != id && $0.value.pid == pid }.count,
+                                  noFocusHeir: noFocusHeir)
+        // 窗口藏好之后，键盘输入不能再发给它：交出焦点和移开窗口放在同一个后台任务里，主线程不等。
+        let focusRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
+        let hider = windowHider
+        let finish = HandOff(completion)
+        let element = HandOff(win)
+        windowHideQueue.asyncAfter(deadline: .now() + delay) {
+            let hide = hider.hide(request)
+            if let focusRequest { _ = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest) }
+            // minimize / app-hide 的状态读回是异步的，立即验证可能读到“还没藏好”；调用方据此决定立即显示还是延迟验证。
+            let observation = id.map {
+                observeHiddenWindow(hide, win: element.value, pid: pid, id: $0, layout: request.layout)
+            } ?? .unknown
+            DispatchQueue.main.async { finish.value(hide, observation) }
         }
-    }
-
-    // 挪不出屏的 app：可安全整体隐藏时用 ⌘H 式隐藏；否则只最小化当前窗口。
-    // 注意：app hide 只是现代 macOS 限制下的实现 fallback。产品语义仍然是
-    // “折叠这个窗口”，所以只有当前 app 没有其它可见用户窗口时才允许整体隐藏。
-    func fallbackHide(_ win: AXUIElement, pid: pid_t, id: CGWindowID?,
-                              originalPosition pos: CGPoint, size: CGSize,
-                              allowAppHide: Bool) -> HideMethod {
-        let currentWindowCount = appCurrentUserWindowCount(pid)
-        let totalWindowCount = appWindowCount(pid)
-        if allowAppHide && currentWindowCount <= 1 {
-            if setAXAppHidden(pid: pid, true) {
-                wlog("    fallback → hidden via AX（pid=\(pid), currentWindows=\(currentWindowCount), windows=\(totalWindowCount)）")
-                return .hidden
-            }
-            if NSRunningApplication(processIdentifier: pid)?.hide() == true {
-                wlog("    fallback → hidden via NSRunningApplication（pid=\(pid), currentWindows=\(currentWindowCount), windows=\(totalWindowCount)）")
-                return .hidden
-            }
-            wlog("    fallback hidden rejected（pid=\(pid), currentWindows=\(currentWindowCount), windows=\(totalWindowCount)）")
-        }
-        if let id,
-           let hide = privateSLSOffscreenHide(win, id: id, originalPosition: pos,
-                                              size: size, pid: pid, reason: "fallback") {
-            return hide
-        }
-        if let id,
-           let hide = privateSLSAlphaHide(id: id, pid: pid, reason: "fallback") {
-            return hide
-        }
-        setAXMinimized(win, true)
-        wlog("    fallback → minimized（pid=\(pid), allowAppHide=\(allowAppHide), currentWindows=\(currentWindowCount), windows=\(totalWindowCount)）")
-        return .minimized
     }
 
     func safeRestorePosition(for state: ShadeState, desired pos: CGPoint) -> CGPoint {
@@ -645,18 +371,14 @@ extension AppDelegate {
         return axPosition(fromCocoaFrame: clamped)
     }
 
-    // trustFallback：调用方已经在别处确认过这个元素可用（专注模式在预热阶段
-    // 并发读过它的位置和尺寸），这里直接用，一次 IPC 都不发。
+    // trustFallback：调用方已经在别处确认过这个元素可用（标题栏双击时刚读过它的位置和尺寸），
+    // 这里直接用，不发任何请求。
     //
-    // 这里曾经再做一次存活探测，代价被严重低估：单个 AX 属性读只有在目标 App
-    // 空闲时才是 0.1ms，而级联折叠时它正忙着隐藏自己，实测一次 axPosition 要
-    // 19ms，20 个窗口就是 375ms。而且这次探测是多余的——预热阶段已经验证过。
-    // 元素万一在预热之后失效，shade() 开头的 axPosition/axSize 会读不到而干净地
-    // 中止这一个窗口的折叠，不会造成错误状态。
+    // 这里不做存活探测：目标应用程序正忙着隐藏自己时，一次 axPosition 要 19 毫秒，批量收起时累计可达数百毫秒；
+    // 元素若已失效，后台读窗口那一步读不到位置和大小，会中止这一扇的收起，不会留下错误状态。
     //
-    // 不做 id 比对：传进来的 id 来自 windowID(of:)，那个函数优先用几何+标题匹配，
-    // 和 _AXUIElementGetWindow 对某些 App 给出的值并不一致，比对会系统性失配，
-    // 结果每个窗口先付一次失败比对再付一次完整枚举。
+    // 也不用 _AXUIElementGetWindow 比对 id：传进来的 id 来自 windowID(of:)，它优先按几何和标题匹配，
+    // 和 _AXUIElementGetWindow 对某些应用程序给出的值不一致，比对会一直失败，每扇窗口白做一次比对和一次完整枚举。
     func refreshedWindowElement(id: CGWindowID, fallback: AXUIElement,
                                 trustFallback: Bool = false) -> AXUIElement {
         if trustFallback { return fallback }
@@ -666,11 +388,9 @@ extension AppDelegate {
     }
 
     func resolvedWindowElement(for state: ShadeState) -> AXUIElement {
-        // 存活即可信。这里同样不能拿 id 做精确比对：state.sourceWindowID 来自
-        // windowID(of:)，那是几何+标题匹配的结果，和 _AXUIElementGetWindow 对某些
-        // App 并不一致，比对会系统性失配，于是每次几何校正都先付一次失败比对再付
-        // 一次整 App 枚举。而这里本来就不需要精确校验：元素死了写入会失败，
-        // applyRestoredGeometry 会重新解析后重写。
+        // 元素还能读到位置就直接用，不用 _AXUIElementGetWindow 比对 id（原因见 refreshedWindowElement），
+        // 否则每次校正位置都白做一次比对和一次整个应用程序的枚举。
+        // 这里也不需要精确校验：元素失效时写入会失败，applyRestoredGeometry 会重新解析后再写。
         if axPosition(state.element) != nil { return state.element }
 
         let windows = appWindows(pid: state.pid)
@@ -679,18 +399,17 @@ extension AppDelegate {
         if let match = windows.first(where: { windowID(of: $0) == state.sourceWindowID }) {
             return match
         }
-        // A surviving sibling (even the sole remaining window) is not the source.
-        // Keep the original element on failure; AX then fails safely instead of moving another window.
+        // 剩下的同级窗口（哪怕是唯一剩下的一扇）也不是原窗口。
+        // 失败时保留原来的元素：辅助功能调用会安全地失败，不会挪动别的窗口。
         return state.element
     }
 
-    // verify=false 时跳过回读。回读的两次 AX 往返只用来拼日志里的 actual=（不参与
-    // 任何判断），而重试阶梯的中间几档每个窗口都要付一次——批量恢复 15 个窗口时
-    // 就是上百次纯日志用途的 IPC。首档与末档仍然回读，"App 自己把窗口挪回去了"
-    // 这类问题照样看得见；AX 报错时无条件回读。
+    // verify=false 时跳过回读。回读的两次辅助功能调用只用来拼日志里的 actual=（不参与任何判断），
+    // 而重试中间几次每扇窗口都要做一次，批量恢复 15 扇窗口时就是上百次只为写日志的调用。
+    // 第一次和最后一次仍然回读，“应用程序自己把窗口挪回去了”这类问题照样看得见；辅助功能调用报错时一定回读。
     // element 非空时直接复用上一档解析好的元素：同一个窗口在阶梯的四档之间不会
-    // 变，而重新解析要么是一次整 App 枚举、要么是四次 AX 读。元素真的失效了
-    // （App 在 unhide 后重建了 AX 元素，正是这条阶梯存在的理由）写入会失败，
+    // 变，而重新解析要么是一次整个应用程序的枚举、要么是四次 AX 读。元素真的失效了
+    // （应用程序在 unhide 后重建了 AX 元素，正是这条阶梯存在的理由）写入会失败，
     // 那时再解析一次重写，结果与每档都重新解析一致。
     @discardableResult
     func applyRestoredGeometry(_ state: ShadeState, to pos: CGPoint,
@@ -724,7 +443,7 @@ extension AppDelegate {
         return win
     }
 
-    // 按隐藏方式把真窗口恢复可见，并放到指定位置
+    // 按隐藏方式把原窗口恢复可见，并放到指定位置
     @discardableResult
     func restoreWindow(_ state: ShadeState, to pos: CGPoint) -> AXUIElement {
         switch state.hide {
@@ -737,7 +456,7 @@ extension AppDelegate {
                 wlog("restore: private SLS move back unavailable id=\(state.sourceWindowID)")
             }
         case .privateAlpha:
-            let alpha = privateAlphaOriginalValues.removeValue(forKey: state.sourceWindowID) ?? 1
+            let alpha = windowHider.takeOriginalAlpha(id: state.sourceWindowID) ?? 1
             if PrivateSLSWindowMover.shared.setAlpha(id: state.sourceWindowID, alpha: alpha) {
                 wlog("restore: private SLS alpha back id=\(state.sourceWindowID) alpha=\(String(format: "%.2f", alpha))")
             } else {
@@ -748,8 +467,8 @@ extension AppDelegate {
                 _ = setAXAppHidden(pid: state.pid, false)
             }
         case .minimized:
-            // hide/minimize 周期后原 AX 元素可能失效（Safari 常见），先重新解析，
-            // 否则解除的是无效元素或错误窗口，表现为"恢复失败/几何漂移"。
+            // 隐藏或最小化之后，原来的辅助功能元素可能失效（Safari 常见），先重新解析；
+            // 否则解除最小化的是失效元素或别的窗口，表现为“恢复失败”或位置大小偏移。
             setAXMinimized(resolvedWindowElement(for: state), false)
         case .ownWindowOrderedOut:
             if let window = ownWindow(id: state.sourceWindowID) {
@@ -775,8 +494,8 @@ extension AppDelegate {
         let token = UUID()
         restorePinTokens[id] = token
 
-        // 前几次尝试只校正几何，最后一次才 raise+focus：旧实现每次尝试都重新
-        // 激活/聚焦，restoreAll 批量展开时会造成焦点连环跳（每次 3~4 次 focus）。
+        // 第一次（80 毫秒）和最后一次才升起、聚焦，中间几次只校正位置和大小：
+        // 每次都聚焦的话，批量展开时焦点会连着跳。
         var resolvedElement: AXUIElement?
         func attempt(_ label: String, focus: Bool, verify: Bool = true) {
             guard restorePinTokens[id] == token else { return }
@@ -791,8 +510,8 @@ extension AppDelegate {
             }
         }
 
-        // Safari 等 app 从 unhide/unminimize 自恢复窗口帧可晚于 550ms（"大窗口
-        // 恢复成小窗口"的窗口期），只对这两种 hide 方式追加一次晚校验。
+        // Safari 等应用程序取消隐藏、解除最小化后，可能在 550 毫秒以后才自己把窗口改回别的大小（“大窗口变成小窗口”），
+        // 所以只对这两种隐藏方式多加一次较晚的校正。
         let needsLatePin = state.hide == .hidden || state.hide == .minimized
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { attempt("after-80ms", focus: true) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -803,7 +522,7 @@ extension AppDelegate {
                 attempt("after-550ms", focus: false, verify: false)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.10) {
-                // 这时还原动画早已走完：窗口又是最小化的，是人（或 App）刚把它收回去了，不再拉出来、不抢焦点。
+                // 这时还原动画早已走完：窗口又是最小化的，说明用户或应用程序刚把它最小化了，不再把它放回来、不抢焦点。
                 if let win = resolvedElement, axBoolAttribute(win, kAXMinimizedAttribute as String) {
                     self.restorePinTokens[id] = UUID()
                     wlog("restore: id=\(id) minimized again after restore; late pin skipped")
@@ -843,30 +562,20 @@ extension AppDelegate {
         }
         state.originalSize = newSize
         shaded[id] = state
-        if focusPulledOutOverlayIDs.contains(id) {
-            if shouldReturnPulledOutOverlayToStack(id: id, frame: proxyFrame) {
-                _ = restorePulledOutOverlayToStack(id: id)
-                return
-            }
-            focusPulledOutRestoreFrames[id] = focusRestoreFrame(fromOverlayFrame: proxyFrame,
-                                                                 restoredSize: newSize)
-        }
-        if !focusPulledOutOverlayIDs.contains(id) {
-            arrangedOverlayFrames.removeValue(forKey: id)
-        }
+        arrangedOverlayFrames.removeValue(forKey: id)
         syncRestoreJournal(id: id, fromOverlayFrame: state.overlay?.frame ?? proxyFrame, restoredSize: newSize)
         wlog("resize: proxy id=\(id) width=\(Int(newWidth)) restoredSize=(\(Int(newSize.width))x\(Int(newSize.height)))")
     }
 
-    // 监听窗口被外部唤回：app 显示(⌘Tab 取消隐藏) / 取消最小化(点 Dock)。
-    // app activated 只说明应用拿到焦点，不代表真实窗口已经回到用户可见位置；不能据此展开。
+    // 监听窗口被外部唤回或关掉：应用程序重新显示（Command-Tab 取消隐藏）、取消最小化（点程序坞）、窗口被销毁。
+    // 应用程序被激活只说明它拿到了焦点，不代表原窗口已经回到看得见的位置，不能据此展开。
     func makeRevealObserver(pid: pid_t, win: AXUIElement, id: CGWindowID, transaction: UUID) -> AXObserver? {
         guard shaded[id]?.foldTransactionID == transaction, foldObserverSerial < UInt(Int.max) else { return nil }
         var observer: AXObserver?
         guard AXObserverCreate(pid, axWindowCallback, &observer) == .success, let obs = observer else { return nil }
         foldObserverSerial += 1
         let serial = foldObserverSerial
-        let route = WS2FoldObserverRoute(window: id, pid: pid, transaction: transaction)
+        let route = FoldObserverRoute(window: id, pid: pid, transaction: transaction)
         foldObserverRoutes[serial] = route
         let app = AXUIElementCreateApplication(pid)
         let refcon = UnsafeMutableRawPointer(bitPattern: serial)
@@ -875,6 +584,10 @@ extension AppDelegate {
             AXObserverAddNotification(obs, win, kAXWindowDeminiaturizedNotification as CFString, refcon),
             AXObserverAddNotification(obs, win, kAXUIElementDestroyedNotification as CFString, refcon)
         ]
+        if results[0] != .success {
+            // 应用程序显示时就只能靠系统通知（appUnhidden）和定期检查。
+            wlog("reveal: cannot watch the app being shown pid=\(pid) err=\(results[0].rawValue) id=\(id)")
+        }
         guard results.contains(.success), shaded[id]?.foldTransactionID == transaction else {
             foldObserverRoutes.removeValue(forKey: serial)
             return nil
@@ -884,7 +597,7 @@ extension AppDelegate {
     }
 
     func removeObserver(_ state: ShadeState) {
-        // Withdraw routes before removing a source. Old queued notifications remain harmless.
+        // 先撤路由，再移除运行循环源；已经排队的旧通知不会造成影响。
         for (serial, route) in foldObserverRoutes where route.transaction == state.foldTransactionID {
             foldObserverRoutes.removeValue(forKey: serial)
         }
@@ -893,15 +606,15 @@ extension AppDelegate {
         }
     }
 
-    func handleAXNotification(_ id: CGWindowID, _ notification: String, expected: WS2FoldCallbackStamp) {
+    func handleAXNotification(_ id: CGWindowID, _ notification: String, expected: FoldCallbackStamp) {
         guard foldCallbackIsCurrent(expected), let state = shaded[id] else { return }
         if notification == (kAXUIElementDestroyedNotification as String) {
             if state.hide == .quickLookClosed {
                 wlog("quicklook: ignore expected destroyed notification id=\(id)")
                 return
             }
-            // A delayed destruction notification is a hint, not permission to act on
-            // a reused ID. Require a successful full-membership query with no result.
+            // 延迟到达的销毁通知只是线索，不能据此处理可能被复用的窗口号：
+            // 要求完整的窗口列表查询成功、并且查不到这扇窗口。
             guard let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]],
                   windows.isEmpty, foldCallbackIsCurrent(expected) else { return }
             forceCleanup(id)
@@ -912,65 +625,141 @@ extension AppDelegate {
                 guard windowID(of: state.element) == id,
                       axObservedBoolAttribute(state.element, kAXMinimizedAttribute as String) == false,
                       foldCallbackIsCurrent(expected) else { return }
-                if isFocusShelfMember(id: id) {
-                    revealFocusShelfMemberFromOutside(id: id, state: state, reason: "deminiaturized")
-                    return
-                }
                 unshade(id)
             }
         } else if notification == (kAXApplicationShownNotification as String) {
-            if MainActor.assumeIsolated({ glance.holdsReveal(id) }) {
-                wlog("ignore app reveal caused by glance id=\(id) app=\(state.appName)")
-                return
-            }
-            if Date() < state.ignoreAppRevealUntil {
-                wlog("ignore early app reveal notification=\(notification) id=\(id) app=\(state.appName)")
-                return
-            }
-            if state.hide == .hidden {
-                guard let app = runningApp(pid: state.pid), !app.isTerminated, !app.isHidden,
-                      windowID(of: state.element) == id, foldCallbackIsCurrent(expected) else { return }
-                if isFocusShelfMember(id: id) {
-                    revealFocusShelfMemberFromOutside(id: id, state: state, reason: "app-shown")
-                    return
-                }
-                unshade(id)
-            }
+            appShown(id, state: state, expected: expected, source: notification)
         } else {
             wlog("ignore reveal notification=\(notification) id=\(id) app=\(state.appName)")
         }
     }
 
+    /// 被收起时隐藏了的应用程序又显示了。看一眼临时取消隐藏、收起刚完成时由收起本身引起的显示都不算；其余按用户唤回处理。
+    func appShown(_ id: CGWindowID, state: ShadeState, expected: FoldCallbackStamp, source: String) {
+        if MainActor.assumeIsolated({ glance.holdsReveal(id) }) {
+            wlog("ignore app reveal caused by glance id=\(id) app=\(state.appName)")
+            return
+        }
+        if Date() < state.ignoreAppRevealUntil {
+            // 收起刚完成时的显示可能是收起过程自己引起的，先不算；但用户也可能就在这时把它叫回来
+            // （场景 B18：收起后 1 秒内在“窗口”菜单里选它）。忽略期一过再看一次：应用程序仍然显示着，就展开。
+            wlog("ignore early app reveal notification=\(source) id=\(id) app=\(state.appName); checking again after the window")
+            let wait = max(0, state.ignoreAppRevealUntil.timeIntervalSinceNow) + 0.05
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self, self.foldCallbackIsCurrent(expected), let current = self.shaded[id], current.hide == .hidden,
+                      !MainActor.assumeIsolated({ self.glance.holdsReveal(id) }) else { return }
+                self.unshadeAfterAppShown(id, expected: expected, attemptsLeft: 10)
+            }
+            return
+        }
+        if state.hide == .hidden {
+            unshadeAfterAppShown(id, expected: expected, attemptsLeft: 10)
+        }
+    }
+
+    /// 系统的“应用程序已显示”通知。辅助功能的同名通知有时收不到（CI 场景 B09：在应用程序自己的“窗口”菜单里
+    /// 选这扇窗口，应用程序显示了，辅助功能通知没来，卷帘条留到 5 秒后的定期检查才撤）。两条都接，先到的展开，
+    /// 后到的看到窗口已不在收起的记录里，什么也不做。
+    @objc func appUnhidden(_ note: Notification) {
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        for (id, state) in shaded where state.pid == app.processIdentifier && state.hide == .hidden {
+            wlog("reveal: app shown \(state.appName) pid=\(state.pid) id=\(id)")
+            appShown(id, state: state, expected: foldCallbackStamp(id: id, state: state), source: "workspace-unhide")
+        }
+    }
+
+    /// 用户把隐藏的应用程序叫回来了（点程序坞图标、Command-Tab）：展开它的窗口。
+    /// 辅助功能的“已显示”通知有时比 NSRunningApplication.isHidden 的更新早到（场景 B06）：
+    /// 这时每 0.1 秒再看一次，最多 1 秒，不能直接放弃，否则要等下一次定期检查（5 秒）才展开。
+    func unshadeAfterAppShown(_ id: CGWindowID, expected: FoldCallbackStamp, attemptsLeft: Int) {
+        guard foldCallbackIsCurrent(expected), let state = shaded[id],
+              let app = runningApp(pid: state.pid), !app.isTerminated else { return }
+        if app.isHidden {
+            guard attemptsLeft > 0 else {
+                wlog("reveal: app still reports hidden after 1 s; leaving it to reconcile id=\(id) app=\(state.appName)")
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.unshadeAfterAppShown(id, expected: expected, attemptsLeft: attemptsLeft - 1)
+            }
+            return
+        }
+        guard windowID(of: state.element) == id else {
+            wlog("reveal: the folded window's id changed; not unfolding id=\(id) app=\(state.appName)")
+            return
+        }
+        unshade(id)
+    }
+
     @objc func appTerminated(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        windowBrowserController?.applicationTerminated(pid: app.processIdentifier)
-        pinnedPreviewController.stopPreviews(forPID: app.processIdentifier, reason: "source-app-terminated")
-        MainActor.assumeIsolated { carry.stop(pid: app.processIdentifier, reason: "app-terminated") }
+        AppIconCache.shared.forget(pid: app.processIdentifier)
         for id in shaded.filter({ $0.value.pid == app.processIdentifier }).map(\.key) {
             forceCleanup(id)
         }
     }
 
     @objc func frontmostApplicationChanged(_ note: Notification) {
-        // 卡顿归因：这几条系统回调以前不在任何标记里，出了长卡顿只能看到「未标记」。
+        // 卡顿归因：给这几条系统回调加上标记，长卡顿时才不会只显示“未标记”。
         MainThreadActivity.push("system: 前台应用变化")
         defer { MainThreadActivity.pop() }
-        hideHoverPreview()
+        // 当前应用程序换了谁都记下来：卷帘条上的按键落到了别的应用程序（场景 C13）时，日志能对上是谁先抢了前台。
+        if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+            wlog("front: app activated \(app.localizedName ?? "?") pid=\(app.processIdentifier)")
+            // 这个应用程序的窗口接下来可能被收起：先在后台把它的图标画好（见 Support/AppIconCache.swift）。
+            AppIconCache.shared.prepare(pid: app.processIdentifier)
+        }
         hideMenuHoverPreview()
         MainActor.assumeIsolated {
-            if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if let app {
                 glance.takeOverUnhiddenSessions(for: app.processIdentifier) { id in
                     _ = self.unshade(id)
                 }
             }
-            glance.cancelAll(reason: "frontmost-app")
+            // 点卷帘条会让 WindowShade 自己到前台：那是在卷帘条上操作（比如双击展开），不收看一眼，
+            // 否则第一下点击就把卡片收走，第二下展开前那几帧原处是空的。
+            if app?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                glance.cancelAll(reason: "frontmost-app")
+            }
         }
-        windowBrowserController?.closeTemporaryDockPanel(reason: "frontmost-app")
-        windowBrowserController?.noteAppBecameActive()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            self?.refreshPinnedPreviewTarget(reason: "frontmost-app")
+        if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+           app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            unshadeParkedWindowOnActivation(pid: app.processIdentifier)
         }
         refreshOverlayPresentation()
+    }
+
+    /// 当前桌面上没有别的窗口时，收起无处交焦点，原窗口停到屏幕角落，应用程序不隐藏（第 5.4 节第 8 步）。
+    /// 这时点程序坞图标、Command-Tab、选“窗口”菜单，系统只激活应用程序，没有“取消隐藏”或“取消最小化”可等，
+    /// 窗口也不一定被系统拉回屏幕内（用户的 macOS 14.5 上一直停在角落）。应用程序到前台、它的当前窗口
+    /// 正是停在角落的这扇，就是用户要它回来：展开（场景 B06-alone）。刚收起的 1 秒内，这类激活可能是收起本身引起的，过后再看。
+    func unshadeParkedWindowOnActivation(pid: pid_t) {
+        for (id, state) in shaded where state.pid == pid && state.lifecycleStage == .folded
+            && (state.hide == .offscreen || state.hide == .privateOffscreen) {
+            let wait = state.ignoreAppRevealUntil.timeIntervalSinceNow
+            if wait > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.05) { [weak self] in
+                    guard let self, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+                    self.unshadeParkedWindowOnActivation(pid: pid)
+                }
+                continue
+            }
+            var focused: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute as CFString,
+                                                &focused) == .success,
+                  let focused, CFGetTypeID(focused) == AXUIElementGetTypeID(),
+                  windowID(of: focused as! AXUIElement) == id, shaded[id]?.lifecycleStage == .folded else { continue }
+            // 只管应用程序只有这一扇窗口的情况。有别的窗口时，激活多半是 WindowShade 自己引起的
+            // （点卷帘条上的关闭按钮，转给另一扇窗口时要先激活应用程序），关掉那扇后焦点落到停在角落的这扇上，
+            // 不能因此展开它（CI 随机操作 Q01 种子 1057459836 第 33 步）。
+            var windows: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString,
+                                                &windows) == .success,
+                  (windows as? [AXUIElement])?.count == 1 else { continue }
+            wlog("reveal: \(state.appName) came to the front with its parked window focused; unfolding id=\(id)")
+            unshade(id)
+        }
     }
 
 
@@ -985,31 +774,19 @@ extension AppDelegate {
         MainThreadActivity.push("system: 屏幕参数变化")
         defer { MainThreadActivity.pop() }
         // 菜单栏时隐时现、Dock 高度差一点也会发这条通知（接 Studio Display 的 Mac 上每隔几秒
-        // 一次）。只有显示器本身变了才关窗口浏览、排回窗口、找回屏幕外的窗口；
-        // 可用区域变了只做跟它有关的事：卷帘条别压在菜单栏下，携带窗口那排卷帘条跟着菜单栏挪。
+        // 一次）。只有显示器本身变了才作废进行中的收起、找回屏幕外的窗口；可用区域变化不算：
+        // 收起时把窗口最小化，Dock 多一个图标就可能缩放、改变可用区域，若因此作废，卷帘条就再也等不到显示。
         let layout = DisplayLayout.current()
-        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         let displaysChanged = layout != lastDisplayLayout
-        let visibleChanged = visibleFrames != lastVisibleFrames
         lastDisplayLayout = layout
-        lastVisibleFrames = visibleFrames
-        if displaysChanged || visibleChanged { foldPresentationID = UUID() }
         if displaysChanged {
+            foldPresentationID = UUID()
             wlog("screen: displays changed count=\(layout.screens.count)")
-            windowBrowserController?.screensDidChange()
-        }
-        if displaysChanged || visibleChanged {
-            MainActor.assumeIsolated {
-                carry.layout()
-                if displaysChanged { gestures.screensChanged(); slideOver.screensChanged(); pip.screensChanged() }
-            }
-        }
-        if displaysChanged {
-            pinnedPreviewController.refreshAll(reason: "screen")
         }
         for (id, state) in shaded {
             guard let overlay = state.overlay else { continue }
             let oldFrame = overlay.frame
+            guard !overlayIsReachable(oldFrame) else { continue }
             let newFrame = clampedFrame(oldFrame, margin: 8, preferredDisplayID: state.sourceDisplayID)
             if !framesAlmostEqual(oldFrame, newFrame) {
                 overlay.setFrame(newFrame, display: true)
@@ -1018,9 +795,6 @@ extension AppDelegate {
                 }
                 wlog("screen: clamped overlay id=\(id) frame=(\(Int(newFrame.minX)),\(Int(newFrame.minY)) \(Int(newFrame.width))x\(Int(newFrame.height)))")
             }
-        }
-        if let active = activePreview, active.trigger == .titlebarPeek {
-            updateHoverPreviewFrame(active.ownerID)
         }
         if displaysChanged, shaded.isEmpty {
             rescueOffscreenWindows(silent: true)
@@ -1032,30 +806,95 @@ extension AppDelegate {
         MainThreadActivity.push("system: 切换桌面")
         defer { MainThreadActivity.pop() }
         restorePendingSourceSpacesIfNeeded(reason: "active-space-changed")
-        windowBrowserController?.spaceDidChange()
-        // 轻操作即时执行；开启置顶预览的动画抑制窗口期。
-        hideHoverPreview()
         hideMenuHoverPreview()
         MainActor.assumeIsolated {
             glance.cancelAll(reason: "space-changed")
-            carry.activeSpaceChanged()
-            notch.activeSpaceChanged()
-            gestures.cancel(reason: "space-changed")
         }
         menuPreviewHoverID = nil
         menuPreviewAnchor = nil
-        pinnedPreviewController.noteSpaceTransition()
-        // 重操作（逐窗口 AX/WindowServer 查询 + overlay space enforce）合并防抖：
-        // 连续切 Space / 切换动画期间的通知风暴只结算一次。
+        // 开销大的操作（逐个窗口查询辅助功能和窗口服务器、校正卷帘条所在桌面）合并延后执行：
+        // 连续切换桌面或切换动画期间连发的通知只处理一次。
         spaceRefreshWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.spaceRefreshWorkItem = nil
-            self.pinnedPreviewController.refreshAll(reason: "space")
             self.refreshOverlayPresentation(bringForward: false)
             wlog("space: active space changed; overlays enforced in assigned spaces")
         }
         spaceRefreshWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+}
+
+/// TrafficButtonControl 的真实实现：原窗口的辅助功能按钮和属性。
+private struct AXTrafficButtons: TrafficButtonControl {
+    let window: AXUIElement
+
+    private func attribute(_ action: ForwardedTrafficAction) -> String {
+        switch action {
+        case .close: return kAXCloseButtonAttribute as String
+        case .minimize: return kAXMinimizeButtonAttribute as String
+        case .zoom: return kAXZoomButtonAttribute as String
+        case .fullScreen: return kAXFullScreenButtonAttribute as String
+        }
+    }
+
+    var windowReady: Bool {
+        guard let pos = axPosition(window), let size = axSize(window) else { return false }
+        return pos.x.isFinite && pos.y.isFinite && size.width > 1 && size.height > 1
+    }
+
+    func buttonReady(_ action: ForwardedTrafficAction) -> Bool {
+        guard let button = axButtonElement(window, attribute(action)),
+              let pos = axPosition(button), let size = axSize(button),
+              size.width > 1, size.height > 1, pos.x.isFinite, pos.y.isFinite else { return false }
+        var ref: CFTypeRef?
+        if AXUIElementCopyAttributeValue(button, kAXEnabledAttribute as CFString, &ref) == .success,
+           let value = ref {
+            return cfBooleanValue(value) ?? true
+        }
+        return true
+    }
+
+    func press(_ action: ForwardedTrafficAction) -> Bool {
+        pressAXButton(window, attribute(action))
+    }
+
+    func setAttribute(for action: ForwardedTrafficAction) -> Bool {
+        switch action {
+        case .minimize:
+            return setAXMinimizedReturningError(window, true) == .success
+        case .fullScreen:
+            return isAXAttributeSettable(window, axFullScreenAttribute)
+                && AXUIElementSetAttributeValue(window, axFullScreenAttribute as CFString, kCFBooleanTrue) == .success
+        case .close, .zoom:
+            return false
+        }
+    }
+}
+
+/// 放回之后找回的原窗口：只在该应用程序的串行队列上读写。
+final class RestoredWindowBox: @unchecked Sendable {
+    var window: WindowHandle
+    init(_ window: WindowHandle) { self.window = window }
+}
+
+/// 转发一次红绿灯动作；按钮还没就绪时在同一条队列上过一会儿再来。在该应用程序的队列上执行。
+private func forwardTrafficAttempt(_ action: ForwardedTrafficAction, request: RestoreRequest,
+                                   restorer: WindowRestorer, attempt index: Int) {
+    let window = restorer.place(request, label: "traffic-\(index)", verify: true)
+    restorer.bringToFront(window, pid: request.pid)
+    wlog("front: traffic-\(action.rawValue) id=\(request.id) attempt=\(index) immediate-only")
+    let element = unsafeDowncast(window.element, to: AXUIElement.self)
+    switch TrafficForwarder(control: AXTrafficButtons(window: element)).step(action, attempt: index) {
+    case .done(let how):
+        wlog("traffic: \(action.rawValue) forwarded id=\(request.id) how=\(how) attempt=\(index)")
+    case .wait(let delay):
+        wlog("traffic: \(action.rawValue) waiting id=\(request.id) attempt=\(index) delay=\(String(format: "%.2f", delay))")
+        restorer.run(pid: request.pid, after: delay) {
+            forwardTrafficAttempt(action, request: request, restorer: restorer, attempt: index + 1)
+        }
+    case .gaveUp:
+        wlog("traffic: \(action.rawValue) gave up id=\(request.id) attempt=\(index)")
     }
 }

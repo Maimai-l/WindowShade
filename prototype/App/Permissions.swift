@@ -18,7 +18,7 @@ func hasScreenRecordingPermission() -> Bool {
 /// 打开“系统设置”的隐私面板。
 /// macOS 13 起改由 ExtensionKit 面板承载（本机扩展标识实测为
 /// `com.apple.settings.PrivacySecurity.extension`），旧的 `com.apple.preference.security`
-/// 在部分系统上已不再打开目标页，因此先试新标识、失败再退回旧标识。
+/// 在部分系统上已不再打开目标页。有新面板（hasModernPrivacyPane）时先试新标识，否则先试旧标识；打不开再试另一个。
 func openPrivacySettings(_ pane: String) {
     let candidates = SystemSettingsLinks.privacyPaneCandidates(
         pane: pane, hasModernPane: SystemSettingsLinks.hasModernPrivacyPane())

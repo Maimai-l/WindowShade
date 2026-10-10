@@ -1,9 +1,10 @@
 // 看一眼的指针意图：纯逻辑，不碰 AppKit，时间由调用方传入。
 //
-// 指针进入卷帘条就开始准备画面（预热），停够 intentDelay 才打开；打开后，指针离开
-// 卷帘条和看一眼的画面超过 leaveGrace 才收回。单击卷帘条立刻打开。
-// 收起那一下指针正停在卷帘条上：这条卷帘条先被挡住，指针离开一次才允许悬停打开，
-// 否则双击收起之后窗口会马上又“冒”出来。
+// 指针进入卷帘条就开始准备画面，停够 intentDelay 才打开；打开后，指针离开
+// 卷帘条和看一眼的画面超过 leaveGrace 才收回。单击卷帘条（松开时没有拖动）立刻打开。
+// 按住鼠标期间不打开：拖卷帘条时画面不能闪出来。
+// 收起时如果指针正停在卷帘条上，这条卷帘条先不响应停留，等指针离开一次才允许停留打开；
+// 否则双击收起后，看一眼会立刻打开。
 
 import CoreGraphics
 import Foundation
@@ -24,6 +25,8 @@ struct GlancePointerSample: Equatable {
     var overGlance: Bool = false
     /// 指针在卷帘条的红绿灯区域：那里另有悬停菜单，不在那里开始计时。
     var overControls: Bool = false
+    /// 鼠标左键按着（多半是在拖卷帘条）：不算想看。
+    var buttonPressed: Bool = false
 }
 
 enum GlanceEffect: Equatable {
@@ -129,6 +132,13 @@ final class GlanceIntent {
         case .idle:
             return []
         case .arming(let id, let since):
+            if sample.buttonPressed {
+                // 按住鼠标不算想看：准备作废，这一条挡住，指针离开一次才恢复（松开后还停在上面也不打开）。
+                // 单击打开走 clicked，在松开且没有拖动时才调用。
+                phase = .idle
+                if let strip = sample.strip { blocked.insert(strip) }
+                return [.discard(id)]
+            }
             guard sample.strip == id else {
                 phase = .idle
                 return [.discard(id)]

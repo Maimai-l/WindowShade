@@ -1,18 +1,7 @@
-// “少做”的默认值（docs/direction.md 最后一张表）：⌃⌘ 快捷键新装的不占、升级的照旧；“让开这个 App”的守卫和默认值。
+// 快捷键：新安装时不设置快捷键，升级时保留原有快捷键；录制规则和菜单上的按键。
 // 纯逻辑，用单独的偏好域，不碰用户的设置、不碰任何窗口。
 import Carbon.HIToolbox
-import CoreGraphics
-import Foundation
-
-/// 窗口浏览那一份设置只用到快捷键这几样：换成内存里的，省得把窗口浏览整套编进来。
-enum WindowBrowserSettings {
-    struct HotKey: Equatable {
-        let keyCode: UInt32
-        let modifiers: UInt32
-    }
-    static var hotKey: HotKey?
-    static func displayName(for hotKey: HotKey) -> String { "key \(hotKey.keyCode)" }
-}
+import Cocoa
 
 @main
 struct QuietDefaultsTests {
@@ -21,18 +10,16 @@ struct QuietDefaultsTests {
         if condition { print("ok   \(message)") } else { failures += 1; print("FAIL \(message)") }
     }
 
-    typealias HotKey = WindowBrowserSettings.HotKey
     static let controlCommand = UInt32(controlKey | cmdKey)
     static func ctrlCmd(_ code: Int) -> HotKey { HotKey(keyCode: UInt32(code), modifiers: controlCommand) }
 
-    /// 在一个新的偏好域里跑一段，跑完删掉；prepare 先写好“以前的版本留下的”键。
+    /// 在一个新的偏好域里运行一段测试，结束后删除；prepare 先写好“以前的版本留下的”键。
     static func withDefaults(_ prepare: (UserDefaults) -> Void = { _ in }, _ body: (UserDefaults) -> Void) {
         let suite = "WindowShade.QuietDefaultsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let saved = GlobalShortcutSettings.defaults
         GlobalShortcutSettings.defaults = defaults
-        WindowBrowserSettings.hotKey = nil
         defer {
             defaults.removePersistentDomain(forName: suite)
             GlobalShortcutSettings.defaults = saved
@@ -42,21 +29,16 @@ struct QuietDefaultsTests {
     }
 
     static let shipped: [GlobalShortcut: HotKey] = [
-        .toggleShade: ctrlCmd(kVK_ANSI_C), .arrangeOrFocus: ctrlCmd(kVK_ANSI_0), .pinPreview: ctrlCmd(kVK_ANSI_P),
-        .carry: ctrlCmd(kVK_ANSI_G), .stepSmaller: ctrlCmd(kVK_UpArrow), .stepLarger: ctrlCmd(kVK_DownArrow),
-        .leftHalf: ctrlCmd(kVK_LeftArrow), .rightHalf: ctrlCmd(kVK_RightArrow),
-    ]
-    static let previewOnly: [GlobalShortcut: HotKey] = [
-        .slideOver: ctrlCmd(kVK_ANSI_S), .launchpad: ctrlCmd(kVK_ANSI_L), .magicTile: ctrlCmd(kVK_ANSI_M),
-        .nextDisplay: ctrlCmd(kVK_ANSI_N), .tuckAll: ctrlCmd(kVK_ANSI_H),
+        .toggleShade: ctrlCmd(kVK_ANSI_C), .arrange: ctrlCmd(kVK_ANSI_0),
     ]
 
     static func main() {
         installHistory()
         shortcuts()
         identifiers()
-        dockClickDefault()
-        dockClickGuard()
+        hotKeyPolicy()
+        menuKeyEquivalents()
+        captureVerdicts()
         print(failures == 0 ? "all quiet-defaults tests passed" : "\(failures) quiet-defaults test(s) FAILED")
         exit(failures == 0 ? 0 : 1)
     }
@@ -64,7 +46,7 @@ struct QuietDefaultsTests {
     // MARK: 新装还是升级
 
     /// 事件分派靠 hotKeyID（`EventTap` 按它找动作），编号重了会把快捷键指到别的动作上；
-    /// 名字空着则设置页和冲突提示里会是一片空白。两样都没有别的地方会挡。
+    /// 名字空着则设置页和冲突提示里会是一片空白。这两项别处都不检查。
     static func identifiers() {
         var seen: [UInt32: GlobalShortcut] = [:]
         for shortcut in GlobalShortcut.allCases {
@@ -134,7 +116,7 @@ struct QuietDefaultsTests {
             GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_C), for: .toggleShade)
             expect(GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_C) && !GlobalShortcutSettings.isAllDefault,
                    "recording ⌃⌘C on a new install works and counts as a change")
-            expect(GlobalShortcutSettings.conflictName(for: ctrlCmd(kVK_ANSI_C), excluding: .pinPreview) == GlobalShortcut.toggleShade.title,
+            expect(GlobalShortcutSettings.conflictName(for: ctrlCmd(kVK_ANSI_C), excluding: .arrange) == GlobalShortcut.toggleShade.title,
                    "a recorded combination is reported as taken")
             GlobalShortcutSettings.setHotKey(nil, for: .toggleShade)
             expect(GlobalShortcutSettings.hotKey(for: .toggleShade) == nil && GlobalShortcutSettings.isAllDefault,
@@ -142,7 +124,7 @@ struct QuietDefaultsTests {
             GlobalShortcutSettings.numberedExpandEnabled = true
             expect(GlobalShortcutSettings.numberedExpandEnabled && !GlobalShortcutSettings.isAllDefault,
                    "⌃⌘1…9 can be switched on in Settings")
-            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_M), for: .magicTile)
+            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_N), for: .arrange)
             GlobalShortcutSettings.resetAll()
             expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == nil }
                     && !GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.isAllDefault,
@@ -151,15 +133,15 @@ struct QuietDefaultsTests {
 
         withDefaults({ $0.set(true, forKey: "ShadeOnboardingShown") }) { defaults in
             let kept = GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == shipped[$0] }
-            expect(kept, "an upgrade from 1.0.15 keeps exactly its ⌃⌘C / 0 / P / G / arrows and nothing new")
+            expect(kept, "an upgrade from 1.0.15 keeps exactly its ⌃⌘C / ⌃⌘0 and nothing new")
             expect(GlobalShortcutSettings.numberedExpandEnabled, "an upgrade keeps ⌃⌘1…9")
             expect(GlobalShortcutSettings.isAllDefault, "an untouched upgrade still counts as the defaults (restore button stays off)")
             expect(defaults.object(forKey: "GlobalShortcut.toggleShade") == nil, "nothing is copied into the per-shortcut settings")
-            // 他关掉一个、改掉一个：照他的；恢复默认回到他原来的那一套，而不是清空。
-            GlobalShortcutSettings.setHotKey(nil, for: .leftHalf)
+            // 用户关掉一个、改掉一个时按用户的设置；恢复默认回到用户原来的那一套，而不是清空。
+            GlobalShortcutSettings.setHotKey(nil, for: .arrange)
             GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_K), for: .toggleShade)
             GlobalShortcutSettings.numberedExpandEnabled = false
-            expect(GlobalShortcutSettings.hotKey(for: .leftHalf) == nil && GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_K)
+            expect(GlobalShortcutSettings.hotKey(for: .arrange) == nil && GlobalShortcutSettings.hotKey(for: .toggleShade) == ctrlCmd(kVK_ANSI_K)
                     && !GlobalShortcutSettings.numberedExpandEnabled,
                    "an upgrade can still clear or re-record its shortcuts")
             GlobalShortcutSettings.resetAll()
@@ -171,108 +153,109 @@ struct QuietDefaultsTests {
         // 1.0.15 时关掉过 ⌃⌘1…9、清掉过一个：升级后照旧关着。
         withDefaults({
             $0.set(false, forKey: GlobalShortcutSettings.numberedExpandKey)
-            $0.set([Int](), forKey: "GlobalShortcut.pinPreview")
+            $0.set([Int](), forKey: "GlobalShortcut.arrangeOrFocus")
         }) { _ in
-            expect(!GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.hotKey(for: .pinPreview) == nil
+            expect(!GlobalShortcutSettings.numberedExpandEnabled && GlobalShortcutSettings.hotKey(for: .arrange) == nil
                     && GlobalShortcutSettings.hotKey(for: .toggleShade) == shipped[.toggleShade],
                    "what an upgrade had switched off stays off, the rest keep working")
         }
 
+        // 1.0.16 测试版多设的那几个组合属于已经删除的动作：留下的两个按 1.0.15。
         withDefaults({ $0.set(true, forKey: InstallHistory.previewMarker) }) { _ in
-            let expected = shipped.merging(previewOnly) { a, _ in a }
-            expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == expected[$0] },
-                   "a Mac that ran the 1.0.16 preview also keeps ⌃⌘S / L / M / N / H")
-        }
-        withDefaults({
-            $0.set(true, forKey: InstallHistory.previewMarker)
-            $0.set([Int](), forKey: "GlobalShortcut.magicTile")
-        }) { _ in
-            expect(GlobalShortcutSettings.hotKey(for: .magicTile) == nil,
-                   "a preview default that was left off because it clashed stays off")
+            expect(GlobalShortcut.allCases.allSatisfy { GlobalShortcutSettings.hotKey(for: $0) == shipped[$0] },
+                   "a Mac that ran the 1.0.16 preview keeps ⌃⌘C / ⌃⌘0")
         }
     }
 
-    // MARK: 让开这个 App
+    // MARK: 录制规则
 
-    static func dockClickDefault() {
-        expect(!DockClickHideDefault.isOn(previewInstall: false, origin: .windows), "off for people who came from Windows")
-        expect(!DockClickHideDefault.isOn(previewInstall: false, origin: .ipad), "off for people who came from iPad")
-        expect(DockClickHideDefault.isOn(previewInstall: false, origin: .mac), "on for people who always used a Mac")
-        expect(DockClickHideDefault.isOn(previewInstall: false, origin: .unanswered), "on when nobody answered")
-        expect(DockClickHideDefault.isOn(previewInstall: true, origin: .windows), "people who already had it on keep it on")
+    static func hotKeyPolicy() {
+        func hotKey(_ keyCode: Int, _ modifiers: Int) -> HotKey {
+            HotKey(keyCode: UInt32(keyCode), modifiers: UInt32(modifiers))
+        }
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_Q, cmdKey)), "⌘Q is rejected as a reserved shortcut")
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_K, 0)), "unmodified single letters are rejected")
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_K, shiftKey)), "shift-only shortcuts are rejected")
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_K, cmdKey)),
+               "plain ⌘ combinations are rejected (they collide with app shortcuts)")
+        expect(HotKey.isReserved(hotKey(kVK_ANSI_K, cmdKey | shiftKey)), "⌘⇧ combinations are rejected as well")
+        expect(!HotKey.isReserved(hotKey(kVK_ANSI_K, cmdKey | optionKey)), "a deliberate combination is accepted")
+        expect(!HotKey.isReserved(hotKey(kVK_ANSI_K, controlKey)), "control combinations are accepted")
+        let shiftCommandK = hotKey(kVK_ANSI_K, cmdKey | shiftKey)
+        let name = HotKey.displayName(for: shiftCommandK)
+        expect(name.hasPrefix("Shift-Command-") && name.count > "Shift-Command-".count,
+               "the spoken name lists modifier names in menu order, then a layout key name (\(name))")
+        expect(Array(HotKey.keyCaps(for: shiftCommandK).prefix(2)) == [.symbol("shift"), .symbol("command")],
+               "key caps show modifiers as SF Symbols in menu order")
+        expect(HotKey.keyCaps(for: hotKey(kVK_LeftArrow, controlKey | optionKey))
+                == [.symbol("control"), .symbol("option"), .symbol("arrow.left")],
+               "arrow keys are SF Symbols too")
+        let glyphs = CharacterSet(charactersIn: "⌃⌥⇧⌘←→↑↓↩⇥⌫⌦⇞⇟↖↘…")
+        for keyCode in [kVK_LeftArrow, kVK_Return, kVK_Tab, kVK_Delete, kVK_ForwardDelete, kVK_Space, kVK_Home, kVK_PageUp, kVK_F5, kVK_ANSI_K] {
+            let spoken = HotKey.displayName(for: hotKey(keyCode, controlKey | optionKey | shiftKey | cmdKey))
+            expect(spoken.rangeOfCharacter(from: glyphs) == nil, "names are words, not glyph characters (\(spoken))")
+        }
+        expect(HotKey.isModifierOnlyKeyCode(UInt16(kVK_Command)) && HotKey.isModifierOnlyKeyCode(UInt16(kVK_RightOption)),
+               "modifier-only presses are not recorded as shortcuts")
+        expect(!HotKey.isModifierOnlyKeyCode(UInt16(kVK_ANSI_K)), "a real key can be recorded")
+        expect(!HotKey.isReserved(hotKey(kVK_ANSI_C, cmdKey | controlKey)),
+               "the app's own ⌃⌘ combinations can be re-recorded; clashes are checked per setting")
     }
 
-    static func dockClickGuard() {
-        typealias W = DockClickGuard.Window
-        let screen = CGRect(x: 0, y: 0, width: 1710, height: 1107)
-        let side = CGRect(x: 1710, y: 0, width: 1920, height: 1080)
-        func window(_ id: CGWindowID, _ rect: CGRect, onScreen: Bool = true, layer: Int = 0, alpha: Double = 1) -> W {
-            W(id: id, bounds: rect, onScreen: onScreen, layer: layer, alpha: alpha)
+    /// 录制快捷键时每一种按法的结果（docs/test-catalog.md H03、H04）。
+    static func captureVerdicts() {
+        typealias Verdict = GlobalShortcutSettings.CaptureVerdict
+        func press(_ keyCode: Int, _ modifiers: Int, for shortcut: GlobalShortcut = .toggleShade) -> Verdict {
+            GlobalShortcutSettings.captureVerdict(keyCode: UInt16(keyCode), modifiers: UInt32(modifiers), for: shortcut)
         }
-        let front = window(1, CGRect(x: 100, y: 100, width: 800, height: 600))
-        func survey(_ windows: [W], managed: Set<CGWindowID> = [], minimized: [CGWindowID] = [], standard: Set<CGWindowID>? = nil,
-                    spaces: [CGWindowID: UInt64] = [:], current: Set<UInt64> = [7]) -> DockClickGuard.Survey {
-            // 没特别说时，每扇都是辅助功能列出来的标准窗口。
-            DockClickGuard.survey(windows: windows, screens: [screen, side], managed: managed, minimized: minimized,
-                                  standard: standard ?? Set(windows.map(\.id)), spaceOf: { spaces[$0] }, currentSpaces: current)
+        withDefaults { _ in
+            // H03
+            for modifier in [kVK_Command, kVK_Control, kVK_Option, kVK_Shift, kVK_RightCommand, kVK_RightOption, kVK_Function] {
+                expect(press(modifier, controlKey | cmdKey) == .keepWaiting,
+                       "H03: pressing only a modifier key (\(modifier)) keeps waiting")
+            }
+            expect(press(kVK_Escape, 0) == .cancel, "H03: Esc cancels recording")
+            expect(press(kVK_Escape, controlKey | cmdKey) == .cancel, "H03: Esc with modifiers still cancels, it is never recorded")
+            expect(press(kVK_ANSI_K, 0) == .needsControlOrOption, "H03: a single letter is rejected and asks for Control or Option")
+            expect(press(kVK_ANSI_K, shiftKey) == .needsControlOrOption, "H03: Shift plus a letter is rejected the same way")
+            expect(press(kVK_ANSI_C, cmdKey) == .needsControlOrOption, "H03: Command-C asks for Control or Option")
+            expect(press(kVK_ANSI_K, cmdKey | shiftKey) == .needsControlOrOption, "H03: Shift-Command-K asks for Control or Option")
+            expect(press(kVK_ANSI_Q, cmdKey | optionKey) == .reservedBySystem, "H03: Option-Command-Q is reserved by the system")
+            expect(press(kVK_Space, cmdKey | controlKey) == .reservedBySystem, "H03: Control-Command-Space is reserved by the system")
+            expect(press(kVK_Tab, cmdKey | optionKey) == .reservedBySystem, "H03: Option-Command-Tab is reserved by the system")
+            expect(press(kVK_ANSI_K, controlKey | cmdKey) == .accept(ctrlCmd(kVK_ANSI_K)), "H03: Control-Command-K is accepted")
+            expect(press(kVK_F5, 0) == .needsControlOrOption, "H03: a bare function key is rejected")
+            expect(press(kVK_ANSI_K, controlKey | optionKey) == .accept(HotKey(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(controlKey | optionKey))),
+                   "H03: Control-Option-K is accepted")
+
+            // H04：录给一个动作的组合，再录给另一个动作时提示已用于前一个；录回给它自己不算冲突。
+            GlobalShortcutSettings.setHotKey(ctrlCmd(kVK_ANSI_K), for: .toggleShade)
+            expect(press(kVK_ANSI_K, controlKey | cmdKey, for: .arrange) == .usedBy(GlobalShortcut.toggleShade.title),
+                   "H04: the same combination for another action names the first action")
+            expect(press(kVK_ANSI_K, controlKey | cmdKey, for: .toggleShade) == .accept(ctrlCmd(kVK_ANSI_K)),
+                   "H04: re-recording an action's own combination is accepted")
+            GlobalShortcutSettings.numberedExpandEnabled = true
+            if case .usedBy = press(kVK_ANSI_3, controlKey | cmdKey, for: .arrange) {
+                expect(true, "H04: Control-Command-3 is reported as taken while numbered unfold is on")
+            } else {
+                expect(false, "H04: Control-Command-3 is reported as taken while numbered unfold is on")
+            }
+            GlobalShortcutSettings.numberedExpandEnabled = false
+            expect(press(kVK_ANSI_3, controlKey | cmdKey, for: .arrange) == .accept(ctrlCmd(kVK_ANSI_3)),
+                   "H04: Control-Command-3 is free once numbered unfold is off")
         }
+    }
 
-        let plain = survey([front, window(9, CGRect(x: 0, y: 0, width: 40, height: 30)), window(8, screen, layer: 25)])
-        expect(DockClickGuard.action(for: plain) == .hide, "one window in view, nothing hidden: step aside as before")
-
-        let nothing = survey([window(1, front.bounds, onScreen: false)], minimized: [1])
-        expect(DockClickGuard.action(for: nothing) == .leave, "no window in view: leave the click to the system")
-
-        let tiny = survey([window(2, CGRect(x: 0, y: 0, width: 60, height: 40))])
-        expect(DockClickGuard.action(for: tiny) == .leave, "only a tiny window counts as nothing in view (same rule as before)")
-
-        let withMinimized = survey([front, window(2, front.bounds, onScreen: false), window(3, front.bounds, onScreen: false)],
-                                   minimized: [3, 2])
-        expect(DockClickGuard.action(for: withMinimized) == .bringBack(3),
-               "a minimized window: don't step aside, bring the first one back")
-
-        let collapsed = survey([front, window(2, front.bounds, onScreen: false)], managed: [2], minimized: [2])
-        expect(DockClickGuard.action(for: collapsed) == .hide,
-               "a window WindowShade itself collapsed does not count and is never unminimized here")
-
-        let otherDesktop = survey([front, window(4, front.bounds, onScreen: false)], spaces: [4: 12])
-        expect(otherDesktop.elsewhere == [4] && DockClickGuard.action(for: otherDesktop) == .bringBack(nil),
-               "a window on another desktop: don't step aside (nothing to unminimize)")
-
-        let sameDesktop = survey([front, window(4, front.bounds, onScreen: false)], spaces: [4: 7])
-        expect(DockClickGuard.action(for: sameDesktop) == .hide, "an ordered-out window on this desktop is not a lost window")
-
-        let noSpaceInfo = survey([front, window(4, front.bounds, onScreen: false)], spaces: [4: 12], current: [])
-        expect(DockClickGuard.action(for: noSpaceInfo) == .hide, "without desktop info nothing is guessed to be elsewhere")
-
-        let unknownSpace = survey([front, window(4, front.bounds, onScreen: false)])
-        expect(DockClickGuard.action(for: unknownSpace) == .hide, "a window that belongs to no desktop is ignored")
-
-        let farAway = window(5, CGRect(x: -3000, y: 200, width: 800, height: 600))
-        let offscreen = survey([front, farAway])
-        expect(offscreen.offscreen == [5] && DockClickGuard.action(for: offscreen) == .bringBack(nil),
-               "a standard window entirely outside every screen: don't step aside")
-        expect(DockClickGuard.outsideScreens(windows: [front, farAway], screens: [screen, side], managed: []) == [5],
-               "only then is the app asked whether it is a standard window")
-
-        let helper = survey([front, farAway], standard: [1])
-        expect(helper.offscreen.isEmpty && DockClickGuard.action(for: helper) == .hide,
-               "a window parked off screen that the app does not list as a standard window is ignored (step aside as before)")
-
-        let unanswered = survey([front, farAway], standard: [])
-        expect(DockClickGuard.action(for: unanswered) == .hide,
-               "when the app does not answer, nothing off screen is guessed to be a lost window")
-
-        expect(DockClickGuard.outsideScreens(windows: [front, farAway], screens: [screen, side], managed: [5]).isEmpty,
-               "a window WindowShade itself parked off screen is never asked about")
-
-        let onSecondScreen = survey([front, window(6, CGRect(x: 1800, y: 100, width: 800, height: 600))])
-        expect(DockClickGuard.action(for: onSecondScreen) == .hide, "a window on the other display is in view")
-
-        let partly = survey([front, window(6, CGRect(x: -700, y: 100, width: 800, height: 600))])
-        expect(DockClickGuard.action(for: partly) == .hide, "a window with a sliver on screen is not counted as lost")
-
-        let transparent = survey([front, window(7, CGRect(x: -3000, y: 200, width: 800, height: 600), alpha: 0)])
-        expect(DockClickGuard.action(for: transparent) == .hide, "an invisible off-screen helper window is ignored")
+    static func menuKeyEquivalents() {
+        let menu = GlobalShortcutSettings.menuKeyEquivalent(for: ctrlCmd(kVK_ANSI_C))
+        expect(menu?.modifiers == [.control, .command] && menu?.key.count == 1 && menu?.key == menu?.key.lowercased(),
+               "menu items show a lower-case key so AppKit does not add a phantom ⇧")
+        let f5 = ctrlCmd(kVK_F5)
+        let f5Name = HotKey.keyName(for: f5.keyCode, shift: false)
+        expect(GlobalShortcutSettings.menuKeyEquivalent(for: f5) == nil || f5Name.count == 1,
+               "keys whose name is not one character are not squeezed into a menu key (\(f5Name))")
+        expect(GlobalShortcutSettings.menuKeyEquivalent(for: ctrlCmd(kVK_LeftArrow)) == nil,
+               "arrow keys are not squeezed into a menu key")
+        expect(HotKey.displayName(for: f5) == "Control-Command-F5", "function keys have names (\(HotKey.displayName(for: f5)))")
     }
 }

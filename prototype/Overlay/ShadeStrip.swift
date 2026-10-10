@@ -1,102 +1,7 @@
-// 覆盖层视图：卷帘条窗口（截图条/经典条/代理标题栏）、预览视窗、
-// 经典调色板与自绘控件。视图只通过闭包回调动作，不直接持有 AppDelegate。
+// 覆盖层视图：卷帘条窗口（原标题栏 / 简化标题栏）与预览视窗。视图只通过闭包回调动作，不直接持有 AppDelegate。
 
 import Cocoa
 import QuartzCore
-
-struct ClassicPalette {
-    let paper: NSColor
-    let edge: NSColor
-    let text: NSColor
-    let secondaryText: NSColor
-    let control: NSColor
-    let controlFill: NSColor
-}
-
-@MainActor
-func isDarkAppearance() -> Bool {
-    NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-}
-
-func dominantIconColor(pid: pid_t) -> NSColor? {
-    guard let icon = runningApp(pid: pid)?.icon else { return nil }
-    let side = 32
-    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
-                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-                                    isPlanar: false, colorSpaceName: .deviceRGB,
-                                    bytesPerRow: 0, bitsPerPixel: 0),
-          let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-
-    NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = ctx
-    NSColor.clear.setFill()
-    NSRect(x: 0, y: 0, width: side, height: side).fill()
-    icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side),
-              from: NSRect(origin: .zero, size: icon.size),
-              operation: .sourceOver, fraction: 1)
-    ctx.flushGraphics()
-    NSGraphicsContext.restoreGraphicsState()
-
-    struct Bin {
-        var weight: CGFloat = 0
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-    }
-    var bins = Array(repeating: Bin(), count: 36)
-
-    for y in 0..<side {
-        for x in 0..<side {
-            guard let raw = rep.colorAt(x: x, y: y),
-                  let c = raw.usingColorSpace(.deviceRGB) else { continue }
-            var hue: CGFloat = 0, sat: CGFloat = 0, bri: CGFloat = 0, alpha: CGFloat = 0
-            c.getHue(&hue, saturation: &sat, brightness: &bri, alpha: &alpha)
-            if alpha < 0.35 || sat < 0.10 || bri < 0.16 || bri > 0.96 { continue }
-            let bin = min(35, max(0, Int(floor(hue * 36))))
-            let weight = alpha * (0.35 + sat) * (0.65 + min(bri, 1 - bri))
-            bins[bin].weight += weight
-            bins[bin].red += c.redComponent * weight
-            bins[bin].green += c.greenComponent * weight
-            bins[bin].blue += c.blueComponent * weight
-        }
-    }
-
-    guard let best = bins.enumerated().max(by: { $0.element.weight < $1.element.weight })?.element,
-          best.weight > 0 else { return nil }
-    return NSColor(calibratedRed: best.red / best.weight,
-                   green: best.green / best.weight,
-                   blue: best.blue / best.weight,
-                   alpha: 1)
-}
-
-@MainActor
-func classicPalette(pid: pid_t) -> ClassicPalette {
-    let base = dominantIconColor(pid: pid) ?? NSColor(calibratedHue: 0.60, saturation: 0.32, brightness: 0.96, alpha: 1)
-    let rgb = base.usingColorSpace(.deviceRGB) ?? base
-    var hue: CGFloat = 0, sat: CGFloat = 0, bri: CGFloat = 0, alpha: CGFloat = 0
-    rgb.getHue(&hue, saturation: &sat, brightness: &bri, alpha: &alpha)
-
-    let dark = isDarkAppearance()
-    let tintSat = min(max(sat * 0.25, 0.06), 0.20)
-    if dark {
-        return ClassicPalette(
-            paper: NSColor(calibratedHue: hue, saturation: tintSat, brightness: 0.25, alpha: 1),
-            edge: NSColor(calibratedWhite: 0.45, alpha: 1),
-            text: NSColor(calibratedWhite: 0.92, alpha: 1),
-            secondaryText: NSColor(calibratedWhite: 0.76, alpha: 1),
-            control: NSColor(calibratedWhite: 0.72, alpha: 1),
-            controlFill: NSColor(calibratedWhite: 0.30, alpha: 1)
-        )
-    }
-    return ClassicPalette(
-        paper: NSColor(calibratedHue: hue, saturation: tintSat, brightness: 0.98, alpha: 1),
-        edge: NSColor(calibratedWhite: 0.50, alpha: 1),
-        text: NSColor(calibratedWhite: 0.08, alpha: 1),
-        secondaryText: NSColor(calibratedWhite: 0.26, alpha: 1),
-        control: NSColor(calibratedWhite: 0.42, alpha: 1),
-        controlFill: NSColor(calibratedWhite: 0.95, alpha: 0.22)
-    )
-}
 
 // MARK: - 覆盖层
 
@@ -119,6 +24,17 @@ final class OverlayWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
+    // 卷帘条上的 ⌘N 等要卷帘条是当前窗口才收得到：何时成为、何时不再是当前窗口记进日志，便于对照（场景 C10 至 C14）。
+    override func becomeKey() {
+        super.becomeKey()
+        wlog("strip: became key window=\(windowNumber) appActive=\(NSApp.isActive)")
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        wlog("strip: resigned key window=\(windowNumber)")
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         StripKeyForwarding.handle(event, in: self) || super.performKeyEquivalent(with: event)
     }
@@ -129,19 +45,15 @@ final class PreviewWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-// 统一预览视窗：菜单悬停与标题栏单击 peek 共用同一个显示/隐藏机制，系统中任一
-// 时刻最多只有一个预览视窗存在——不再是两套独立状态各自为政、只靠单向调用
-// 互相关闭撞出来的巧合。
+// 预览视窗的来源。系统中任一时刻最多只有一个预览视窗。
 enum PreviewTrigger {
     case menuHover
-    case titlebarPeek
 }
 
 struct ActivePreview {
     let ownerID: CGWindowID
     let window: NSWindow
     let trigger: PreviewTrigger
-    let isPinnedLive: Bool
 }
 
 final class ShadedAccessibilityActionTarget: NSObject {
@@ -158,11 +70,14 @@ final class ShadedAccessibilityActionTarget: NSObject {
 
 final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var onDoubleClick: (() -> Void)?
-    var onPreviewPeek: (() -> Void)?
+    var onClick: (() -> Void)?
     var onAction: ((TrafficAction) -> Void)?
-    var onWindowManagementPopover: (() -> Void)?
     var onResize: ((NSWindow) -> Void)?
     var onFrameMoved: ((NSRect) -> Void)?
+
+    /// 卷帘条要正好盖在原来的标题栏上：原窗口伸出屏幕边，卷帘条也跟着伸出去，不让 AppKit 推回屏幕里
+    /// （推回来以后展开位置跟着变，窗口就不在原处了）。卷帘条在可用区域里露出的部分不够操作时（见 overlayIsReachable），由调用方移回来。
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     var onDragEnded: ((NSRect) -> Void)?
     var fixedTitlebarHeight: CGFloat = proxyTitleBarHeight
     var minimumReadableWidth: CGFloat = 260
@@ -171,26 +86,75 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var usesProxyTitleLayout = false
     var trafficLightConfiguration = ProxyTrafficLightConfiguration.standard
     private var redirectingFullScreen = false
-    private var pendingWindowManagementHover: DispatchWorkItem?
     private var zoomMouseDown = false
-    private var zoomPopoverForwarded = false
-    /// 卷帘条可能直接出现在一个停着的指针下面（在标题栏上两指上滑收起时，指针停在哪都有可能，
-    /// 正好停在绿色按钮的位置就会被当成悬停，窗口随即被展开去弹系统菜单）。这不是想打开窗口
-    /// 管理菜单：出现那一刻指针就在绿色按钮上的话，先离开一次，悬停转发才恢复。指针从别处
-    /// 移过来、按下绿色按钮都不受影响。
-    private var zoomHoverArmed = true
     private var potentialWindowDrag = false
     private var didWindowDrag = false
+    /// 按下时指针在卷帘条里的位置（窗口坐标，取自按下事件本身）和卷帘条的大小：
+    /// 大小变了，说明拖的是边缘（改宽度），不是移动。
+    private var pressPoint: NSPoint = .zero
+    private var pressSize: NSSize = .zero
+    /// 按在左右边缘上：交给系统改宽度，不当作移动。
+    private var pressOnResizeEdge = false
+    /// 左右边缘内这么宽的一段，按下去算改宽度，不移动。
+    static let resizeEdge: CGFloat = 6
     private var isClosingProgrammatically = false
+    /// 卷帘条没聚焦时的红绿灯：照系统的样子画成三个灰点（标准按钮在这种状态下的样子和系统不一致）。
+    private let inactiveLights = InactiveTrafficLightsView()
+    private var pointerOverLights = false
+    private var activationObservers: [NSObjectProtocol] = []
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func becomeKey() {
+        super.becomeKey()
+        wlog("strip: became key window=\(windowNumber) appActive=\(NSApp.isActive)")
+        refreshTrafficLightAppearance()
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        wlog("strip: resigned key window=\(windowNumber)")
+        refreshTrafficLightAppearance()
+    }
+
+    /// 卷帘条是当前窗口（WindowShade 在前台、它是键盘焦点所在的窗口）或指针在按钮上时用系统按钮
+    /// （系统对没聚焦的窗口也是悬停时才显示颜色和符号）；其余时候藏起系统按钮，显示三个灰点。
+    /// 系统按钮只是变透明，点击照样落在它们上面。
+    func refreshTrafficLightAppearance() {
+        if activationObservers.isEmpty {
+            let center = NotificationCenter.default
+            for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+                activationObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.refreshTrafficLightAppearance() }
+                })
+            }
+        }
+        let showSystem = (isKeyWindow && NSApp.isActive) || pointerOverLights
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            standardWindowButton(type)?.alphaValue = showSystem ? 1 : 0
+        }
+        inactiveLights.isHidden = showSystem
+    }
+
+    /// 灰点画在系统按钮的位置上（原标题栏的卷帘条按钮对齐原窗口的灯，简化标题栏的按钮按固定排版）。
+    /// 位置在画的时候现取，按钮被挪动时重画（见 InactiveTrafficLightsView）。
+    private func layoutInactiveLights() {
+        guard let content = contentView else { return }
+        if inactiveLights.superview !== content { content.addSubview(inactiveLights) }
+        inactiveLights.frame = content.bounds
+        inactiveLights.autoresizingMask = [.width, .height]
+        inactiveLights.buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { standardWindowButton($0) }
+        refreshTrafficLightAppearance()
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         StripKeyForwarding.handle(event, in: self) || super.performKeyEquivalent(with: event)
     }
 
     override func performClose(_ sender: Any?) {
+        wlog("strip: close button window=\(windowNumber) handler=\(onAction != nil)")
         onAction?(.close)
     }
 
@@ -204,10 +168,12 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
 
     func closeProgrammatically() {
         isClosingProgrammatically = true
+        activationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        activationObservers.removeAll()
+        inactiveLights.buttons = []
         onDoubleClick = nil
-        onPreviewPeek = nil
+        onClick = nil
         onAction = nil
-        onWindowManagementPopover = nil
         onResize = nil
         onFrameMoved = nil
         onDragEnded = nil
@@ -317,6 +283,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                                   height: buttonSize.height)
             button.frame = superview.convert(centered, from: content)
         }
+        layoutInactiveLights()
     }
 
     func configureTrafficLightButtons(_ configuration: ProxyTrafficLightConfiguration) {
@@ -347,88 +314,73 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         }
     }
 
+    /// 三个按钮连成一片算：指针在两个按钮之间的空隙里时，系统也照样显示颜色和符号。
+    private func updatePointerOverLights(_ pointInWindow: NSPoint) {
+        let frames = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { type -> NSRect? in
+            guard let button = standardWindowButton(type), !button.isHidden, let superview = button.superview else { return nil }
+            return superview.convert(button.frame, to: nil)
+        }
+        let over = frames.dropFirst().reduce(frames.first ?? .zero) { $0.union($1) }.contains(pointInWindow)
+        guard over != pointerOverLights else { return }
+        pointerOverLights = over
+        refreshTrafficLightAppearance()
+    }
+
     private func pointHitsAnyStandardButton(_ pointInWindow: NSPoint) -> Bool {
         [.closeButton, .miniaturizeButton, .zoomButton].contains {
             pointHitsStandardButton($0, pointInWindow)
         }
     }
 
-    override func orderFrontRegardless() {
-        let appearing = !isVisible
-        super.orderFrontRegardless()
-        if appearing {
-            let pointer = convertPoint(fromScreen: NSEvent.mouseLocation)
-            zoomHoverArmed = !pointHitsStandardButton(.zoomButton, pointer)
-        }
-    }
-
-    private func cancelWindowManagementHover() {
-        pendingWindowManagementHover?.cancel()
-        pendingWindowManagementHover = nil
-    }
-
-    private func forwardWindowManagementPopover() {
-        cancelWindowManagementHover()
-        zoomPopoverForwarded = true
-        onWindowManagementPopover?()
-    }
-
-    private func scheduleWindowManagementPopover(delay: TimeInterval = 0.55) {
-        if pendingWindowManagementHover != nil { return }
-        let work = DispatchWorkItem { [weak self] in
-            self?.pendingWindowManagementHover = nil
-            self?.forwardWindowManagementPopover()
-        }
-        pendingWindowManagementHover = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-    }
-
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown || event.type == .leftMouseUp {
+            // 卷帘条上的按下、松开都记一行（不常发生）：点了没反应时，看得出点击到没到卷帘条、落在哪里
+            // （随机操作 Q01 种子 647145595 第 126 步：点关闭按钮，日志里什么也没有；场景 C24）。
+            let p = event.locationInWindow
+            wlog("strip: mouse \(event.type == .leftMouseDown ? "down" : "up") window=\(windowNumber) at=(\(Int(p.x)),\(Int(p.y))) "
+                 + "onButton=\(pointHitsAnyStandardButton(p)) key=\(isKeyWindow) appActive=\(NSApp.isActive)")
+        }
         let greenAction = greenTrafficAction
         if event.type == .mouseMoved || event.type == .mouseEntered {
-            let hitsZoomButton = pointHitsStandardButton(.zoomButton, event.locationInWindow)
-            if !hitsZoomButton { zoomHoverArmed = true }
-            if allowsWindowManagement && hitsZoomButton && greenAction != .fullScreen {
-                if zoomHoverArmed { scheduleWindowManagementPopover() }
-                return
-            } else {
-                cancelWindowManagementHover()
-            }
+            updatePointerOverLights(event.locationInWindow)
         }
         if event.type == .mouseExited {
-            zoomHoverArmed = true
-            cancelWindowManagementHover()
-            // AppKit must also deliver the exit to content tracking areas so
-            // the paper title's hover hint can disappear.
+            // 离开的可能是按钮，也可能是卷帘条上别的跟踪区域：按离开时指针在哪里算。
+            updatePointerOverLights(event.locationInWindow)
+            // 离开事件还要交给 AppKit 发到内容视图的跟踪区域，标题上的“双击展开”提示才会消失。
         }
         if event.type == .leftMouseDown,
            allowsWindowManagement,
            pointHitsStandardButton(.zoomButton, event.locationInWindow) {
             zoomMouseDown = true
-            zoomPopoverForwarded = false
-            if greenAction != .fullScreen {
-                scheduleWindowManagementPopover(delay: 0.45)
-            }
             return
         }
         if event.type == .leftMouseDown,
            !pointHitsAnyStandardButton(event.locationInWindow) {
-            onPreviewPeek?()
             potentialWindowDrag = true
             didWindowDrag = false
+            pressPoint = event.locationInWindow
+            pressSize = frame.size
+            pressOnResizeEdge = styleMask.contains(.resizable)
+                && (pressPoint.x < Self.resizeEdge || pressPoint.x > frame.width - Self.resizeEdge)
         }
         if event.type == .leftMouseUp, zoomMouseDown {
             zoomMouseDown = false
-            let wasForwarded = zoomPopoverForwarded
-            zoomPopoverForwarded = false
-            cancelWindowManagementHover()
-            if !wasForwarded, allowsWindowManagement, pointHitsStandardButton(.zoomButton, event.locationInWindow) {
+            if allowsWindowManagement, pointHitsStandardButton(.zoomButton, event.locationInWindow) {
                 onAction?(greenAction)
             }
             return
         }
         if event.type == .leftMouseDragged, potentialWindowDrag {
             didWindowDrag = true
+            // 移动由这里自己做，OverlayFactory 里关掉了系统移动：每次都按这次事件的指针位置和按下时的抓点放卷帘条。
+            // 系统从它接手那一刻的指针位置算起，主线程正忙、按下事件处理晚了时（例如看一眼刚打开），
+            // 之前移过的那一段一直补不回来（2026-10-10 本机访达录像：卷帘条一路落后指针 32 点）。
+            if !pressOnResizeEdge, frame.size == pressSize,
+               let target = stripOrigin(at: event, pressPoint: pressPoint) {
+                setFrameOrigin(target)
+                return
+            }
         }
         if event.type == .leftMouseDragged, zoomMouseDown {
             return
@@ -438,9 +390,17 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             potentialWindowDrag = false
             didWindowDrag = false
             if dragged {
+                // 松开时再按松开事件的指针位置和按下时的抓点放一次：最后一次拖动事件之后指针可能还动过。
+                if !pressOnResizeEdge, frame.size == pressSize,
+                   let target = stripOrigin(at: event, pressPoint: pressPoint),
+                   abs(target.x - frame.origin.x) > 0.5 || abs(target.y - frame.origin.y) > 0.5 {
+                    setFrameOrigin(target)
+                }
                 onDragEnded?(frame)
                 return
             }
+            // 单击在松开时算，而且只算没拖动的：按下就算的话，拖卷帘条时看一眼会先闪出来。
+            if event.clickCount == 1 { onClick?() }
         }
         if event.type == .leftMouseUp,
            event.clickCount == 2,
@@ -452,9 +412,63 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     }
 }
 
+/// 拖动或松开事件那一刻指针所在的位置（Cocoa 屏幕坐标），减去按下时的抓点，就是卷帘条的原点。
+/// 用事件自带的位置，不用 NSEvent.mouseLocation：事件处理晚了，指针可能已经又移开了。
+func stripOrigin(at event: NSEvent, pressPoint: NSPoint) -> NSPoint? {
+    guard let location = event.cgEvent?.location,
+          let primaryHeight = NSScreen.screens.first?.frame.height else { return nil }
+    return NSPoint(x: location.x - pressPoint.x, y: primaryHeight - location.y - pressPoint.y)
+}
+
+/// 没聚焦的窗口的红绿灯：三个灰点，照系统的样子（浅色时浅灰、深色时深灰，带一圈细边）。
+/// 不接收点击，点击落在下面透明的系统按钮上。
+final class InactiveTrafficLightsView: NSView {
+    /// 要盖住的系统按钮。按钮的位置随时可能被标题栏重新排版挪动，所以不存位置，画的时候现取。
+    var buttons: [NSButton] = [] {
+        didSet {
+            frameObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            frameObservers = buttons.map { button in
+                button.postsFrameChangedNotifications = true
+                return NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification,
+                                                              object: button, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.needsDisplay = true }
+                }
+            }
+            needsDisplay = true
+        }
+    }
+    private var frameObservers: [NSObjectProtocol] = []
+
+    /// 每个看得见的按钮一个灰点：按钮框里居中的正方形（本视图坐标）。
+    var dots: [CGRect] {
+        buttons.compactMap { button in
+            guard !button.isHidden, let superview = button.superview else { return nil }
+            let frame = convert(button.frame, from: superview)
+            let side = min(frame.width, frame.height)
+            return CGRect(x: frame.midX - side / 2, y: frame.midY - side / 2, width: side, height: side)
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let fill = dark ? NSColor(white: 0.36, alpha: 1) : NSColor(white: 0.82, alpha: 1)
+        let edge = dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)
+        for rect in dots {
+            // 原标题栏的卷帘条下面是原窗口带颜色的灯，灰点要把它整个盖住。
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.75, dy: 0.75))
+            fill.setFill()
+            circle.fill()
+            edge.setStroke()
+            circle.lineWidth = 0.5
+            circle.stroke()
+        }
+    }
+}
+
 final class NativeProxyTitleContentView: NSView {
     static let minimumVisibleTextWidth: CGFloat = 96
-    static let arrangedColumnFallbackWidth: CGFloat = 402
 
     private var hoverArea: NSTrackingArea?
     private var hovered = false
@@ -560,7 +574,7 @@ final class NativeProxyTitleContentView: NSView {
 
 final class TitleStripView: NSImageView {
     var onDoubleClick: (() -> Void)?
-    var onPreviewPeek: (() -> Void)?
+    var onClick: (() -> Void)?
     var onMoveEnded: ((NSRect) -> Void)?
     private var dragOffset = CGPoint.zero
     private var didDrag = false
@@ -572,7 +586,7 @@ final class TitleStripView: NSImageView {
         layer?.borderColor = SystemAppearancePolicy.cgColor(NSColor.separatorColor, for: self)
     }
 
-    /// 截图卷帘条：画面来自真实窗口截图，VoiceOver 读出标题并提供展开动作。
+    /// 原标题栏的卷帘条：画面来自原窗口的截图，VoiceOver 读出标题并提供展开动作。
     func configureAccessibility(appName: String, windowTitle: String) {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -584,7 +598,7 @@ final class TitleStripView: NSImageView {
                 self?.accessibilityPerformPress() ?? false
             }
         ])
-        // 截图条可能被裁短，鼠标悬停时给出完整标题（与经典条一致）。
+        // 原标题栏的卷帘条可能被裁短，鼠标悬停时给出完整标题。
         let clean = windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         toolTip = clean.isEmpty ? appName : "\(appName) — \(clean)"
     }
@@ -597,30 +611,33 @@ final class TitleStripView: NSImageView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard let window = window else { return }
-        onPreviewPeek?()
-        let m = NSEvent.mouseLocation
-        dragOffset = CGPoint(x: m.x - window.frame.origin.x, y: m.y - window.frame.origin.y)
+        guard window != nil else { return }
+        // 抓点取自按下事件本身：事件处理晚了时，NSEvent.mouseLocation 已经是移动之后的位置。
+        dragOffset = event.locationInWindow
         didDrag = false
     }
     override func mouseDragged(with event: NSEvent) {
         guard let window = window else { return }
-        let m = NSEvent.mouseLocation
-        window.setFrameOrigin(CGPoint(x: m.x - dragOffset.x, y: m.y - dragOffset.y))
+        if let target = stripOrigin(at: event, pressPoint: dragOffset) { window.setFrameOrigin(target) }
         didDrag = true
     }
     override func mouseUp(with event: NSEvent) {
         if didDrag {
             didDrag = false
-            if let window { onMoveEnded?(window.frame) }
+            if let window {
+                if let target = stripOrigin(at: event, pressPoint: dragOffset) { window.setFrameOrigin(target) }
+                onMoveEnded?(window.frame)
+            }
             return
         }
+        // 单击在松开时算，而且只算没拖动的：按下就算的话，拖卷帘条时看一眼会先闪出来。
+        if event.clickCount == 1 { onClick?() }
         if event.clickCount == 2 { onDoubleClick?() }
     }
 }
 
-// 盖在真交通灯上的透明命中区。
-// 视觉完全来自系统真实渲染后的截图；这里只负责把点击转发给真窗口。
+// 盖在真红绿灯上的透明命中区。
+// 视觉完全来自系统真实渲染后的截图；这里只负责把点击转发给原窗口。
 final class TrafficLightsView: NSView {
     private let lights: [(CGRect, TrafficAction)]
     var onAction: ((TrafficAction) -> Void)?
@@ -629,7 +646,7 @@ final class TrafficLightsView: NSView {
     init(frame: NSRect, lights: [(CGRect, TrafficAction)]) {
         self.lights = lights
         super.init(frame: frame)
-        // 只是盖在真交通灯上的透明命中区，VoiceOver 读到的是源窗口自己的按钮。
+        // 只是盖在真红绿灯上的透明命中区，VoiceOver 读到的是原窗口自己的按钮。
         setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -652,321 +669,5 @@ final class TrafficLightsView: NSView {
         if let pressed = pressedAction, action(at: p) == pressed {
             onAction?(pressed)
         }
-    }
-}
-
-/// A custom-drawn classic strip still exposes each control as a real button to
-/// VoiceOver and Full Keyboard Access. Custom actions on the parent remain as a
-/// rotor-friendly fallback, while these children provide separate focus targets.
-private final class ClassicControlAccessibilityElement: NSObject, NSAccessibilityButton {
-    private let handler: () -> Bool
-    private weak var parent: NSView?
-    private var frameInParentSpace: NSRect
-    private let label: String
-
-    init(frame: NSRect, label: String, parent: NSView, handler: @escaping () -> Bool) {
-        self.handler = handler
-        self.frameInParentSpace = frame
-        self.label = label
-        self.parent = parent
-        super.init()
-    }
-
-    func accessibilityFrame() -> NSRect {
-        guard let parent, let window = parent.window else { return frameInParentSpace }
-        return window.convertToScreen(parent.convert(frameInParentSpace, to: nil))
-    }
-
-    func accessibilityParent() -> Any? { parent }
-    func accessibilityLabel() -> String? { label }
-    func accessibilityPerformPress() -> Bool { handler() }
-
-    func update(frame: NSRect) { frameInParentSpace = frame }
-}
-
-final class ClassicTitleStripView: NSView {
-    var onDoubleClick: (() -> Void)?
-    var onAction: ((ClassicAction) -> Void)?
-    var onMoveEnded: ((NSRect) -> Void)?
-
-    private let appName: String
-    private let windowTitle: String
-    private let pid: pid_t
-    /// 经典配色由“应用图标色调 × 当前外观”推出，浅深色切换后需要重算，
-    /// 否则已折叠的卷帘条会停留在旧外观的纸面/文字颜色上。
-    private var palette: ClassicPalette
-    /// 外观读数（默认跟随系统）：探针可以注入“提高对比度”等组合做对照渲染。
-    var appearanceCapabilities: SystemAppearanceCapabilities = .current {
-        didSet { needsDisplay = true }
-    }
-    private var dragOffset = CGPoint.zero
-    private var didDrag = false
-    private var pressedAction: ClassicAction?
-    private var accessibilityControls: [ClassicControlAccessibilityElement] = []
-
-    init(frame: NSRect, appName: String, windowTitle: String, pid: pid_t) {
-        self.appName = appName
-        self.windowTitle = windowTitle
-        self.pid = pid
-        self.palette = classicPalette(pid: pid)
-        super.init(frame: frame)
-        wantsLayer = true
-        toolTip = displayTitle
-        setAccessibilityElement(true)
-        setAccessibilityRole(.group)
-        setAccessibilityLabel(PaperSurfaceAccessibility.stripLabel(appName: appName,
-                                                                   windowTitle: windowTitle))
-        setAccessibilityHelp(PaperSurfaceAccessibility.stripHelp())
-        setAccessibilityCustomActions([
-            NSAccessibilityCustomAction(name: "展开窗口") { [weak self] in
-                self?.accessibilityPerformPress() ?? false
-            },
-            NSAccessibilityCustomAction(name: "缩放窗口") { [weak self] in
-                self?.performControlAction(.zoom) ?? false
-            },
-            NSAccessibilityCustomAction(name: "关闭窗口") { [weak self] in
-                self?.performControlAction(.close) ?? false
-            },
-        ])
-        rebuildAccessibilityControls()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func accessibilityLabel(for action: ClassicAction) -> String {
-        switch action {
-        case .close: return "关闭窗口"
-        case .zoom: return "缩放窗口"
-        case .expand: return "展开窗口"
-        }
-    }
-
-    private func rebuildAccessibilityControls() {
-        let actions: [ClassicAction] = [.close, .zoom, .expand]
-        accessibilityControls = actions.map { action in
-            ClassicControlAccessibilityElement(
-                frame: hitRect(for: action),
-                label: accessibilityLabel(for: action),
-                parent: self) { [weak self] in
-                    self?.performControlAction(action) ?? false
-                }
-        }
-        setAccessibilityChildren(accessibilityControls)
-    }
-
-    private func updateAccessibilityControlFrames() {
-        let actions: [ClassicAction] = [.close, .zoom, .expand]
-        guard accessibilityControls.count == actions.count else {
-            rebuildAccessibilityControls()
-            return
-        }
-        for (element, action) in zip(accessibilityControls, actions) {
-            element.update(frame: hitRect(for: action))
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        updateAccessibilityControlFrames()
-    }
-
-    /// 浅深色/强调色变化后重算配色（绘制时用最新外观）。
-    func refreshPalette() {
-        palette = classicPalette(pid: pid)
-        needsDisplay = true
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        refreshPalette()
-    }
-
-    /// 诊断：当前配色（探针比较“刷新后”与“新建”是否一致）。
-    var paletteForDiagnostics: ClassicPalette { palette }
-
-    private var displayTitle: String {
-        descriptiveDisplayTitle(appName: appName, windowTitle: windowTitle)
-    }
-
-    /// VoiceOver 的“按下”（VO-Space）等价于双击展开。
-    override func accessibilityPerformPress() -> Bool {
-        guard onDoubleClick != nil else { return false }
-        onDoubleClick?()
-        return true
-    }
-
-    private func visualRect(for action: ClassicAction) -> NSRect {
-        let size: CGFloat = 8
-        let y = floor((bounds.height - size) / 2)
-        switch action {
-        case .close:
-            return NSRect(x: 12, y: y, width: size, height: size)
-        case .zoom:
-            return NSRect(x: max(12, bounds.width - 52), y: y, width: size, height: size)
-        case .expand:
-            return NSRect(x: max(12, bounds.width - 20), y: y, width: size, height: size)
-        }
-    }
-
-    private func hitRect(for action: ClassicAction) -> NSRect {
-        visualRect(for: action).insetBy(dx: -10, dy: -8)
-    }
-
-    @discardableResult
-    private func performControlAction(_ action: ClassicAction) -> Bool {
-        guard let onAction else { return false }
-        onAction(action)
-        return true
-    }
-
-    private func action(at point: NSPoint) -> ClassicAction? {
-        let hits = [ClassicAction.close, .zoom, .expand].filter { hitRect(for: $0).contains(point) }
-        return hits.min {
-            let a = visualRect(for: $0)
-            let b = visualRect(for: $1)
-            let da = hypot(point.x - a.midX, point.y - a.midY)
-            let db = hypot(point.x - b.midX, point.y - b.midY)
-            return da < db
-        }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        // 经典条是“被卷起的窗口顶部”：上面两角跟系统窗口（macOS 27 实测 13 pt）一致，
-        // 下边缘保持直切口，与截图条的窗口 chrome 对齐。
-        let radius = SystemCornerRadius.surfaceRadius(forHeight: bounds.height)
-        let shape = SystemCornerPath.path(in: bounds, radius: radius, corners: .top)
-        palette.paper.setFill()
-        shape.fill()
-
-        // 边线与顶边高光跟随“提高对比度”：高对比度下加粗并去掉高光。
-        let capabilities = appearanceCapabilities
-        palette.edge.setStroke()
-        let edgeWidth = SystemAppearancePolicy.edgeWidth(capabilities)
-        let edge = SystemCornerPath.path(in: bounds.insetBy(dx: edgeWidth / 2, dy: edgeWidth / 2),
-                                         radius: SystemCornerRadius.surfaceRadius(
-                                            forHeight: bounds.height - edgeWidth),
-                                         corners: .top)
-        edge.lineWidth = edgeWidth
-        edge.stroke()
-        let highlight = SystemAppearancePolicy.highlightAlpha(capabilities)
-        if highlight > 0 {
-            NSColor.white.withAlphaComponent(highlight).setFill()
-            let pixel = 1 / (window?.backingScaleFactor ?? 2)
-            NSRect(x: radius, y: bounds.maxY - pixel,
-                   width: max(0, bounds.width - radius * 2), height: pixel).fill()
-        }
-
-        drawControl(.close)
-        drawControl(.zoom)
-        drawControl(.expand)
-        drawTitle()
-    }
-
-    private func drawControl(_ action: ClassicAction) {
-        let r = visualRect(for: action)
-        if pressedAction == action {
-            palette.controlFill.withAlphaComponent(0.45).setFill()
-            NSBezierPath(rect: r.insetBy(dx: -4, dy: -4)).fill()
-        }
-
-        palette.control.setStroke()
-        let lineWidth: CGFloat = 1
-        switch action {
-        case .close:
-            let p = NSBezierPath(rect: r.insetBy(dx: 1, dy: 1))
-            p.lineWidth = lineWidth
-            p.stroke()
-        case .zoom:
-            let p = NSBezierPath()
-            p.move(to: NSPoint(x: r.minX + 1, y: r.minY + 1))
-            p.line(to: NSPoint(x: r.maxX - 1, y: r.minY + 1))
-            p.line(to: NSPoint(x: r.maxX - 1, y: r.maxY - 1))
-            p.close()
-            p.lineWidth = lineWidth
-            p.stroke()
-        case .expand:
-            let box = r.insetBy(dx: 1, dy: 1)
-            let p = NSBezierPath(rect: box)
-            p.lineWidth = lineWidth
-            p.stroke()
-            let line = NSBezierPath()
-            line.move(to: NSPoint(x: box.minX + 1, y: box.midY))
-            line.line(to: NSPoint(x: box.maxX - 1, y: box.midY))
-            line.lineWidth = lineWidth
-            line.stroke()
-        }
-    }
-
-    private func drawTitle() {
-        let left = max(28, visualRect(for: .close).maxX + 10)
-        let right = min(bounds.width - 44, visualRect(for: .zoom).minX - 10)
-        guard right > left + 24 else { return }
-
-        let cleanTitle = cleanDisplayTitle(windowTitle)
-        let normalizedTitle = cleanTitle.folding(options: [.caseInsensitive, .widthInsensitive, .diacriticInsensitive],
-                                                 locale: .current)
-        let normalizedApp = appName.folding(options: [.caseInsensitive, .widthInsensitive, .diacriticInsensitive],
-                                            locale: .current)
-        let text = NSMutableAttributedString(
-            string: appName,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-                .foregroundColor: palette.text
-            ]
-        )
-        if !cleanTitle.isEmpty && normalizedTitle != normalizedApp {
-            text.append(NSAttributedString(
-                string: " — \(cleanTitle)",
-                attributes: [
-                    .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-                    .foregroundColor: palette.secondaryText
-                ]
-            ))
-        }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byTruncatingTail
-        text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
-
-        let textRect = NSRect(x: left, y: floor((bounds.height - 16) / 2),
-                              width: right - left, height: 16)
-        text.draw(in: textRect)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let p = convert(event.locationInWindow, from: nil)
-        if let action = action(at: p) {
-            pressedAction = action
-            needsDisplay = true
-            return
-        }
-        guard let window = window else { return }
-        let m = NSEvent.mouseLocation
-        dragOffset = CGPoint(x: m.x - window.frame.origin.x, y: m.y - window.frame.origin.y)
-        didDrag = false
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard pressedAction == nil, let window = window else { return }
-        let m = NSEvent.mouseLocation
-        window.setFrameOrigin(CGPoint(x: m.x - dragOffset.x, y: m.y - dragOffset.y))
-        didDrag = true
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        let p = convert(event.locationInWindow, from: nil)
-        if let pressed = pressedAction {
-            defer {
-                pressedAction = nil
-                needsDisplay = true
-            }
-            if action(at: p) == pressed { performControlAction(pressed) }
-            return
-        }
-        if didDrag {
-            didDrag = false
-            if let window { onMoveEnded?(window.frame) }
-            return
-        }
-        if event.clickCount == 2 { onDoubleClick?() }
     }
 }

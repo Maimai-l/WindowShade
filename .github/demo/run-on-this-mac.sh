@@ -1,0 +1,314 @@
+#!/bin/bash
+# 在自己的 Mac 上跑场景测试，不经过 GitHub（docs/testing.md 第 7 节）。
+#
+# 用法（在解开的测试包目录里）：
+#   bash run.sh             跑测试包里 RUN_THIS 列出的部分；没有 RUN_THIS 时跑全部：
+#                           录像、检查的检查、主场景组、随机操作（本机 100 步），约 22 分钟
+#   bash run.sh failed      只重跑上一次没通过的场景，几分钟
+#   bash run.sh A35 C03     只跑这几条场景
+#   bash run.sh recordings E11   录像、E13、检查的检查加上 E11，一次跑完
+#   bash run.sh shard:0/3   只跑主场景组的三分之一（同 CI 的 RECORD_PART）
+# 结果：~/WindowShadeTests/results-<时刻>.zip，把它发回给 Claude。
+#
+# 第一次运行会停在“权限”这一步：按提示在系统设置里打开开关，再运行一次。以后换新的测试包也不用再打开权限：
+# 程序固定编到 ~/WindowShadeTests/build，优先用这台 Mac 上固定的证书签名，没有固定证书时才用单独钥匙串
+# windowshade-test.keychain-db 里的测试证书（不改动登录钥匙串）。
+# 测试会改几项系统设置（双击标题栏的动作、程序坞位置、台前调度、深浅色外观等），运行结束后按原值改回。
+set -uo pipefail
+cd "$(dirname "$0")/../.."
+ROOT="$PWD"
+STAMP=$(date +%Y%m%d-%H%M%S)
+RESULTS="$HOME/WindowShadeTests"
+mkdir -p "$RESULTS"
+RUN_LOG="$RESULTS/run-$STAMP.log"
+# 编出来的程序每次都放在同一个地方（解开测试包的目录换了也一样），系统里的权限记录指向同一个位置。
+DEMO_OUT="$RESULTS/build"
+exec > >(tee "$RUN_LOG") 2>&1
+
+say() { printf '\n==> %s\n' "$*"; }
+stop() { printf '\n停止：%s\n' "$*"; exit 2; }
+
+say "检查这台 Mac"
+[ "$(uname)" = Darwin ] || stop "这个脚本只能在 macOS 上运行。"
+console_user=$(stat -f %Su /dev/console)
+[ "$console_user" = "$(id -un)" ] || stop "桌面上登录的是 ${console_user}，不是 $(id -un)。测试要操作桌面上的窗口：用屏幕共享以 $(id -un) 登录一次，并在“系统设置 → 用户与群组”里设为自动登录。"
+xcrun --find swiftc >/dev/null 2>&1 || stop "没有 Swift 编译器。运行 xcode-select --install 安装命令行工具（需要 Swift 6.0 或更新）。"
+swift_version=$(xcrun swiftc --version 2>&1 | head -1)
+echo "$swift_version"
+echo "$swift_version" | grep -qE "Swift version ([6-9]|[1-9][0-9])\." || stop "需要 Swift 6.0 或更新的编译器（macOS 14 上用命令行工具 16.2）。"
+# 测试包自己编的 WindowShade 还在运行（上一次没跑完）就结束它；别处装的 WindowShade 要用户自己先退出。
+for pid in $(pgrep -x WindowShade); do
+  case "$(ps -p "$pid" -o comm= 2>/dev/null)" in
+    */.build/demo/WindowShade.app/*|"$DEMO_OUT"/WindowShade.app/*) kill "$pid" 2>/dev/null ;;
+    *) stop "WindowShade 正在运行。先从菜单栏退出它（会先展开全部收起的窗口），再运行。" ;;
+  esac
+done
+pkill -x DemoDriver 2>/dev/null || true
+pkill -x ProbeApp 2>/dev/null || true
+command -v ffmpeg >/dev/null || echo "没有 ffmpeg：录像的逐帧检查（K05 等）会跳过，其余照常。"
+sw_vers
+sysctl -n hw.model
+system_profiler SPDisplaysDataType 2>/dev/null | grep -E "Resolution|Display Type|Online" || true
+
+# 签名：同一张证书签，系统就认得是同一个程序，辅助功能等权限只用给一次。
+# 先用这台 Mac 上长期固定的证书（用户建好、已设为代码签名受信任）；没有它才用下面自签名的测试证书，再不行用临时签名。
+say "签名证书"
+SIGN_ID="-"
+SIGN_KEYCHAIN=""
+KEYCHAIN_LIST_CHANGED=0
+ORIGINAL_KEYCHAINS=()
+FIXED_KEYCHAIN="$HOME/Library/Keychains/windowshade-signing.keychain-db"
+FIXED_CERT="WindowShade Local Test"
+FIXED_PASSWORD_FILE="$HOME/server/signing/keychain-password"
+if [ -f "$FIXED_KEYCHAIN" ] && [ -f "$FIXED_PASSWORD_FILE" ]; then
+  if security unlock-keychain -p "$(cat "$FIXED_PASSWORD_FILE")" "$FIXED_KEYCHAIN" \
+     && security find-certificate -c "$FIXED_CERT" "$FIXED_KEYCHAIN" >/dev/null 2>&1; then
+    SIGN_ID="$FIXED_CERT"
+    SIGN_KEYCHAIN="$FIXED_KEYCHAIN"
+    echo "用这台 Mac 上固定的证书签名：${FIXED_CERT}（${FIXED_KEYCHAIN}）"
+  else
+    echo "找到了 ${FIXED_KEYCHAIN}，但解不开或里面没有 ${FIXED_CERT}：改用测试证书。"
+  fi
+fi
+
+if [ "$SIGN_ID" = "-" ]; then
+# 测试证书：自签名、只用来给测试用的程序签名。放在单独的钥匙串里，密码固定，不需要输入登录密码。
+KEYCHAIN="$HOME/Library/Keychains/windowshade-test.keychain-db"
+KEYCHAIN_PASSWORD="windowshade-test"
+CERT_NAME="WindowShade Test Signing"
+if [ ! -f "$KEYCHAIN" ]; then
+  work=$(mktemp -d)
+  cat > "$work/cert.cnf" <<CNF
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = $CERT_NAME
+[ext]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,codeSigning
+CNF
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config "$work/cert.cnf" \
+    -keyout "$work/key.pem" -out "$work/cert.pem" 2>/dev/null \
+    && /usr/bin/openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" -out "$work/id.p12" \
+       -passout pass:"$KEYCHAIN_PASSWORD" \
+    && security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN" \
+    && security set-keychain-settings "$KEYCHAIN" \
+    && security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN" \
+    && security import "$work/id.p12" -k "$KEYCHAIN" -P "$KEYCHAIN_PASSWORD" -T /usr/bin/codesign >/dev/null \
+    && security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null \
+    || echo "创建测试证书失败，改用临时签名。"
+  rm -rf "$work"
+fi
+try_sign() {  # 用测试证书签一个临时文件，成功返回 0；失败时把 codesign 的原话打出来
+  local probe_bin
+  probe_bin=$(mktemp)
+  cp /usr/bin/true "$probe_bin"
+  codesign --force -s "$cert_hash" "$probe_bin"
+  local result=$?
+  rm -f "$probe_bin"
+  return $result
+}
+# codesign 只在用户的钥匙串搜索列表里找签名身份（2026-10-09 在用户的 Mac 上：只给 --keychain 时报
+# “The specified item could not be found in the keychain”）。测试期间把测试钥匙串加进列表，结束时去掉。
+while IFS= read -r line; do
+  line=${line#*\"}
+  line=${line%\"}
+  [ "$line" = "$KEYCHAIN" ] || ORIGINAL_KEYCHAINS+=("$line")
+done < <(security list-keychains -d user)
+if [ -f "$KEYCHAIN" ]; then
+  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+  security list-keychains -d user -s ${ORIGINAL_KEYCHAINS[@]+"${ORIGINAL_KEYCHAINS[@]}"} "$KEYCHAIN"
+  KEYCHAIN_LIST_CHANGED=1
+  security find-identity -p codesigning "$KEYCHAIN"
+  cert_hash=$(security find-certificate -c "$CERT_NAME" -Z "$KEYCHAIN" 2>/dev/null | awk '/SHA-1/ {print $NF}')
+  if [ -n "$cert_hash" ] && try_sign; then
+    SIGN_ID="$cert_hash"
+  elif [ -n "$cert_hash" ]; then
+    # 自签名证书要先被信任（只用于代码签名），codesign 才肯用。改信任设置时系统会在屏幕上要一次本机登录密码：
+    # 用屏幕共享输入。只在这台 Mac 上做一次，以后的测试包都不再问。
+    echo "系统还不信任测试证书。屏幕上会弹出“修改证书信任设置”的密码框，用屏幕共享输入一次本机登录密码。"
+    cert_file=$(mktemp)
+    security find-certificate -c "$CERT_NAME" -p "$KEYCHAIN" > "$cert_file"
+    security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$cert_file"
+    rm -f "$cert_file"
+    if try_sign; then SIGN_ID="$cert_hash"; fi
+  fi
+fi
+if [ "$SIGN_ID" != "-" ]; then
+  echo "用测试证书签名（${SIGN_ID}）"
+fi
+fi   # 没有固定证书时的测试证书
+if [ "$SIGN_ID" = "-" ]; then
+  echo "无法使用测试证书，改用临时签名：每换一个测试包，都要在系统设置里重新打开一次权限。"
+fi
+
+# 测试会改的系统设置：先记下原值，结束时（包括中途出错、按 Control-C）改回。
+# 记录放在 ~/WindowShadeTests 里，带运行的时刻：这一次被打断（终端被关掉、断电），下一次运行开头先改回。
+restore_saved() {  # $1：哪一次运行记下的（时刻）
+  local file="$RESULTS/.saved-settings-$1" plist="$RESULTS/.windowshade-defaults-$1.plist" look="$RESULTS/.appearance-$1"
+  [ -f "$file" ] || return 0
+  while IFS=$'\t' read -r domain key type value; do
+    if [ "$value" = ABSENT ]; then
+      defaults delete "$domain" "$key" 2>/dev/null || true
+      echo "  删除 ${domain} ${key}（原来没有）"
+    elif [ -n "$value" ]; then
+      # defaults read 把布尔值读成 0/1，-bool 只认 true/false（写 0 只打出用法说明，2026-10-09 本机运行）
+      if [ "$type" = bool ]; then
+        case "$value" in 1) value=true ;; 0) value=false ;; esac
+      fi
+      defaults write "$domain" "$key" "-$type" "$value"
+      echo "  ${domain} ${key} = ${value}"
+    fi
+  done < "$file"
+  rm -f "$file"
+  if [ -f "$plist" ]; then
+    defaults import com.windowshade.prototype "$plist"
+    rm -f "$plist"
+  else
+    defaults delete com.windowshade.prototype 2>/dev/null || true
+  fi
+  if [ -f "$look" ] && [ -d "$DEMO_OUT/DemoDriver.app" ]; then
+    open -W "$DEMO_OUT/DemoDriver.app" --args appearance "$(cat "$look")" || true
+    echo "  外观 = $(cat "$look")"
+  fi
+  rm -f "$look"
+  killall Dock WindowManager 2>/dev/null || true
+}
+for leftover in "$RESULTS"/.saved-settings-*; do
+  [ -f "$leftover" ] || continue
+  say "上一次运行没有结束，先改回它改动的系统设置"
+  restore_saved "${leftover##*.saved-settings-}"
+done
+
+say "记下会被改动的系统设置"
+SAVED_FILE="$RESULTS/.saved-settings-$STAMP"
+: > "$SAVED_FILE"
+# 原来没有的键记成 ABSENT，恢复时删掉；不能记成空值（空值去 defaults write 会失败，只打出用法说明）。
+remember() {  # 域 键 类型
+  local value
+  if value=$(defaults read "$1" "$2" 2>/dev/null); then
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$value" >> "$SAVED_FILE"
+  else
+    printf '%s\t%s\t%s\tABSENT\n' "$1" "$2" "$3" >> "$SAVED_FILE"
+  fi
+}
+remember -g AppleActionOnDoubleClick string
+remember com.apple.dock orientation string
+remember com.apple.WindowManager GloballyEnabled bool
+remember com.apple.WindowManager EnableStandardClickToShowDesktop bool
+remember com.apple.CrashReporter DialogType string
+APPEARANCE=light
+[ "$(defaults read -g AppleInterfaceStyle 2>/dev/null)" = Dark ] && APPEARANCE=dark
+echo "$APPEARANCE" > "$RESULTS/.appearance-$STAMP"
+defaults export com.windowshade.prototype "$RESULTS/.windowshade-defaults-$STAMP.plist" 2>/dev/null \
+  || rm -f "$RESULTS/.windowshade-defaults-$STAMP.plist"
+cat "$SAVED_FILE"
+echo "外观：$APPEARANCE"
+
+RESTORED=0
+restore() {
+  [ "$RESTORED" = 1 ] && return
+  RESTORED=1
+  say "改回系统设置"
+  pkill -x WindowShade 2>/dev/null || true
+  pkill -x DemoDriver 2>/dev/null || true
+  restore_saved "$STAMP"
+  if [ "$KEYCHAIN_LIST_CHANGED" = 1 ] && [ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]; then
+    security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" 2>/dev/null || true
+  fi
+  [ -n "${CAFFEINATE:-}" ] && kill "$CAFFEINATE" 2>/dev/null
+}
+trap restore EXIT
+
+# 决定这次跑哪些部分。没给参数时，跑测试包里 RUN_THIS 列出的部分（打包时写进去），没有 RUN_THIS 就跑全部。
+# 部分名和场景编号可以一起给，例如 recordings E11 B06-alone：录像这一部分和这两条场景一次跑完。
+# failed：从上一次的结果文件里找出没通过的场景。
+if [ $# -eq 0 ] && [ -s "$ROOT/RUN_THIS" ]; then
+  read -r -a run_this < "$ROOT/RUN_THIS"
+  set -- "${run_this[@]}"
+fi
+PART=all
+case "${1:-}" in
+  "") ;;
+  failed)
+    ids=$(python3 -I - "$DEMO_OUT" <<'PY'
+import json, sys, glob
+ids = []
+for path in sorted(glob.glob(sys.argv[1] + "/*.json")):
+    try:
+        data = json.load(open(path))
+    except Exception:
+        continue
+    for s in data.get("scenarios", []) if isinstance(data, dict) else []:
+        if not s.get("passed", True) and s["id"] not in ids:
+            ids.append(s["id"])
+print(",".join(ids))
+PY
+)
+    [ -n "$ids" ] || stop "上一次的场景全部通过，或者结果已被删除。"
+    PART="only:$ids" ;;
+  *)
+    parts=()
+    ids=()
+    for arg in "$@"; do
+      case "$arg" in
+        all|recordings|random|shard:*|only:*) parts+=("$arg") ;;
+        *) ids+=("$arg") ;;
+      esac
+    done
+    [ ${#ids[@]} -gt 0 ] && parts+=("only:$(IFS=,; echo "${ids[*]}")")
+    PART=$(IFS=+; echo "${parts[*]}") ;;
+esac
+
+# 固定目录里只留编出来的程序，上一次的结果文件先删掉，免得这一次没跑到时被当成这一次的结果打包。
+mkdir -p "$DEMO_OUT"
+rm -f "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png "$DEMO_OUT"/*.txt "$DEMO_OUT"/*.ips "$DEMO_OUT"/*.mp4
+
+# 给权限时打开的系统设置窗口会留在别的桌面上：场景 A33 激活它，后面的场景都换到那个桌面上跑，
+# 收起时焦点交给它、再被别的应用程序抢走，桌面来回切换（2026-10-09 本机运行 B03、B09、B11、B17、B18）。
+if pgrep -x "System Settings" >/dev/null; then
+  echo "退出系统设置（权限已经打开，测试需要时会自行打开系统设置）"
+  pkill -x "System Settings" || true
+  sleep 1
+fi
+
+caffeinate -dimsu &
+CAFFEINATE=$!
+
+say "开始测试（${PART}）"
+WINDOWSHADE_LOCAL=1 WINDOWSHADE_TEST_SIGN_IDENTITY="$SIGN_ID" WINDOWSHADE_TEST_KEYCHAIN="$SIGN_KEYCHAIN" \
+  WINDOWSHADE_DEMO_OUT="$DEMO_OUT" \
+  RECORD_PART="$PART" bash .github/demo/record.sh
+status=$?
+
+if [ "$status" = 3 ]; then
+  open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null || true
+  cat <<MSG
+
+还有权限没有打开。在“系统设置 → 隐私与安全性”里，为下面两个程序打开这三项：
+  辅助功能、输入监控、录屏与系统录音
+    $DEMO_OUT/DemoDriver.app
+    $DEMO_OUT/WindowShade.app
+列表里没有的，点“＋”选上面的路径。系统问“退出并重新打开”时选“稍后”。然后再运行一次 bash run.sh。
+（以上要在屏幕上操作：用另一台电脑的“屏幕共享”连到这台 Mac。）
+MSG
+  exit 3
+fi
+
+restore
+say "打包结果"
+PACK=$(mktemp -d)
+mkdir -p "$PACK/results"
+cp "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png \
+   "$DEMO_OUT"/*.txt "$DEMO_OUT"/*.ips "$PACK/results/" 2>/dev/null || true
+cp "$ROOT/KIT_VERSION" "$PACK/results/" 2>/dev/null || true
+cp "$RUN_LOG" "$PACK/results/run.log"
+echo "exit=$status" > "$PACK/results/exit-status.txt"
+ZIP="$RESULTS/results-$STAMP.zip"
+ditto -c -k "$PACK/results" "$ZIP"
+rm -rf "$PACK"
+printf '\n测试结束（退出码 %s）。把这个文件发给 Claude：\n  %s\n' "$status" "$ZIP"
+exit "$status"

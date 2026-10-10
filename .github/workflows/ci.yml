@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build.sh --check
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: .github/scripts/select-xcode.sh
+      - name: Compile app
+        run: prototype/build.sh --check
+
+  # macOS 14 上能装的最高版本是 Swift 6.0（命令行工具 16.2），默认 SDK 14.5。Swift 6.0 的数据竞争检查比 6.1、6.2 保守，
+  # 在新编译器上通过的代码可能在这里报错（2026-10-09 在用户的 macOS 14.5 机器上，ShadeController.swift 编不过）。
+  build-swift60:
+    name: build.sh --check (Swift 6.0, macOS 14.5 SDK)
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 16.2 and the macOS 14.5 SDK
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcode=$(ls -d /Applications/Xcode_16.2*.app 2>/dev/null | head -1)
+          [ -n "$xcode" ] || xcode=$(ls -d /Applications/Xcode_16.[0-2]*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          sdk=$(ls -d /Applications/Xcode_15.4*.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX14.*.sdk 2>/dev/null | head -1)
+          [ -n "$sdk" ] || { echo "no macOS 14 SDK on this runner"; exit 1; }
+          echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
+          swiftc --version
+          echo "SDK: $sdk"
+      - name: Compile app
+        run: prototype/build.sh --check
+      - name: Compile the test driver and probe app (the local test kit builds them on macOS 14)
+        run: |
+          defs=()
+          grep -qs SCRecordingOutputConfiguration "$SDKROOT"/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/*.h \
+            && defs=(-D DEMO_SDK_HAS_RECORDING_OUTPUT)
+          swiftc -swift-version 5 -parse-as-library -O ${defs[@]+"${defs[@]}"} .github/demo/*.swift \
+            -o "$RUNNER_TEMP/DemoDriver" -framework AppKit -framework ScreenCaptureKit -framework AVFoundation
+          swiftc -swift-version 5 -O .github/demo/probe/ProbeApp.swift -o "$RUNNER_TEMP/ProbeApp" -framework AppKit
+
+  tests:
+    name: Test runners
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: .github/scripts/select-xcode.sh
+      - name: Install ripgrep
+        run: brew install ripgrep
+      - name: Run every tests/run-*.sh
+        run: .github/scripts/run-tests.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: .build/ci-logs
+      - name: Upload settings screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settings-screenshots
+          path: .build/appkit-tests/settings-shots
+          if-no-files-found: ignore

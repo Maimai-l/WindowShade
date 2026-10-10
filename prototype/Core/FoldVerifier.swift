@@ -1,6 +1,6 @@
 import Foundation
 
-/// Verification of one installed fold. Unknown readings never license a new mutation.
+/// 检查一次已完成的收起。读不准时，绝不据此再改动窗口。
 final class FoldVerifier {
     enum Observation: Equatable, Sendable { case hidden, visible, unknown }
     typealias Schedule = (TimeInterval, @escaping () -> Void) -> Void
@@ -26,8 +26,8 @@ final class FoldVerifier {
         self.quickObservation = quickObservation; self.result = result
     }
 
-    // Compatibility for the existing standalone Bool clients/tests. Production uses
-    // the three-state initializer above and supplies no screen-absence shortcut.
+    // 给只认 Bool 的旧调用方和测试用。正式代码用上面的三态初始化方法，
+    // 也不传 quickObservation（按窗口不在屏幕上提前判定）。
     convenience init(schedule: @escaping Schedule, isCurrent: @escaping () -> Bool,
                      observe: @escaping () -> Bool, minimize: @escaping () -> Void,
                      observeMinimized: @escaping () -> Bool,
@@ -69,7 +69,7 @@ final class FoldVerifier {
             schedule(0.45) { self.check(attempt: 2) }
         } else if seen == .unknown { finish(.unknown) }
         else {
-            // The port must check identity and permission again before its physical write.
+            // salvage 在真正改动窗口前，要再核对一次窗口身份和权限。
             let attempted = salvage()
             guard !finished, isCurrent() else { return }
             guard attempted else { finish(.visible); return }
