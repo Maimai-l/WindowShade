@@ -4,23 +4,27 @@ two-windowshades	59b892a	L07
 dialog-sheet-fold	59b892a	A10	
 triple-click-zoom	59b892a	A07	
 unresponsive-app-stall	d8852fc	X01,X02,X03,X04	^I6:
-close-cancel-rehidden	aa4d1bb	C04-cancel	
-switch-back-misplaced	aa4d1bb	A24	
+switch-back-misplaced	aa4d1bb	A24	^I1: .* is not back at
 strip-dragged-offscreen	aa4d1bb	C02	
 unresponsive-titlebar-stall	aa4d1bb	A34	^I6:
-second-window-not-key	aa4d1bb	A15	
-thumbnail-panel-left	aa4d1bb	A28-thumbnail	
+thumbnail-panel-left	aa4d1bb	A28-thumbnail	^A28: the fold animation panel is still on screen
 toolbar-button-folded	7f050a5	A03	
 toolbar-hit-test-stall	7f050a5	A34	^I6:
-dock-click-strip-stays	23cc739	B06	
 modal-alert-fold	c92a8c6	A11	
-proxy-fold-stall	60aea1c	A28-proxy	^I6:
 strip-double-click-zoom	d234a8d	B16	
-window-menu-strip-slow	2815d80	B09,B18	
+window-menu-strip-slow	2815d80	B09,B18	^I1: a strip is still on screen
 unfold-one-unfolds-all	3b99ecb	A37	
 quicklook-not-folding	95d16fa	A32	
-triple-click-minimize-back	e1cc7bd	A08	
 frozen-process-blocks-clicks	b1a164f	X11	^I2:
-quicklook-double-click-lost	5e7a4bd	A32	
-empty-desktop-dock-click	5d449eb	B06-alone	
-settings-login-item-stall	d910ac1	C15	^I6:
+empty-desktop-dock-click	5d449eb	B06-alone	^I1: 
+settings-first-open-stall	327f733	H01,H02,C15	^I6:
+#
+# 下面几条的场景在 265c67b 的检查中，在修复之前的版本上也通过，说明不能稳定复现这些缺陷，暂不列进本表；
+# docs/testing.md 第 5 节对应各行的状态写“没有能复现它的测试”。补上能稳定复现的场景后，去掉行首的 # 和行尾的说明，移回上面。
+# close-cancel-rehidden	aa4d1bb	C04-cancel	— C04-cancel 在修复之前的版本上通过
+# second-window-not-key	aa4d1bb	A15	— A15 在修复之前的版本上通过
+# dock-click-strip-stays	23cc739	B06	— B06 在修复之前的版本上通过（通知先后顺序不固定）
+# proxy-fold-stall	60aea1c	A28-proxy	— A28-proxy 在修复之前的版本上没有超过 500 毫秒的停顿
+# triple-click-minimize-back	e1cc7bd	A08	— A08 在修复之前的版本上通过
+# quicklook-double-click-lost	5e7a4bd	A32	— A32 在修复之前的版本上通过（要在收起完成前恰好双击）
+# settings-login-item-stall	d910ac1	C15	— C15 在修复之前的版本上没有超过 500 毫秒的停顿
