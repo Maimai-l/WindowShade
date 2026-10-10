@@ -346,7 +346,7 @@ elif $VALIDITY; then
     after_ids="${after_ids:+$after_ids,}$ids"
     echo "==> validity $name: $ids on ${fix}^ (must fail)"
     pkill -x WindowShade 2>/dev/null; sleep 1
-    rm -f "$OUT/validity-$name-before.json"
+    rm -f "$OUT/validity-$name-before-"*.json
     if [ "$built" != "$fix" ]; then
       built="$fix"
       rm -rf "$VSRC"
@@ -361,11 +361,16 @@ elif $VALIDITY; then
         tail -20 "$OUT/validity-$fix-build.log" 2>/dev/null
       fi
     fi
+    # 有的缺陷要碰上时机才出现：最多跑 3 次，报出一次就停（第几次报出写进结论，见 validity_check.py）。
     if $built_ok; then
-      open "$APP"
-      sleep 6
-      open -W --stderr "$OUT/driver-validity-$name.log" "$DRIVER" --args \
-        "$OUT/validity-$name-before.json" scenarios "$PROBE" "$APP" "$ids"
+      for attempt in 1 2 3; do
+        open "$APP"
+        sleep 6
+        open -W --stderr "$OUT/driver-validity-$name-$attempt.log" "$DRIVER" --args \
+          "$OUT/validity-$name-before-$attempt.json" scenarios "$PROBE" "$APP" "$ids"
+        python3 .github/demo/validity_check.py caught "$OUT/validity-$name-before-$attempt.json" "$ids" "${pattern:-}" && break
+        pkill -x WindowShade 2>/dev/null; sleep 1
+      done
     fi
   done 3< .github/demo/defects.tsv
   echo "==> validity: the same scenarios on the current code (must pass)"
@@ -514,61 +519,7 @@ fi
 if [ ${#VALIDITY_ROWS[@]} -gt 0 ]; then
 echo "==> check test validity"
 printf '%s\n' "${VALIDITY_ROWS[@]}" > "$OUT/validity-rows.tsv"
-python3 - "$OUT" "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'PY' || status=1
-import json, os, re, sys
-out, summary_path = sys.argv[1], sys.argv[2]
-def load(path):
-    try:
-        with open(path) as f:
-            return {s["id"]: s for s in json.load(f)["scenarios"]}
-    except (OSError, ValueError, KeyError):
-        return None
-after = load(os.path.join(out, "validity-after.json")) or {}
-rows = ["| 缺陷 | 修复提交 | 场景 | 修复之前 | 当前代码 | 结论 |", "|---|---|---|---|---|---|"]
-bad = 0
-for line in open(os.path.join(out, "validity-rows.tsv")):
-    name, fix, ids, pattern = (line.rstrip("\n").split("\t") + [""])[:4]
-    wanted = [i for i in ids.split(",") if i]
-    def expected(scenario, violation):
-        if pattern:
-            return re.search(pattern, violation) is not None
-        return violation.startswith(scenario + ":") and not violation[len(scenario) + 1:].lstrip().startswith("setup:")
-    before = load(os.path.join(out, f"validity-{name}-before.json"))
-    if before is None:
-        before_text, caught = "没有结果（编译失败或没有运行完）", None
-    else:
-        hits = [f"{i} {v}" for i in wanted for v in before.get(i, {}).get("violations", []) if expected(i, v)]
-        others = [f"{i} {v}" for i in wanted for v in before.get(i, {}).get("violations", []) if not expected(i, v)]
-        missing = [i for i in wanted if i not in before]
-        caught = bool(hits)
-        if hits:
-            before_text = "；".join(hits)
-        elif missing:
-            before_text, caught = "没跑到：" + "、".join(missing), None
-        elif any("setup:" in o for o in others):
-            before_text, caught = "有准备失败：" + "；".join(others), None
-        else:
-            before_text = "没有报出预期的违反" + ("（其他违反：" + "；".join(others) + "）" if others else "")
-    after_ok = all(after.get(i, {}).get("passed") for i in wanted) and all(i in after for i in wanted)
-    after_text = "通过" if after_ok else "；".join(f"{i}: " + ("没有结果" if i not in after else "；".join(after[i]["violations"])) for i in wanted if not after.get(i, {}).get("passed"))
-    if caught and after_ok:
-        verdict = "有效"
-    elif caught is None:
-        verdict = "无法判定"
-    elif not caught:
-        verdict = "修复前没有失败"
-    else:
-        verdict = "当前代码仍失败"
-    if verdict != "有效":
-        bad += 1
-    print(("PASS " if verdict == "有效" else "FAIL ") + f"validity {name} ({fix}, {ids}): {verdict}")
-    print("     before: " + before_text)
-    print("     after:  " + after_text)
-    rows.append(f"| {name} | {fix} | {ids} | {before_text} | {after_text} | {verdict} |")
-with open(summary_path, "a") as f:
-    f.write("\n".join(rows) + "\n")
-sys.exit(1 if bad else 0)
-PY
+python3 .github/demo/validity_check.py summary "$OUT" "${GITHUB_STEP_SUMMARY:-/dev/null}" || status=1
 fi
 grep -n "event-tap: main thread did not answer\|traffic: " "$OUT/windowshade.log" | tail -20 || true
 echo "==> check scenarios"
