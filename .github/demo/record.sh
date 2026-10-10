@@ -27,7 +27,7 @@ if [ "${RECORD_PART:-all}" = "reproduce-e13" ]; then
   git worktree add --detach "$SRC" f183ee4^ || exit 1
 fi
 
-# 编译 WindowShade 并打包到 $APP。参数是源码目录：当前代码，或测试有效性检查用的修复之前的版本（见下面的 validity）。
+# 编译 WindowShade 并打包到 ${APP}。参数是源码目录：当前代码，或测试有效性检查用的修复之前的版本（见下面的 validity）。
 # 每个源码目录编译到自己的输出目录，这样旧版本没有钩子进程时，不会把别的版本编出的钩子进程打包进去。
 build_app() {
   local src="$1" bin="$OUT/bin"
