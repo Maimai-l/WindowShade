@@ -188,21 +188,25 @@ record() {
 #   reproduce-e13  用修复之前的版本跑 E13、A34、X01 至 X05，至少一条要报出输入被挡住（测试测得出这类缺陷）
 #   all（默认）  全部，本地运行用
 #   only:A35,B03 只跑这几条场景（本地复查用；编号可以是任何一组的，包括 K、Q）
+#   用 + 连接几个部分时一次跑完，例如 recordings+only:E11,B06-alone
 PART="${RECORD_PART:-all}"
 RECORDINGS=false
 RANDOM_OPS=false
 REPRODUCE=false
 SHARD=""
 ONLY=""
-case "$PART" in
-  all) RECORDINGS=true; RANDOM_OPS=true; SHARD="main" ;;
-  recordings) RECORDINGS=true ;;
-  random) RANDOM_OPS=true ;;
-  reproduce-e13) REPRODUCE=true ;;
-  shard:*) SHARD="$PART" ;;
-  only:*) ONLY="${PART#only:}" ;;
-  *) echo "unknown RECORD_PART=$PART"; exit 1 ;;
-esac
+IFS=+ read -r -a PART_LIST <<< "$PART"
+for item in "${PART_LIST[@]}"; do
+  case "$item" in
+    all) RECORDINGS=true; RANDOM_OPS=true; SHARD="main" ;;
+    recordings) RECORDINGS=true ;;
+    random) RANDOM_OPS=true ;;
+    reproduce-e13) REPRODUCE=true ;;
+    shard:*) SHARD="$item" ;;
+    only:*) ONLY="${ONLY:+$ONLY,}${item#only:}" ;;
+    *) echo "unknown RECORD_PART=$PART"; exit 1 ;;
+  esac
+done
 SCENARIO_RESULTS=()
 
 if $RECORDINGS; then

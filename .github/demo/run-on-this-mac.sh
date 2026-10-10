@@ -1,10 +1,12 @@
 #!/bin/bash
-# 在自己的 Mac 上跑全部场景测试，不经过 GitHub（docs/testing.md 第 7 节）。
+# 在自己的 Mac 上跑场景测试，不经过 GitHub（docs/testing.md 第 7 节）。
 #
 # 用法（在解开的测试包目录里）：
-#   bash run.sh             全部：录像、检查的检查、主场景组、随机操作（本机 100 步），约 22 分钟
+#   bash run.sh             跑测试包里 RUN_THIS 列出的部分；没有 RUN_THIS 时跑全部：
+#                           录像、检查的检查、主场景组、随机操作（本机 100 步），约 22 分钟
 #   bash run.sh failed      只重跑上一次没通过的场景，几分钟
 #   bash run.sh A35 C03     只跑这几条场景
+#   bash run.sh recordings E11   录像、E13、检查的检查加上 E11，一次跑完
 #   bash run.sh shard:0/3   只跑主场景组的三分之一（同 CI 的 RECORD_PART）
 # 结果：~/WindowShadeTests/results-<时刻>.zip，把它发回给 Claude。
 #
@@ -221,11 +223,16 @@ restore() {
 }
 trap restore EXIT
 
-# 要跑哪些：上一次的结果文件还在，先从里面找出没通过的场景。
+# 决定这次跑哪些部分。没给参数时，跑测试包里 RUN_THIS 列出的部分（打包时写进去），没有 RUN_THIS 就跑全部。
+# 部分名和场景编号可以一起给，例如 recordings E11 B06-alone：录像这一部分和这两条场景一次跑完。
+# failed：从上一次的结果文件里找出没通过的场景。
+if [ $# -eq 0 ] && [ -s "$ROOT/RUN_THIS" ]; then
+  read -r -a run_this < "$ROOT/RUN_THIS"
+  set -- "${run_this[@]}"
+fi
 PART=all
 case "${1:-}" in
   "") ;;
-  all|recordings|random|shard:*|only:*) PART="$1" ;;
   failed)
     ids=$(python3 -I - "$DEMO_OUT" <<'PY'
 import json, sys, glob
@@ -243,7 +250,17 @@ PY
 )
     [ -n "$ids" ] || stop "上一次的场景全部通过，或者结果已被删除。"
     PART="only:$ids" ;;
-  *) PART="only:$(IFS=,; echo "$*")" ;;
+  *)
+    parts=()
+    ids=()
+    for arg in "$@"; do
+      case "$arg" in
+        all|recordings|random|shard:*|only:*) parts+=("$arg") ;;
+        *) ids+=("$arg") ;;
+      esac
+    done
+    [ ${#ids[@]} -gt 0 ] && parts+=("only:$(IFS=,; echo "${ids[*]}")")
+    PART=$(IFS=+; echo "${parts[*]}") ;;
 esac
 
 # 固定目录里只留编出来的程序，上一次的结果文件先删掉，免得这一次没跑到时被当成这一次的结果打包。
