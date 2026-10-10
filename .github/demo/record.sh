@@ -199,7 +199,8 @@ record() {
 #   random       随机操作 Q01（300 步，十几分钟，单独一个任务）
 #   reproduce-e13  用修复之前的版本跑 E13、A34、X01 至 X05，至少一条要报出输入被挡住（测试测得出这类缺陷）
 #   validity     测试有效性：.github/demo/defects.tsv 里每条缺陷的场景，在修复之前的版本上必须失败、在当前代码上必须通过
-#   validity:i/n 只做 defects.tsv 里序号（从 0 数，不算空行和注释行）除以 n 余 i 的那些
+#   validity:i/n 只做其中一部分：defects.tsv 里的修复提交按第一次出现的顺序编号（从 0 数），编号除以 n 余 i 的修复提交归这个任务；
+#                同一个修复提交的几行在同一个任务里做；这几行在表里挨着写时，修复之前的版本只编译一次
 #   all（默认）  全部，本地运行用
 #   only:A35,B03 只跑这几条场景（本地复查用；编号可以是任何一组的，包括 K、Q）
 #   用 + 连接几个部分时一次跑完，例如 recordings+only:E11,B06-alone
@@ -331,29 +332,40 @@ if $VALIDITY && [ "$LOCAL" = "1" ]; then
 elif $VALIDITY; then
   VSRC="$PWD/.build/validity-src"
   vi=${VALIDITY_SHARD%%/*} vn=${VALIDITY_SHARD##*/}
-  index=0
+  fixes=" "
+  built=""
+  built_ok=false
   after_ids=""
   while IFS=$'\t' read -r name fix ids pattern <&3; do
     case "$name" in ""|\#*) continue ;; esac
-    index=$((index + 1))
-    if [ -n "$VALIDITY_SHARD" ] && [ $(((index - 1) % vn)) -ne "$vi" ]; then continue; fi
+    case "$fixes" in *" $fix "*) ;; *) fixes="$fixes$fix " ;; esac
+    group=0
+    for f in $fixes; do [ "$f" = "$fix" ] && break; group=$((group + 1)); done
+    if [ -n "$VALIDITY_SHARD" ] && [ $((group % vn)) -ne "$vi" ]; then continue; fi
     VALIDITY_ROWS+=("$name	$fix	$ids	${pattern:-}")
     after_ids="${after_ids:+$after_ids,}$ids"
     echo "==> validity $name: $ids on ${fix}^ (must fail)"
     pkill -x WindowShade 2>/dev/null; sleep 1
-    rm -rf "$VSRC"
-    git worktree prune
     rm -f "$OUT/validity-$name-before.json"
-    if git worktree add --detach "$VSRC" "${fix}^" >/dev/null 2>&1 \
-       && build_app "$VSRC" > "$OUT/validity-$name-build.log" 2>&1; then
-      grant_app
+    if [ "$built" != "$fix" ]; then
+      built="$fix"
+      rm -rf "$VSRC"
+      git worktree prune
+      built_ok=false
+      if git worktree add --detach "$VSRC" "${fix}^" >/dev/null 2>&1 \
+         && build_app "$VSRC" > "$OUT/validity-$fix-build.log" 2>&1; then
+        built_ok=true
+        grant_app
+      else
+        echo "build of ${fix}^ failed:"
+        tail -20 "$OUT/validity-$fix-build.log" 2>/dev/null
+      fi
+    fi
+    if $built_ok; then
       open "$APP"
       sleep 6
       open -W --stderr "$OUT/driver-validity-$name.log" "$DRIVER" --args \
         "$OUT/validity-$name-before.json" scenarios "$PROBE" "$APP" "$ids"
-    else
-      echo "build of ${fix}^ failed:"
-      tail -20 "$OUT/validity-$name-build.log" 2>/dev/null
     fi
   done 3< .github/demo/defects.tsv
   echo "==> validity: the same scenarios on the current code (must pass)"

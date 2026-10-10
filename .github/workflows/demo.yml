@@ -37,10 +37,14 @@ jobs:
           - part: reproduce-e13
             name: e13-before-fix
           # 测试有效性：defects.tsv 里每条缺陷的场景在修复之前的版本上要失败、在当前代码上要通过（docs/testing.md 第 5.1 节）。
-          - part: "validity:0/2"
+          - part: "validity:0/4"
             name: validity-1
-          - part: "validity:1/2"
+          - part: "validity:1/4"
             name: validity-2
+          - part: "validity:2/4"
+            name: validity-3
+          - part: "validity:3/4"
+            name: validity-4
     name: record (${{ matrix.name }})
     runs-on: macos-26
     timeout-minutes: 60
