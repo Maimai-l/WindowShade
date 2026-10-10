@@ -331,9 +331,11 @@ extension AppDelegate {
                 }
                 return oid
             }
-            // 不会隐藏整个应用程序时（窗口会被挪走，而不是等系统的动画），先把卷帘条亮在原来的标题栏上
-            // 再挪窗口：卷帘条就是这条标题栏的截图、摆在同一处，盖上去看不出变化，挪走那一刻也没有空档。
-            let revealedBeforeHide = !(mayHideApp && appHideSafe) && mode == .nativeScreenshot
+            // 先把卷帘条亮在原来的标题栏上，再挪走或隐藏窗口：卷帘条就是这条标题栏的截图、摆在同一处，
+            // 盖上去看不出变化，窗口消失那一刻也没有空档。隐藏整个应用程序时也这样做：隐藏是否生效要到 0.15 秒后
+            // 第一次复查才知道，要是等到那时再亮卷帘条，标题栏的位置会空一段（2026-10-10 本机文本编辑录像：11 帧）。
+            // 没藏成时回滚会撤掉卷帘条。
+            let revealedBeforeHide = mode == .nativeScreenshot
             var earlyOverlayID: CGWindowID?
             if revealedBeforeHide {
                 foldPhase("卷帘条 Space 归属") { prepareOverlayWindowForSpaceAssignment(overlay) }
@@ -342,7 +344,7 @@ extension AppDelegate {
                 foldPhase("显示卷帘条") { revealPreparedOverlay(overlay, fade: false) }
             }
             // 移开原窗口是对另一个进程的辅助功能写操作：在后台做，主线程不等对方响应。
-            // 卷帘条先亮出来时，提交之后窗口服务器下一帧才画出来：等两帧再挪窗口，挪走那一刻卷帘条已经在屏上。
+            // 卷帘条先亮出来时，提交之后窗口服务器下一帧才画出来：等两帧再挪走或隐藏窗口，窗口消失那一刻卷帘条已经在屏上。
             let hideStartedAt = CFAbsoluteTimeGetCurrent()
             hideWindowInBackground(win, pid: pid, originalPosition: pos, size: size,
                                    policy: policy, appHideSafe: appHideSafe,
@@ -353,7 +355,7 @@ extension AppDelegate {
             if !mayHideApp { focusParkingWindow?.orderOut(nil) }
             // 最小化和隐藏应用程序的状态要过一会儿才读得到（最小化动画进行中 kAXMinimized 还没变，
             // NSRunningApplication.isHidden 更新滞后），后台那次检查可能读到“还没藏好”。
-            // 读到已藏好就立即显示卷帘条；否则交给 scheduleFoldVerification 在 0.15 秒、0.45 秒后再查，
+            // 简化标题栏和缩略图模式下：读到已藏好就立即显示卷帘条；否则交给 scheduleFoldVerification 在 0.15 秒、0.45 秒后再查，
             // 查到藏好才显示，仍然失败就补救或回滚。
             let hideVerifiedNow = observation == .hidden
             foldPhase("日志落盘") {

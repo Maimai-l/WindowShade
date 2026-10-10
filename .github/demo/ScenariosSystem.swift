@@ -141,6 +141,36 @@ func finderWindow(titled title: String) -> AXUIElement? {
     return (value as? [AXUIElement] ?? []).first { axString($0, kAXTitleAttribute as String) == title }
 }
 
+/// 当前桌面上访达的普通窗口（层级 0）的位置和大小，按从前到后的顺序。
+func finderWindowFramesOnThisDesktop() -> [CGRect] {
+    guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else { return [] }
+    return (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
+        .filter {
+            ($0[kCGWindowOwnerPID as String] as? Int).map { pid_t($0) } == finder.processIdentifier
+                && ($0[kCGWindowLayer as String] as? Int) == 0
+        }
+        .compactMap { ($0[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } }
+}
+
+/// 把当前桌面上访达除 keep 以外的窗口都最小化，返回最小化了的窗口，由调用方在场景结束时还原。别的桌面上的窗口不动。
+/// 辅助功能接口看不出窗口在哪个桌面，按位置和大小和屏幕上的窗口对上。
+func minimizeFinderWindowsOnThisDesktop(except keep: AXUIElement) -> [AXUIElement] {
+    guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else { return [] }
+    let here = finderWindowFramesOnThisDesktop()
+    var value: CFTypeRef?
+    AXUIElementCopyAttributeValue(AXUIElementCreateApplication(finder.processIdentifier), kAXWindowsAttribute as CFString, &value)
+    var minimized: [AXUIElement] = []
+    for window in value as? [AXUIElement] ?? [] where !CFEqual(window, keep) {
+        guard let frame = axFrame(window),
+              here.contains(where: { abs($0.minX - frame.minX) < 2 && abs($0.minY - frame.minY) < 2
+                                       && abs($0.width - frame.width) < 2 && abs($0.height - frame.height) < 2 }),
+              AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue) == .success
+        else { continue }
+        minimized.append(window)
+    }
+    return minimized
+}
+
 func closeWindow(_ window: AXUIElement) {
     var button: CFTypeRef?
     if AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &button) == .success, let button {
@@ -173,7 +203,18 @@ let systemScenarios: [Scenario] = [
         var target: AXUIElement?
         _ = await eventually(5) { target = finderWindow(titled: there.lastPathComponent); return target != nil }
         await pause(1)
-        if let target, let frame = axFrame(target) {
+        // 这个桌面上只能有要收起的这一扇访达窗口：别的访达窗口（例如前面场景留下的）会接过焦点，
+        // 就测不到焦点无处可交的情形（2026-10-10 本机运行时 E11 因此通过，但没有测到）。
+        var parked: [AXUIElement] = []
+        if let target {
+            parked = minimizeFinderWindowsOnThisDesktop(except: target)
+            if !parked.isEmpty { await pause(1) }
+        }
+        let finderHere = finderWindowFramesOnThisDesktop().count
+        if finderHere != 1 {
+            h.result.violations.append("E11: setup: \(finderHere) Finder windows on this desktop, expected only the one to fold")
+        }
+        if let target, let frame = axFrame(target), finderHere == 1 {
             AXUIElementPerformAction(target, kAXRaiseAction as CFString)
             let point = emptyTitleBarPoint(CGPoint(x: frame.midX, y: frame.minY + 14), minX: frame.minX + 80, maxX: frame.maxX - 20)
             await glide(to: point, duration: 0.3)
@@ -188,6 +229,9 @@ let systemScenarios: [Scenario] = [
             if activeSpaceID() == other, let strip = stripFrames().first {
                 await doubleClick(at: CGPoint(x: strip.midX, y: strip.minY + 8))
                 await pause(1.5)
+                let afterUnfold = activeSpaceID()
+                h.expect(afterUnfold == other,
+                         "E11: unfolding the Finder window switched the desktop (\(other) → \(afterUnfold ?? 0))")
             } else if jumpedTo != nil {
                 await switchDesktop(right: true)
                 if let strip = stripFrames().first {
@@ -195,10 +239,13 @@ let systemScenarios: [Scenario] = [
                     await pause(1.5)
                 }
             }
-        } else {
+        } else if target == nil {
             h.result.violations.append("setup: the Finder window on the second desktop did not open")
+        } else if finderHere == 1 {
+            h.result.violations.append("setup: cannot read the frame of the Finder window on the second desktop")
         }
         if let window = finderWindow(titled: there.lastPathComponent) { closeWindow(window) }
+        for window in parked { AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) }
         while let now = activeSpaceID(), now != home {
             await switchDesktop(right: false)
             if activeSpaceID() == now { break }

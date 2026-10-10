@@ -90,9 +90,13 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     private var potentialWindowDrag = false
     private var didWindowDrag = false
     /// 按下时指针在卷帘条里的位置（窗口坐标，取自按下事件本身）和卷帘条的大小：
-    /// 松开时大小变了，说明拖的是边缘（改宽度），不是移动。
+    /// 大小变了，说明拖的是边缘（改宽度），不是移动。
     private var pressPoint: NSPoint = .zero
     private var pressSize: NSSize = .zero
+    /// 按在左右边缘上：交给系统改宽度，不当作移动。
+    private var pressOnResizeEdge = false
+    /// 左右边缘内这么宽的一段，按下去算改宽度，不移动。
+    static let resizeEdge: CGFloat = 6
     private var isClosingProgrammatically = false
     /// 卷帘条没聚焦时的红绿灯：照系统的样子画成三个灰点（标准按钮在这种状态下的样子和系统不一致）。
     private let inactiveLights = InactiveTrafficLightsView()
@@ -357,6 +361,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             didWindowDrag = false
             pressPoint = event.locationInWindow
             pressSize = frame.size
+            pressOnResizeEdge = styleMask.contains(.resizable)
+                && (pressPoint.x < Self.resizeEdge || pressPoint.x > frame.width - Self.resizeEdge)
         }
         if event.type == .leftMouseUp, zoomMouseDown {
             zoomMouseDown = false
@@ -367,6 +373,14 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         }
         if event.type == .leftMouseDragged, potentialWindowDrag {
             didWindowDrag = true
+            // 移动由这里自己做，OverlayFactory 里关掉了系统移动：每次都按这次事件的指针位置和按下时的抓点放卷帘条。
+            // 系统从它接手那一刻的指针位置算起，主线程正忙、按下事件处理晚了时（例如看一眼刚打开），
+            // 之前移过的那一段一直补不回来（2026-10-10 本机访达录像：卷帘条一路落后指针 32 点）。
+            if !pressOnResizeEdge, frame.size == pressSize,
+               let target = stripOrigin(at: event, pressPoint: pressPoint) {
+                setFrameOrigin(target)
+                return
+            }
         }
         if event.type == .leftMouseDragged, zoomMouseDown {
             return
@@ -376,11 +390,9 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             potentialWindowDrag = false
             didWindowDrag = false
             if dragged {
-                // 拖动由系统按住窗口背景移动：按下事件晚到时（主线程正忙，例如刚打开看一眼），系统开始移动也晚，
-                // 卷帘条少走的那一段一直补不回来（CI 文本编辑录像，3eb112c：拖回原处后差了 32 点）。
-                // 松开时按松开事件的指针位置和按下时的抓点，把卷帘条放到它应在的位置。
-                if frame.size == pressSize,
-                   let target = stripOrigin(releasedAt: event, pressPoint: pressPoint),
+                // 松开时再按松开事件的指针位置和按下时的抓点放一次：最后一次拖动事件之后指针可能还动过。
+                if !pressOnResizeEdge, frame.size == pressSize,
+                   let target = stripOrigin(at: event, pressPoint: pressPoint),
                    abs(target.x - frame.origin.x) > 0.5 || abs(target.y - frame.origin.y) > 0.5 {
                     setFrameOrigin(target)
                 }
@@ -400,9 +412,9 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     }
 }
 
-/// 松开事件那一刻指针所在的位置（Cocoa 屏幕坐标），减去按下时的抓点，就是卷帘条的原点。
+/// 拖动或松开事件那一刻指针所在的位置（Cocoa 屏幕坐标），减去按下时的抓点，就是卷帘条的原点。
 /// 用事件自带的位置，不用 NSEvent.mouseLocation：事件处理晚了，指针可能已经又移开了。
-func stripOrigin(releasedAt event: NSEvent, pressPoint: NSPoint) -> NSPoint? {
+func stripOrigin(at event: NSEvent, pressPoint: NSPoint) -> NSPoint? {
     guard let location = event.cgEvent?.location,
           let primaryHeight = NSScreen.screens.first?.frame.height else { return nil }
     return NSPoint(x: location.x - pressPoint.x, y: primaryHeight - location.y - pressPoint.y)
@@ -606,15 +618,14 @@ final class TitleStripView: NSImageView {
     }
     override func mouseDragged(with event: NSEvent) {
         guard let window = window else { return }
-        let m = NSEvent.mouseLocation
-        window.setFrameOrigin(CGPoint(x: m.x - dragOffset.x, y: m.y - dragOffset.y))
+        if let target = stripOrigin(at: event, pressPoint: dragOffset) { window.setFrameOrigin(target) }
         didDrag = true
     }
     override func mouseUp(with event: NSEvent) {
         if didDrag {
             didDrag = false
             if let window {
-                if let target = stripOrigin(releasedAt: event, pressPoint: dragOffset) { window.setFrameOrigin(target) }
+                if let target = stripOrigin(at: event, pressPoint: dragOffset) { window.setFrameOrigin(target) }
                 onMoveEnded?(window.frame)
             }
             return

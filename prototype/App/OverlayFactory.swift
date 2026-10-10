@@ -45,7 +45,8 @@ extension AppDelegate {
             overlay.setFrame(frame, display: false)
             overlay.titleVisibility = .hidden
             overlay.titlebarAppearsTransparent = true
-            overlay.isMovableByWindowBackground = true
+            // 卷帘条的移动由它自己按每次拖动事件的指针位置来做（NativeProxyOverlayWindow.sendEvent），不交给系统。
+            overlay.isMovable = false
             overlay.isReleasedWhenClosed = false
             overlay.acceptsMouseMovedEvents = true
             overlay.isOpaque = false
@@ -155,7 +156,8 @@ extension AppDelegate {
         overlay.title = proxyDisplayTitle(appName: appName, windowTitle: title)
         overlay.titleVisibility = .hidden
         overlay.titlebarAppearsTransparent = true
-        overlay.isMovableByWindowBackground = true
+        // 卷帘条的移动由它自己按每次拖动事件的指针位置来做（NativeProxyOverlayWindow.sendEvent），不交给系统。
+        overlay.isMovable = false
         overlay.isReleasedWhenClosed = false
         overlay.acceptsMouseMovedEvents = true
         overlay.isOpaque = false
