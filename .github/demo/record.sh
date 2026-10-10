@@ -27,23 +27,29 @@ if [ "${RECORD_PART:-all}" = "reproduce-e13" ]; then
   git worktree add --detach "$SRC" f183ee4^ || exit 1
 fi
 
-echo "==> build ($(git -C "$SRC" log -1 --format='%h %s' 2>/dev/null || cat "$SRC/KIT_VERSION" 2>/dev/null))"
-WINDOWSHADE_CHECK_OUTPUT="$OUT/bin" "$SRC/prototype/build.sh" --check || exit 1
-
+# 编译 WindowShade 并打包到 $APP。参数是源码目录：当前代码，或测试有效性检查用的修复之前的版本（见下面的 validity）。
+# 每个源码目录编译到自己的输出目录，这样旧版本没有钩子进程时，不会把别的版本编出的钩子进程打包进去。
+build_app() {
+  local src="$1" bin="$OUT/bin"
+  [ "$src" = "$PWD" ] || bin="$OUT/bin-$(git -C "$src" rev-parse --short HEAD)"
+  rm -rf "$bin"
+  echo "==> build ($(git -C "$src" log -1 --format='%h %s' 2>/dev/null || cat "$src/KIT_VERSION" 2>/dev/null))"
+  WINDOWSHADE_CHECK_OUTPUT="$bin" "$src/prototype/build.sh" --check || return 1
+  rm -rf "$APP"
+  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
+  cp "$src/prototype/Info.plist" "$APP/Contents/Info.plist"
+  cp "$bin/WindowShade" "$APP/Contents/MacOS/WindowShade"
+  # 鼠标钩子进程（docs/design.md 第 5.9 节）。较早的版本没有它。
+  if [ -f "$bin/WindowShadeTapHelper" ]; then
+    cp "$bin/WindowShadeTapHelper" "$APP/Contents/MacOS/WindowShadeTapHelper"
+    sign "$APP/Contents/MacOS/WindowShadeTapHelper"
+  fi
+  cp assets/app-icon/WindowShade.icns "$APP/Contents/Resources/" 2>/dev/null || true
+  ditto "$src/prototype/Vendor/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+  sign --deep "$APP"
+}
 APP="$OUT/WindowShade.app"
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-cp "$SRC/prototype/Info.plist" "$APP/Contents/Info.plist"
-cp "$OUT/bin/WindowShade" "$APP/Contents/MacOS/WindowShade"
-# 鼠标钩子进程（docs/design.md 第 5.9 节）。修复之前的版本没有它。
-rm -f "$APP/Contents/MacOS/WindowShadeTapHelper"
-if [ -f "$OUT/bin/WindowShadeTapHelper" ] && [ "$SRC" = "$PWD" ]; then
-  cp "$OUT/bin/WindowShadeTapHelper" "$APP/Contents/MacOS/WindowShadeTapHelper"
-  sign "$APP/Contents/MacOS/WindowShadeTapHelper"
-fi
-cp assets/app-icon/WindowShade.icns "$APP/Contents/Resources/" 2>/dev/null || true
-ditto "$SRC/prototype/Vendor/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
-sign --deep "$APP"
+build_app "$SRC" || exit 1
 # 给人下载试用：ditto 打包保留框架里的符号链接和可执行权限（GitHub 自己打包会丢掉这两样）。
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/WindowShade-app.zip"
 
@@ -96,6 +102,12 @@ sudo python3 .github/demo/grant-tcc.py \
   "com.windowshade.prototype=$APP" "com.windowshade.demo-driver=$DRIVER"
 sudo killall tccd 2>/dev/null || true
 fi
+# 换上另一个版本的 WindowShade 后签名变了，要重新授权。只在 CI 上用。
+grant_app() {
+  sudo python3 .github/demo/grant-tcc.py "com.windowshade.prototype=$APP" >/dev/null
+  sudo killall tccd 2>/dev/null || true
+  sleep 1
+}
 # macOS 15 起，屏幕录制另有一层“要不要绕过系统窗口选择器”的确认框；预先批准，免得挡住画面。
 python3 - "$APP/Contents/MacOS/WindowShade" "$DRIVER/Contents/MacOS/DemoDriver" <<'PY'
 import datetime, os, plistlib, sys
@@ -186,6 +198,8 @@ record() {
 #   shard:i/n    主场景组里序号除以 n 余 i 的那些场景
 #   random       随机操作 Q01（300 步，十几分钟，单独一个任务）
 #   reproduce-e13  用修复之前的版本跑 E13、A34、X01 至 X05，至少一条要报出输入被挡住（测试测得出这类缺陷）
+#   validity     测试有效性：.github/demo/defects.tsv 里每条缺陷的场景，在修复之前的版本上必须失败、在当前代码上必须通过
+#   validity:i/n 只做 defects.tsv 里序号（从 0 数，不算空行和注释行）除以 n 余 i 的那些
 #   all（默认）  全部，本地运行用
 #   only:A35,B03 只跑这几条场景（本地复查用；编号可以是任何一组的，包括 K、Q）
 #   用 + 连接几个部分时一次跑完，例如 recordings+only:E11,B06-alone
@@ -193,6 +207,8 @@ PART="${RECORD_PART:-all}"
 RECORDINGS=false
 RANDOM_OPS=false
 REPRODUCE=false
+VALIDITY=false
+VALIDITY_SHARD=""
 SHARD=""
 ONLY=""
 IFS=+ read -r -a PART_LIST <<< "$PART"
@@ -202,6 +218,8 @@ for item in "${PART_LIST[@]}"; do
     recordings) RECORDINGS=true ;;
     random) RANDOM_OPS=true ;;
     reproduce-e13) REPRODUCE=true ;;
+    validity) VALIDITY=true ;;
+    validity:*) VALIDITY=true; VALIDITY_SHARD="${item#validity:}" ;;
     shard:*) SHARD="$item" ;;
     only:*) ONLY="${ONLY:+$ONLY,}${item#only:}" ;;
     *) echo "unknown RECORD_PART=$PART"; exit 1 ;;
@@ -298,6 +316,56 @@ if [ -n "$ONLY" ]; then
   open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE" "$APP" "$ONLY"
   cat "$OUT/driver-scenarios.log" || true
   SCENARIO_RESULTS+=("$OUT/scenarios.json")
+fi
+
+# 测试有效性（docs/testing.md 第 5.1 节）：一条测试只有在修复之前的版本上失败、在当前代码上通过，才说明它测到了那个缺陷。
+# defects.tsv 每行一条缺陷：名称、修复提交、场景编号、（可选）应当报出的违反。修复之前的版本是修复提交的上一个提交。
+# 在修复之前的版本上跑这些场景，至少要报出一条应当报出的违反。第四列为空时，应当报出的是场景自己的检查
+# （以场景编号开头、不是准备失败的那些）；卡顿、输入被挡住这类缺陷在第四列写不变式编号的正则，例如 ^I2:。
+# 不相干的违反（例如虚拟机上偶发的停顿）不算。再在当前代码上跑同样的场景，必须全部通过。
+# 编译失败、有场景没跑到、或有准备失败（例如旧版本还没有场景要读的日志）时，记为无法判定，同样算这项检查没通过。
+# 换版本要重新授权，只在 CI 上做。
+VALIDITY_ROWS=()
+if $VALIDITY && [ "$LOCAL" = "1" ]; then
+  echo "==> validity: skipped on a local Mac (each old build needs permissions again)"
+elif $VALIDITY; then
+  VSRC="$PWD/.build/validity-src"
+  vi=${VALIDITY_SHARD%%/*} vn=${VALIDITY_SHARD##*/}
+  index=0
+  after_ids=""
+  while IFS=$'\t' read -r name fix ids pattern <&3; do
+    case "$name" in ""|\#*) continue ;; esac
+    index=$((index + 1))
+    if [ -n "$VALIDITY_SHARD" ] && [ $(((index - 1) % vn)) -ne "$vi" ]; then continue; fi
+    VALIDITY_ROWS+=("$name	$fix	$ids	${pattern:-}")
+    after_ids="${after_ids:+$after_ids,}$ids"
+    echo "==> validity $name: $ids on ${fix}^ (must fail)"
+    pkill -x WindowShade 2>/dev/null; sleep 1
+    rm -rf "$VSRC"
+    git worktree prune
+    rm -f "$OUT/validity-$name-before.json"
+    if git worktree add --detach "$VSRC" "${fix}^" >/dev/null 2>&1 \
+       && build_app "$VSRC" > "$OUT/validity-$name-build.log" 2>&1; then
+      grant_app
+      open "$APP"
+      sleep 6
+      open -W --stderr "$OUT/driver-validity-$name.log" "$DRIVER" --args \
+        "$OUT/validity-$name-before.json" scenarios "$PROBE" "$APP" "$ids"
+    else
+      echo "build of ${fix}^ failed:"
+      tail -20 "$OUT/validity-$name-build.log" 2>/dev/null
+    fi
+  done 3< .github/demo/defects.tsv
+  echo "==> validity: the same scenarios on the current code (must pass)"
+  pkill -x WindowShade 2>/dev/null; sleep 1
+  build_app "$PWD" > "$OUT/validity-current-build.log" 2>&1 || exit 1
+  grant_app
+  open "$APP"
+  sleep 6
+  if [ -n "$after_ids" ]; then
+    open -W --stderr "$OUT/driver-validity-after.log" "$DRIVER" --args \
+      "$OUT/validity-after.json" scenarios "$PROBE" "$APP" "$after_ids"
+  fi
 fi
 
 # 权限场景组：收回一项权限，重启 WindowShade 后只跑这一组，跑完把权限还回去。
@@ -429,6 +497,65 @@ if caught:
     sys.exit(0)
 print("FAIL before-fix: no test caught blocked input in the build before the fix")
 sys.exit(1)
+PY
+fi
+if [ ${#VALIDITY_ROWS[@]} -gt 0 ]; then
+echo "==> check test validity"
+printf '%s\n' "${VALIDITY_ROWS[@]}" > "$OUT/validity-rows.tsv"
+python3 - "$OUT" "${GITHUB_STEP_SUMMARY:-/dev/null}" <<'PY' || status=1
+import json, os, re, sys
+out, summary_path = sys.argv[1], sys.argv[2]
+def load(path):
+    try:
+        with open(path) as f:
+            return {s["id"]: s for s in json.load(f)["scenarios"]}
+    except (OSError, ValueError, KeyError):
+        return None
+after = load(os.path.join(out, "validity-after.json")) or {}
+rows = ["| 缺陷 | 修复提交 | 场景 | 修复之前 | 当前代码 | 结论 |", "|---|---|---|---|---|---|"]
+bad = 0
+for line in open(os.path.join(out, "validity-rows.tsv")):
+    name, fix, ids, pattern = (line.rstrip("\n").split("\t") + [""])[:4]
+    wanted = [i for i in ids.split(",") if i]
+    def expected(scenario, violation):
+        if pattern:
+            return re.search(pattern, violation) is not None
+        return violation.startswith(scenario + ":") and not violation[len(scenario) + 1:].lstrip().startswith("setup:")
+    before = load(os.path.join(out, f"validity-{name}-before.json"))
+    if before is None:
+        before_text, caught = "没有结果（编译失败或没有运行完）", None
+    else:
+        hits = [f"{i} {v}" for i in wanted for v in before.get(i, {}).get("violations", []) if expected(i, v)]
+        others = [f"{i} {v}" for i in wanted for v in before.get(i, {}).get("violations", []) if not expected(i, v)]
+        missing = [i for i in wanted if i not in before]
+        caught = bool(hits)
+        if hits:
+            before_text = "；".join(hits)
+        elif missing:
+            before_text, caught = "没跑到：" + "、".join(missing), None
+        elif any("setup:" in o for o in others):
+            before_text, caught = "有准备失败：" + "；".join(others), None
+        else:
+            before_text = "没有报出预期的违反" + ("（其他违反：" + "；".join(others) + "）" if others else "")
+    after_ok = all(after.get(i, {}).get("passed") for i in wanted) and all(i in after for i in wanted)
+    after_text = "通过" if after_ok else "；".join(f"{i}: " + ("没有结果" if i not in after else "；".join(after[i]["violations"])) for i in wanted if not after.get(i, {}).get("passed"))
+    if caught and after_ok:
+        verdict = "有效"
+    elif caught is None:
+        verdict = "无法判定"
+    elif not caught:
+        verdict = "修复前没有失败"
+    else:
+        verdict = "当前代码仍失败"
+    if verdict != "有效":
+        bad += 1
+    print(("PASS " if verdict == "有效" else "FAIL ") + f"validity {name} ({fix}, {ids}): {verdict}")
+    print("     before: " + before_text)
+    print("     after:  " + after_text)
+    rows.append(f"| {name} | {fix} | {ids} | {before_text} | {after_text} | {verdict} |")
+with open(summary_path, "a") as f:
+    f.write("\n".join(rows) + "\n")
+sys.exit(1 if bad else 0)
 PY
 fi
 grep -n "event-tap: main thread did not answer\|traffic: " "$OUT/windowshade.log" | tail -20 || true

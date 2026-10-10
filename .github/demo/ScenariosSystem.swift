@@ -127,6 +127,28 @@ func desktopCount() -> Int {
     return displays.flatMap { $0["Spaces"] as? [[String: Any]] ?? [] }.filter { ($0["type"] as? Int) == 0 }.count
 }
 
+/// 只有一个桌面时（CI 的虚拟机）新建一个：打开调度中心，按桌面栏上的“添加桌面”按钮，再按 Esc 关掉调度中心。
+/// 返回值：做完之后是否至少有两个桌面。
+func ensureTwoDesktops() async -> Bool {
+    if desktopCount() >= 2 { return true }
+    run("/usr/bin/open", ["-a", "Mission Control"])
+    await pause(1.5)
+    var added = false
+    if let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first,
+       let button = findElement(AXUIElementCreateApplication(dock.processIdentifier), maxDepth: 12, { element in
+           let id = axString(element, "AXIdentifier"), role = axString(element, kAXRoleAttribute as String)
+           let text = (axString(element, kAXDescriptionAttribute as String) + " " + axString(element, kAXTitleAttribute as String)).lowercased()
+           return id == "mc.spaces.add" || (role == "AXButton" && (text.contains("add desktop") || text.contains("添加桌面")))
+       }) {
+        added = AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+        await pause(1.5)
+    }
+    await pressKey(53)
+    await pause(1.5)
+    log("add desktop: pressed=\(added) desktops=\(desktopCount())")
+    return desktopCount() >= 2
+}
+
 /// 按 Control-右方向键（或左方向键）切到相邻的桌面，和系统设置里“调度中心”的默认快捷键一样。
 func switchDesktop(right: Bool) async {
     await pressKey(right ? 124 : 123, [.maskControl, .maskSecondaryFn, .maskNumericPad])
@@ -181,10 +203,10 @@ func closeWindow(_ window: AXUIElement) {
 let systemScenarios: [Scenario] = [
     // MARK: 系统事件（第 7 节）
     // 用户 2026-10-09 报告：访达在一个桌面上有窗口，在另一个桌面上打开废纸篓、双击标题栏，屏幕切到了前一个桌面。
-    // 要两个以上的桌面：CI 的虚拟机只有一个，这一条只在自己的 Mac 上跑，只有一个桌面时跳过。
+    // 要两个以上的桌面：只有一个时（CI 的虚拟机）先在调度中心里添加一个，添加不了时跳过。
     Scenario(id: "E11", title: "访达在别的桌面上有窗口时，在这个桌面上收起访达的窗口：不切换桌面", options: []) { _, h in
-        guard desktopCount() >= 2, let home = activeSpaceID() else {
-            h.result.notes["skipped"] = "this Mac has only one desktop"; return
+        guard await ensureTwoDesktops(), let home = activeSpaceID() else {
+            h.result.notes["skipped"] = "this Mac has only one desktop and adding one failed"; return
         }
         let base = FileManager.default.temporaryDirectory
         let here = base.appendingPathComponent("windowshade-e11-a"), there = base.appendingPathComponent("windowshade-e11-b")
