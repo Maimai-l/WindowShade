@@ -84,10 +84,13 @@ let stripScenarios: [Scenario] = [
         await clickStripButton(folded, 0, h)
         await answerSheet(probe, "Cancel", h)
         await pause(1)
-        h.expect(probe.count("closed") == 0, "C04: the window closed after Cancel")
+        h.expect(probe.count("closed") == 0, "C04-cancel: the window closed after Cancel")
         h.expectOnce("close was requested", probe.count("close-request"))
         await expectRestored(probe, folded.frame, h, within: 3)
         await expectNoStrip(h, within: 2)
+        // 缺陷是选 Cancel 之后应用程序又被隐藏（aa4d1bb 修复）：窗口位置不变，只看位置看不出来。
+        h.expect(NSRunningApplication(processIdentifier: probe.pid)?.isHidden == false,
+                 "C04-cancel: the app was hidden again after Cancel")
     },
     Scenario(id: "C05", title: "有未保存内容：点关闭后选 Save，存好后关闭", options: ["--sheet-on-close"]) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }

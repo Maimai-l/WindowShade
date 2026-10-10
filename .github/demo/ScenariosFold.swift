@@ -254,6 +254,8 @@ let foldScenarios: [Scenario] = [
         await pause(2.5)
         h.expect(stripFrames().isEmpty, "A08: a triple click left the window folded")
         h.expect(probe.count("minimized") == 1, "A08: the window was minimized \(probe.count("minimized")) times")
+        // 缺陷是最小化之后窗口又被拉回屏幕（e1cc7bd 修复）：只数最小化的次数看不出来，要看最后还在不在程序坞里。
+        h.expect(axBool(window, kAXMinimizedAttribute as String), "A08: the window came back out of the Dock after being minimized")
     },
     Scenario(id: "A09", title: "系统设为双击不做任何事：双击照样收起", options: []) { probe, h in
         setSystemDoubleClick("None")
@@ -325,6 +327,9 @@ let foldScenarios: [Scenario] = [
         guard let folded = await foldProbe(probe, h) else { return }
         h.expect(await eventually(2) { probe.keyWindow == "Probe 2" }, "A15: Probe 2 did not become the key window")
         h.expect(NSRunningApplication(processIdentifier: probe.pid)?.isHidden == false, "A15: the app was hidden")
+        // 缺陷是收起一扇窗口后应用程序不在前台（aa4d1bb 修复）：截图时 WindowShade 在前台，交接后没有重新激活应用程序。
+        // 这时另一扇窗口在应用程序内部仍是 key window，只看 key window 看不出来。
+        h.expect(await eventually(2) { frontmostPID() == probe.pid }, "A15: the app is not frontmost after folding one of its windows")
         await unfold(folded, probe, h)
     },
     Scenario(id: "A17-small", title: "很小的窗口收起、展开", options: ["--size=220,140"]) { probe, h in
