@@ -122,9 +122,6 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
     model.reload()
   }
 
-  func windowWillClose(_ notification: Notification) {
-    app?.settingsWindow = nil
-  }
 }
 
 /// 设置的一页：先是一个空视图，第一次要显示时才把 SwiftUI 表单建进去。
@@ -171,6 +168,26 @@ final class SettingsTabController: NSTabViewController {
 }
 
 extension AppDelegate {
+  /// 启动后趁用户没在操作时，先把设置窗口建好、排好版，不显示。建窗口时要第一次给分页工具栏排版、建上次看的那一页表单，
+  /// 主线程停 700 毫秒以上（CI 场景 H01、H02、C15）；等到用户打开设置时再建，用户点了设置之后就要等这一下。
+  /// 启动后约一分钟内用户一直在操作，就不再等，到打开设置时再建。关掉的设置窗口也留着，下次打开不再重建。
+  func prepareSettingsWindowWhenIdle(attempt: Int = 0) {
+    guard settingsWindow == nil, attempt < 30 else { return }
+    let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+    guard idle >= 2 else {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+        self?.prepareSettingsWindowWhenIdle(attempt: attempt + 1)
+      }
+      return
+    }
+    let started = CFAbsoluteTimeGetCurrent()
+    let prepared = SettingsWindow(owner: self)
+    prepared.window?.layoutIfNeeded()
+    prepared.window?.displayIfNeeded()
+    settingsWindow = prepared
+    wlog("settings: window prepared while idle in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms")
+  }
+
   /// 普通的“设置…”回到上次看的分页；从别处点进来的可以指定分页。
   func showSettingsWindow(section: WindowShadeSettingsSection? = nil) {
     if settingsWindow == nil {

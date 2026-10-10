@@ -313,6 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         FirstUseWarmup.start()
         // 启动时先在后台查一次登录项状态；查询要等系统的后台服务，不放在主线程（见 App/LaunchAtLogin.swift）。
         LaunchAtLoginState.refresh {}
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.prepareSettingsWindowWhenIdle() }
         installStripKeyForwarding()
         setupMouseDownMonitor()
         NSWorkspace.shared.notificationCenter.addObserver(self,
