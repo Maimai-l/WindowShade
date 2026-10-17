@@ -229,6 +229,10 @@ done
 SCENARIO_RESULTS=()
 
 if $RECORDINGS; then
+# 逐帧检查只看这两段录像期间新写的日志：自己的 Mac 上日志不清空，一直往后写，以前同样大小的窗口的展开记录会被当成这一次的
+# （2026-10-17 本机运行：访达那段报出两条展开位置和收起前不同，两条都是更早的记录）。后面的场景 A21 也用同样大小的访达窗口，
+# 所以录完访达那段再记一次行数，只取两次之间的日志。
+RECORDING_LOG_START=$(wc -l < ~/Library/Logs/WindowShade/windowshade.log 2>/dev/null || echo 0)
 echo "==> record TextEdit"
 record "$OUT/driver.log" "$OUT/demo.mp4"
 
@@ -237,6 +241,7 @@ echo "==> record Finder"
 open /Applications
 sleep 3
 record "$OUT/driver-finder.log" "$OUT/demo-finder.mp4" com.apple.finder 900 500 8
+RECORDING_LOG_END=$(wc -l < ~/Library/Logs/WindowShade/windowshade.log 2>/dev/null || echo 0)
 
 # 场景 E13：关闭一个收起的、有未保存内容的文本编辑窗口（2026-10-08 曾让整台 Mac 不响应输入）。
 # 驱动程序自己新建文档、打字、收起、点卷帘条上的关闭按钮、在“是否保存”里选删除，并不停地发探测点击。
@@ -444,6 +449,9 @@ SCENARIO_RESULTS+=("$OUT/scenarios-noscreen.json" "$OUT/scenarios-noax.json")
 fi
 
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
+if $RECORDINGS; then
+  sed -n "$(( ${RECORDING_LOG_START:-0} + 1 )),$(( ${RECORDING_LOG_END:-0} ))p" "$OUT/windowshade.log" > "$OUT/windowshade-recordings.log"
+fi
 collect_crashes
 pgrep -x WindowShade >/dev/null || { echo "WindowShade exited during the recording"; exit 1; }
 grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|space:|screen:|capture full|titlebar" "$OUT/windowshade.log" | tail -80 || true
@@ -460,7 +468,7 @@ echo "==> check the frame check (K05)"
 bash tests/run-frame-check-selftest.sh || status=1
 echo "==> check frames"
 for name in demo demo-finder; do
-  python3 .github/demo/check_frames.py "$OUT/$name.mp4" "$OUT/$name.json" "$OUT/windowshade.log" || status=1
+  python3 .github/demo/check_frames.py "$OUT/$name.mp4" "$OUT/$name.json" "$OUT/windowshade-recordings.log" || status=1
 done
 else
   echo "SKIP K05 and the frame check: ffmpeg is not installed"

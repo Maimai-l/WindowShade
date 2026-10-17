@@ -460,6 +460,9 @@ let baselineDefaults: [[String]] = [
     ["ShadeAppearanceMode", "-string", "nativeScreenshot"],
     ["ShadeFloatingOnTop", "-bool", "true"],
     ["ShadeOnboardingShown", "-bool", "true"],
+    // 设置窗口打开上次看的那一页；1 是“卷帘”页，H01、H02 要改的开关都在这一页
+    // （2026-10-17 本机运行：用户的 Mac 上次看的是“快捷键”页，H01、H02 没找到设置窗口）。
+    ["WindowShade.Settings.LastViewedSection", "-integer", "1"],
 ]
 
 /// 运行一个命令行工具，最多等 timeout 秒：`open -a` 遇到启动时停住的应用程序会一直不返回
@@ -958,6 +961,9 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
         + checkScenarios + randomScenarios
     var needsRelaunch = false
     let watchdog = ScenarioWatchdog(output: output)
+    // 场景要在套件开始时的桌面上跑。场景打开的应用程序把窗口开在别的桌面上时，系统会切到那个桌面，结束这个应用程序后屏幕仍停在那里
+    // （2026-10-17 本机运行：A33-SystemSettings 之后停在系统设置所在的空桌面上，B03、B09、B18 在那里失败）。
+    let homeDesktop = activeSpaceID()
     func selected(_ index: Int, _ scenario: Scenario) -> Bool {
         if let only { return only.contains(scenario.id) }
         guard scenario.group == "main" else { return false }
@@ -968,6 +974,10 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
         // 改过设置的场景之后，回到基准设置再跑下一个。
         if needsRelaunch || windowShadePID() == nil { _ = await relaunchWindowShade() }
         clearSystemPopups()
+        if let homeDesktop, let now = activeSpaceID(), now != homeDesktop {
+            let back = await returnToDesktop(homeDesktop)
+            log("desktop: before \(scenario.id) the active desktop was \(now), not \(homeDesktop); back=\(back)")
+        }
         needsRelaunch = scenario.changesSettings
         log("scenario \(scenario.id): \(scenario.title)")
         watchdog.begin(scenario.id, scenario.title, limit: scenario.timeLimit)

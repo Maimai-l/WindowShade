@@ -305,6 +305,8 @@ mkdir -p "$PACK/results"
 cp "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png \
    "$DEMO_OUT"/*.txt "$DEMO_OUT"/*.ips "$PACK/results/" 2>/dev/null || true
 cp "$ROOT/KIT_VERSION" "$PACK/results/" 2>/dev/null || true
+# 把文本编辑和访达两段录像也放进结果包：逐帧检查报出问题时要看画面，两段各只有十几秒（2026-10-17 本机运行报出拖动中停住 1 次，当时没有录像可看）。
+cp "$DEMO_OUT"/demo.mp4 "$DEMO_OUT"/demo-finder.mp4 "$PACK/results/" 2>/dev/null || true
 cp "$RUN_LOG" "$PACK/results/run.log"
 echo "exit=$status" > "$PACK/results/exit-status.txt"
 ZIP="$RESULTS/results-$STAMP.zip"

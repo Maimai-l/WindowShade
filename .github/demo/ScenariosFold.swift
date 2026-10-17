@@ -41,6 +41,18 @@ func standardWindow(of bundleID: String, launch: [String], timeout: Double = 10)
     return found
 }
 
+/// outside 这块应当在屏幕外的区域落在另一块屏幕上时返回 true，并在结果里记下跳过的原因。
+/// A18 要测窗口伸出屏幕的情形；伸出去的那一边接着另一块屏幕时，窗口跨在两块屏幕上，测不到这种情形
+/// （2026-10-17 本机运行：主屏幕右边接着第二块屏幕，A18-right 的窗口只显示在第二块屏幕上，双击点所在的主屏幕上看不到它）。
+func anotherDisplayCovers(_ outside: CGRect, _ h: Harness) -> Bool {
+    var count: UInt32 = 0
+    var ids = [CGDirectDisplayID](repeating: 0, count: 8)
+    guard CGGetActiveDisplayList(8, &ids, &count) == .success else { return false }
+    let other = ids.prefix(Int(count)).filter { $0 != CGMainDisplayID() }.map(CGDisplayBounds).first { $0.intersects(outside) }
+    if let other { h.result.notes["skipped"] = "another display at \(other) covers the part that should be off screen" }
+    return other != nil
+}
+
 /// 用真实的应用程序收起、展开一次；没有这个应用程序时记为跳过，不算失败。
 func realAppRoundTrip(_ bundleID: String, launch: [String], size: CGSize?, barY: CGFloat = 14,
                       quitAfter: Bool, _ harness: Harness) async {
@@ -343,11 +355,13 @@ let foldScenarios: [Scenario] = [
         await unfold(folded, probe, h)
     },
     Scenario(id: "A18-left", title: "左边伸出屏幕的窗口收起、展开", options: []) { probe, h in
+        guard !anotherDisplayCovers(CGRect(x: -300, y: 200, width: 300, height: probeSize.height), h) else { return }
         guard let window = probe.window(), let folded = await fold(window, at: CGPoint(x: -300, y: 200), size: probeSize, h) else { return }
         await unfold(folded, probe, h)
     },
     Scenario(id: "A18-right", title: "右边伸出屏幕的窗口收起、展开", options: []) { probe, h in
         let screen = CGDisplayBounds(CGMainDisplayID())
+        guard !anotherDisplayCovers(CGRect(x: screen.maxX, y: 200, width: probeSize.width - 300, height: probeSize.height), h) else { return }
         guard let window = probe.window(),
               let folded = await fold(window, at: CGPoint(x: screen.maxX - 300, y: 200), size: probeSize, h) else { return }
         // 双击点按窗口算会落到屏幕外：改点卷帘条露在屏幕里的部分。
@@ -357,6 +371,7 @@ let foldScenarios: [Scenario] = [
     },
     Scenario(id: "A18-bottom", title: "下边伸出屏幕的窗口收起、展开", options: []) { probe, h in
         let screen = CGDisplayBounds(CGMainDisplayID())
+        guard !anotherDisplayCovers(CGRect(x: 200, y: screen.maxY, width: probeSize.width, height: probeSize.height - 200), h) else { return }
         guard let window = probe.window(),
               let folded = await fold(window, at: CGPoint(x: 200, y: screen.maxY - 200), size: probeSize, h) else { return }
         await unfold(folded, probe, h)

@@ -38,6 +38,21 @@ func windowShadeWindow(_ title: String) -> AXUIElement? {
     return (value as? [AXUIElement] ?? []).first { axString($0, kAXTitleAttribute as String).contains(title) }
 }
 
+/// 找到设置窗口（最多等 4 秒）并切到“卷帘”页，找不到时返回 nil。窗口标题是当前那一页的名字，不是“设置”。
+func shadeSettingsWindow() async -> AXUIElement? {
+    let pages = ["卷帘", "快捷键", "权限与启动", "高级"]
+    var window: AXUIElement?
+    guard await eventually(4, { window = pages.lazy.compactMap(windowShadeWindow).first; return window != nil }),
+          let window else { return nil }
+    // 工具栏上的分页按钮：标题等于“卷帘”。不用 control()：它按“含有”匹配，可能先找到当前页里含“卷帘”的文字。
+    if axString(window, kAXTitleAttribute as String) != "卷帘",
+       let tab = findElement(window, maxDepth: 8, { axString($0, kAXTitleAttribute as String) == "卷帘" }) {
+        AXUIElementPerformAction(tab, kAXPressAction as CFString)
+        await pause(0.8)
+    }
+    return window
+}
+
 /// 某个元素里标题或说明含 name 的控件。SwiftUI 表单的层次很深（窗口、标签页、托管视图、滚动区域、分组……），
 /// 搜到 30 层。
 func control(_ root: AXUIElement, _ name: String, role: String? = nil) -> AXUIElement? {
@@ -125,6 +140,31 @@ func desktopCount() -> Int {
     guard let displays = unsafeBitCast(symbol, to: Copy.self)(cid)?.takeRetainedValue() as? [[String: Any]] else { return 0 }
     // type 0 是普通桌面，4 是全屏应用程序占的桌面。
     return displays.flatMap { $0["Spaces"] as? [[String: Any]] ?? [] }.filter { ($0["type"] as? Int) == 0 }.count
+}
+
+/// 每块屏幕上各个桌面的 ID（含全屏应用程序占的桌面），一块屏幕一行，按调度中心里从左到右排。
+func desktopRows() -> [[UInt64]] {
+    guard let cid = skyLightConnection(), let symbol = skyLightSymbol("SLSCopyManagedDisplaySpaces") else { return [] }
+    typealias Copy = @convention(c) (Int32) -> Unmanaged<CFArray>?
+    guard let displays = unsafeBitCast(symbol, to: Copy.self)(cid)?.takeRetainedValue() as? [[String: Any]] else { return [] }
+    return displays.map { display in
+        (display["Spaces"] as? [[String: Any]] ?? []).compactMap { ($0["ManagedSpaceID"] as? NSNumber)?.uint64Value }
+    }
+}
+
+/// 回到 home 那个桌面：按 Control-左右方向键，一次一格，最多 8 格。当前桌面和 home 不在同一块屏幕上，或按键没有切换桌面时，放弃。
+/// 返回是否回到了 home。
+@discardableResult
+func returnToDesktop(_ home: UInt64) async -> Bool {
+    for _ in 0..<8 {
+        guard let now = activeSpaceID() else { return false }
+        if now == home { return true }
+        guard let row = desktopRows().first(where: { $0.contains(now) && $0.contains(home) }),
+              let from = row.firstIndex(of: now), let to = row.firstIndex(of: home) else { return false }
+        await switchDesktop(right: to > from)
+        if activeSpaceID() == now { return false }
+    }
+    return activeSpaceID() == home
 }
 
 /// 只有一个桌面时（CI 的虚拟机）新建一个：打开调度中心，按桌面栏上的“添加桌面”按钮，再按 Esc 关掉调度中心。
@@ -519,8 +559,7 @@ let systemScenarios: [Scenario] = [
     // MARK: 设置窗口（第 6 节）
     Scenario(id: "H01", title: "在设置窗口里改开关：立即写入设置", options: [], changesSettings: true) { _, h in
         h.expect(await pressWindowShadeMenu("设置"), "H01: no Settings item")
-        guard await eventually(4, { windowShadeWindow("卷帘") != nil || windowShadeWindow("设置") != nil }),
-              let settings = windowShadeWindow("卷帘") ?? windowShadeWindow("设置") else {
+        guard let settings = await shadeSettingsWindow() else {
             h.result.violations.append("H01: the settings window did not open"); return
         }
         for (name, key) in [("卷帘条置顶", "ShadeFloatingOnTop"), ("看一眼", "GlanceEnabled")] {
@@ -545,7 +584,7 @@ let systemScenarios: [Scenario] = [
         guard let folded = await foldProbe(probe, h) else { return }
         _ = await pressWindowShadeMenu("设置")
         await pause(1.5)
-        if let settings = windowShadeWindow("卷帘") ?? windowShadeWindow("设置"), let thumbnail = control(settings, "缩略图") {
+        if let settings = await shadeSettingsWindow(), let thumbnail = control(settings, "缩略图") {
             AXUIElementPerformAction(thumbnail, kAXPressAction as CFString)
             await pause(0.8)
         } else {
