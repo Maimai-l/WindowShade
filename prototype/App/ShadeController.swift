@@ -351,9 +351,10 @@ extension AppDelegate {
             let focusOnStrip = noFocusHeir && mayHideApp && revealedBeforeHide
             if focusOnStrip {
                 overlay.makeKeyAndOrderFront(nil)
-                // NSApp.activate() 要等前台的应用程序让出前台才生效，CI 上 0.3 秒内 WindowShade 都没到前台（3b3d03f，场景 B06-alone）。
-                // 用 NSRunningApplication 激活别的应用程序时立即生效（场景 E12），这里用同一个接口激活 WindowShade。
-                // 不用辅助功能把自己设为前台应用程序：对自己进程的辅助功能调用要等自己的主线程回话，在主线程上调用会停住。
+                // NSApp.activate() 要等前台的应用程序让出前台才生效，CI 上 0.3 秒内 WindowShade 都没到前台（3b3d03f，场景 B06-alone）；
+                // NSRunningApplication 的 activate 在 28ad834 上也没生效，这里仍先调用一次，生效了就不用等辅助功能。
+                // 在后台队列上隐藏窗口之前（hideWindowInBackground），再用辅助功能把 WindowShade 设为前台应用程序。
+                // 不在这里用辅助功能：对自己进程的辅助功能调用要等自己的主线程回话，在主线程上调用会停住。
                 NSRunningApplication.current.activate(options: [])
             }
             let hideStartedAt = CFAbsoluteTimeGetCurrent()

@@ -365,6 +365,15 @@ extension AppDelegate {
         let element = HandOff(win)
         windowHideQueue.asyncAfter(deadline: .now() + delay) {
             var effective = request
+            if focusOnStrip {
+                // NSApp.activate() 和 NSRunningApplication.current.activate 都要等前台的应用程序让出前台，
+                // CI 上 0.3 秒内 WindowShade 都没到前台（3b3d03f、28ad834，场景 B06-alone）。
+                // 所以再用辅助功能把 WindowShade 设为前台应用程序。这个请求要由 WindowShade 自己的主线程答复；
+                // 这里在后台队列上调用，主线程没有在等这里，两边不会互相等待。最多等 0.3 秒。
+                let me = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+                AXUIElementSetMessagingTimeout(me, 0.3)
+                AXUIElementSetAttributeValue(me, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            }
             // 焦点交给了卷帘条（focusOnStrip）时，等 WindowShade 到了前台再隐藏应用程序，系统就不会另挑窗口、切换桌面；
             // 0.3 秒内没到前台，照旧按 noFocusHeir 最小化。
             if focusOnStrip, let id, waitUntilFrontmost(ProcessInfo.processInfo.processIdentifier, id: id) {
