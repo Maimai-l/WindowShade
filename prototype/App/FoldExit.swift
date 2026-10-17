@@ -30,10 +30,12 @@ extension AppDelegate {
         removeObserver(state)                          // 先停掉监听，避免下面的恢复动作反过来触发自己
         // 卷帘条可能被拖动过：窗口在卷帘条现在的位置展开（窗口的标题栏对齐卷帘条）。
         let pos: CGPoint
-        // 窗口是从屏幕外移回来的，或者从程序坞放出来的（最小化）：先让它回到原处，再撤卷帘条，中间不留空档。
-        // 最小化的窗口从程序坞飞回来要 0.3 秒左右，先撤卷帘条的话，这段时间标题栏的位置是空的（CI 文本编辑录像，
-        // 3eb112c：空了 11 帧）。隐藏应用程序的窗口取消隐藏后立刻就在原处，照旧先撤。
-        let dismissAfterRestore = state.hide == .offscreen || state.hide == .privateOffscreen || state.hide == .minimized
+        // 窗口是从屏幕外移回来的、取消最小化的，或者随应用程序取消隐藏的：等它回到原处、排到最前，再撤卷帘条，中间不留空档。
+        // 最小化的窗口从程序坞飞回来要 0.3 秒左右，如果先撤卷帘条，这段时间标题栏的位置是空的（CI 文本编辑录像，
+        // 3eb112c：空了 11 帧）。取消隐藏的窗口虽然立刻回到原处，标题栏却要过一会儿才画出来：如果先撤卷帘条，
+        // 标题栏的位置先露出桌面，然后标题栏显示几帧灰色（CI 录像，c8cc205）。
+        let dismissAfterRestore = state.hide == .offscreen || state.hide == .privateOffscreen
+            || state.hide == .minimized || state.hide == .hidden
         if let overlay = state.overlay {
             pos = axPosition(fromCocoaFrame: thumbnailHome ?? restoreReferenceFrame(id: id, overlay: overlay))
             if !dismissAfterRestore { dismissOverlay(overlay) }
@@ -68,7 +70,7 @@ extension AppDelegate {
             verifyRestoredWindow(state, to: pos, completion: onVerified)
         } else {
             // 其他应用程序的窗口：辅助功能调用交给它自己的队列，主线程不等（R5）。
-            // 从屏幕外移回的窗口，卷帘条留到窗口回来之后再撤。
+            // 从屏幕外移回、取消最小化或取消隐藏的窗口，卷帘条留到窗口回到原处、排到最前之后再撤。
             restoreInBackground(state, id: id, to: pos, dismissOverlayAfter: dismissAfterRestore,
                                 pin: pinAfterRestore, reason: "unshade id=\(id)", onVerified: onVerified)
         }
