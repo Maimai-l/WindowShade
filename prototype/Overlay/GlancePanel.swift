@@ -372,6 +372,20 @@ final class GlanceContentView: NSView {
         CATransaction.commit()
     }
 
+    /// 展开后撤画面前淡出：duration 秒内整张变透明。调用方在 duration 秒后撤掉面板。
+    func fadeOut(duration: CFTimeInterval) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.removeAnimation(forKey: "glance-fade")
+        layer?.opacity = 0
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = duration
+        layer?.add(fade, forKey: "glance-fade")
+        CATransaction.commit()
+    }
+
     func rollUp(duration: CFTimeInterval = 0.14, completion: @escaping () -> Void) {
         let current = rollMask.presentation()?.bounds.height ?? rollMask.bounds.height
         rollMask.removeAllAnimations()

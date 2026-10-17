@@ -156,6 +156,11 @@ final class GlanceController {
     /// “看一眼”的面板：用完放回，下次打开直接拿来用，不用每次新建窗口（SpareWindowPool.swift）。
     static let panels = SpareWindowPool<GlancePanel>(capacity: 1) { GlancePanel(frame: .zero) }
 
+    /// 展开后画面淡出的时长（秒）。
+    static let expandFadeDuration: TimeInterval = 0.15
+    /// 正在淡出的面板：会话已经结束，淡出完才撤，期间不当作“不属于任何会话的面板”撤掉。
+    private var fadingPanels: Set<ObjectIdentifier> = []
+
     /// 实时画面最多等这么久；等不到就先给截图。
     static let firstFrameWait: TimeInterval = 0.25
 
@@ -643,13 +648,28 @@ final class GlanceController {
            session.rehiddenAt == nil, owner.shaded[session.id] != nil {
             _ = rehide(session)
         }
-        session.tearDown()
+        if reason == "expanded", let panel = session.panel, let content = session.content, panel.isVisible {
+            // 展开后画面淡出再撤。原窗口刚取消隐藏时，系统要过几帧才把它的标题栏画好；画面一下子撤掉，
+            // 这几帧会露出标题栏底下没经过模糊的正文和灰色的标题栏（用户 2026-10-17 的录像，约 80 毫秒）。
+            // 画面盖着时标题栏也不会提前画好，多等也没用（32afcdf），所以改为淡出，用半透明的画面盖住这几帧。
+            fadingPanels.insert(ObjectIdentifier(panel))
+            session.capture?.stop()
+            session.capture = nil
+            content.fadeOut(duration: Self.expandFadeDuration)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.expandFadeDuration) { [weak self] in
+                self?.fadingPanels.remove(ObjectIdentifier(panel))
+                session.tearDown()
+            }
+        } else {
+            session.tearDown()
+        }
         if reason != "discard" && reason != "close-before-show" {
             wlog("glance: end id=\(session.id) reason=\(reason)")
         }
         // 不属于任何会话、还留在屏幕上的面板，一律在这里撤掉。
         for window in NSApp.windows where window is GlancePanel && window.isVisible
-            && !sessions.values.contains(where: { $0.panel === window }) {
+            && !sessions.values.contains(where: { $0.panel === window })
+            && !fadingPanels.contains(ObjectIdentifier(window)) {
             window.orderOut(nil)
             wlog("glance: removed a panel no glance owns")
         }
