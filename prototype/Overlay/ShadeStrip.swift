@@ -149,6 +149,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                 })
             }
         }
+        // CI 日志（190172e）：卷帘条成为当前窗口时，标题栏把按钮挪回默认位置，不一定发位置变化的通知。
+        // 所以每次切换灰点和系统按钮时都把按钮放回排好的位置，等这一轮布局做完再放一次。
+        putBackAlignedButtons()
+        DispatchQueue.main.async { [weak self] in self?.putBackAlignedButtons() }
         let showSystem = (isKeyWindow && NSApp.isActive) || pointerOverLights
         for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             standardWindowButton(type)?.alphaValue = showSystem ? 1 : 0
@@ -325,6 +329,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                 }
             })
         }
+    }
+
+    private func putBackAlignedButtons() {
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { putBackAlignedButton(type) }
     }
 
     /// 标题栏把按钮挪离了排好的位置时放回去（见 alignedButtonFrames）。
