@@ -707,12 +707,11 @@ final class GlanceController {
 
     /// 位置对了还不够，画面要等下面三件事都成立才撤：
     /// 1. 原窗口排到别的应用程序窗口前面，否则撤掉的那一两帧会露出盖在它上面的窗口；
-    /// 2. 它的应用程序已经成为当前应用程序，再多等 readyFramesBeforeFinish 帧：窗口从非活跃样式换成活跃样式时会重画标题栏，
-    ///    重画期间标题栏先是空的、再变灰，要过几帧才换成活跃样式；
+    /// 2. 它的应用程序已经成为当前应用程序，再多等两帧：窗口从非活跃样式换成活跃样式时会重画标题栏，
+    ///    重画期间标题栏是空的；
     /// 3. 展开后 80、250 毫秒那两次补升起、补聚焦已经做完：应用程序本来就在前台时第 2 条一开始就成立，
     ///    窗口却要等这两次聚焦才换样式。
-    /// 2026-10-08 的 CI 录像里，这三种情况分别露出别的窗口 2 帧、标题栏空白 2 帧、标题栏变黑 1 帧；03832ba 的 CI 录像里，
-    /// 收起时隐藏了应用程序、展开时焦点在卷帘条上，只等 2 帧时标题栏还空白 1 帧、变灰 1 帧。每帧判断一次，最多等到 deadline。
+    /// 2026-10-08 的 CI 录像里，这三种情况分别露出别的窗口 2 帧、标题栏空白 2 帧、标题栏变黑 1 帧。每帧判断一次，最多等到 deadline。
     /// 第 1、2 条要查窗口列表，放在后台队列上（SourceFrontProbe），这里每帧只发起查询、读最近一次的结果。
     private func finishWhenSourceInFront(_ session: GlanceSession, deadline: Date, readyFrames: Int = 0,
                                          probe: SourceFrontProbe? = nil) {
@@ -725,7 +724,7 @@ final class GlanceController {
         }
         let refocusDone = session.restoreStartedAt.map { Date().timeIntervalSince($0) >= Self.refocusSettleDelay } ?? true
         let ready = refocusDone && probe.ready
-        if ready && readyFrames >= Self.readyFramesBeforeFinish {
+        if ready && readyFrames >= 2 {
             finish(session, reason: "expanded")
             return
         }
@@ -734,9 +733,6 @@ final class GlanceController {
             self.finishWhenSourceInFront(session, deadline: deadline, readyFrames: ready ? readyFrames + 1 : 0, probe: probe)
         }
     }
-
-    /// finishWhenSourceInFront 上面列的三件事都成立之后，再等这么多帧才撤画面（每秒 60 帧，约 0.1 秒）。
-    static let readyFramesBeforeFinish = 6
 
     /// 展开之后最后一次补聚焦在 250 毫秒，交给应用程序的队列执行，留出约 70 毫秒。
     static let refocusSettleDelay: TimeInterval = 0.32
