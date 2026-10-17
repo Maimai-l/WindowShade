@@ -17,10 +17,9 @@ quicklook-not-folding	95d16fa	A32
 frozen-process-blocks-clicks	b1a164f	X11	^I2:
 empty-desktop-dock-click	5d449eb	B06-alone	^I1: 
 triple-click-minimize-back	e1cc7bd	A08	
-quicklook-double-click-lost	5e7a4bd	A32	^(A32: Quick Look did not reopen|I1: a strip is still on screen)
 fold-start-double-click-behind	7babb99	A36	
 #
-# 下面几条的场景在修复之前的版本上跑 3 次都通过，说明不能稳定复现这些缺陷，暂不列进本表；
+# 下面几条的场景在修复之前的版本上跑 3 次都通过或都没有报出应当报出的问题，说明不能稳定复现这些缺陷，暂不列进本表；
 # docs/testing.md 第 5 节对应各行的状态写“没有能复现它的测试”。补上能稳定复现的场景后，去掉行首的 # 和行尾的说明，移回上面。
 # close-cancel-rehidden	aa4d1bb	C04-cancel	——C04-cancel 加强检查后仍跑 3 次都通过（108d26f）
 # second-window-not-key	aa4d1bb	A15	——A15 加强检查后仍跑 3 次都通过（108d26f）
@@ -31,6 +30,7 @@ fold-start-double-click-behind	7babb99	A36
 # unfold-wait-window-list-stall	5e6eca7	L01	^I6:	——L01 在 dd40ef5 的一次场景运行里失败过，1479ef0 的检查里跑 3 次都通过；这个缺陷还由 tests/run-input-safety-lint.sh 第 8 条防止再次出现，那一条的有效性由 tests/run-lint-validity.sh 检查
 # kill-mid-fold-app-left-hidden	5e6eca7	L03	^I1: the window is not back	——L03 在 dd40ef5 的一次场景运行里失败过，1479ef0 的检查里跑 3 次都通过
 # strip-double-click-covered	34915d9	A32	^I1: a strip is still on screen	——A32 在 54f1aa1 的一次检查里失败过，30d8d39 的检查里跑 3 次都通过
+# quicklook-double-click-lost	5e7a4bd	A32	^(A32: Quick Look did not reopen|I1: a strip is still on screen)	——A32 在 fa0bcfe、54f1aa1 的检查里第 1 次就报出，9494581 的检查里跑 3 次都没有报出；双击要正好落在收起完成之前才会复现
 #
 # 下面这条缺陷的场景 C15 分不出它：C15 在修复之前的版本上和当前代码上都有超过 500 毫秒的停顿，停顿采样都落在第一次建设置表单
 # （SwiftUI 排版、画符号），没有落在查询登录项上（1b5c572）。这个缺陷由静态检查 tests/run-input-safety-lint.sh 第 7 条防止再次出现，
