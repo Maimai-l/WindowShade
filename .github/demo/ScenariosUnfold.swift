@@ -112,6 +112,8 @@ let unfoldScenarios: [Scenario] = [
         guard let folded = await foldProbe(probe, h) else { return }
         h.expect(h.logLines().contains { $0.contains("handoff strategy=stay-minimize") },
                  "B06-alone: setup: the focus went to another window, so this is plain B06")
+        // 收起时不最小化：最小化会播放窗口缩进程序坞的动画（用户 2026-10-17 的录像）。
+        h.expect(probe.count("minimized") == 0, "B06-alone: the window was minimized while folding")
         guard let item = dockItem("ProbeApp") else { h.result.notes["skipped"] = "no Dock item"; return }
         AXUIElementPerformAction(item, kAXPressAction as CFString)
         await expectRestored(probe, folded.frame, h, within: 4)
