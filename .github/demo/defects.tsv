@@ -17,7 +17,6 @@ quicklook-not-folding	95d16fa	A32
 frozen-process-blocks-clicks	b1a164f	X11	^I2:
 empty-desktop-dock-click	5d449eb	B06-alone	^I1: 
 triple-click-minimize-back	e1cc7bd	A08	
-fold-start-double-click-behind	7babb99	A36	
 hide-before-heir-in-front	2ce8ca7	E12	^E12: (folding|TextEdit)
 #
 # 下面几条的场景在修复之前的版本上跑 3 次都通过或都没有报出应当报出的问题，说明不能稳定复现这些缺陷，暂不列进本表；
@@ -32,6 +31,7 @@ hide-before-heir-in-front	2ce8ca7	E12	^E12: (folding|TextEdit)
 # kill-mid-fold-app-left-hidden	5e6eca7	L03	^I1: the window is not back	——L03 在 dd40ef5 的一次场景运行里失败过，1479ef0 的检查里跑 3 次都通过
 # strip-double-click-covered	34915d9	A32	^I1: a strip is still on screen	——A32 在 54f1aa1 的一次检查里失败过，30d8d39 的检查里跑 3 次都通过
 # quicklook-double-click-lost	5e7a4bd	A32	^(A32: Quick Look did not reopen|I1: a strip is still on screen)	——A32 在 fa0bcfe、54f1aa1 的检查里第 1 次就报出，9494581 的检查里跑 3 次都没有报出；双击要正好落在收起完成之前才会复现
+# fold-start-double-click-behind	7babb99	A36		——A36 在 9494581 的一次场景运行里失败过，fe2a604 的检查里跑 3 次都通过
 #
 # 下面这条缺陷的场景 C15 分不出它：C15 在修复之前的版本上和当前代码上都有超过 500 毫秒的停顿，停顿采样都落在第一次建设置表单
 # （SwiftUI 排版、画符号），没有落在查询登录项上（1b5c572）。这个缺陷由静态检查 tests/run-input-safety-lint.sh 第 7 条防止再次出现，
