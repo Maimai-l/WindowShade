@@ -305,8 +305,20 @@ mkdir -p "$PACK/results"
 cp "$DEMO_OUT"/*.json "$DEMO_OUT"/*.log "$DEMO_OUT"/*.png \
    "$DEMO_OUT"/*.txt "$DEMO_OUT"/*.ips "$PACK/results/" 2>/dev/null || true
 cp "$ROOT/KIT_VERSION" "$PACK/results/" 2>/dev/null || true
-# 把文本编辑和访达两段录像也放进结果包：逐帧检查报出问题时要看画面，两段各只有十几秒（2026-10-17 本机运行报出拖动中停住 1 次，当时没有录像可看）。
-cp "$DEMO_OUT"/demo.mp4 "$DEMO_OUT"/demo-finder.mp4 "$PACK/results/" 2>/dev/null || true
+# 把文本编辑和访达两段录像也放进结果包：逐帧检查报出问题时要看画面（2026-10-17 本机运行报出拖动中停住 1 次，当时没有录像可看）。
+# 两段原始录像按 Retina 分辨率录制，共约 98 MB。先用系统自带的 avconvert 转成 1080p 的 HEVC 再放进去；转换失败就放原始录像。
+# 逐帧检查已经在这台 Mac 上用原文件做过，结果包里的录像只用来看画面。
+for name in demo demo-finder; do
+  src="$DEMO_OUT/$name.mp4"
+  [ -f "$src" ] || continue
+  if ! avconvert --preset PresetHEVC1920x1080 --source "$src" --output "$PACK/results/$name.mp4" >/dev/null 2>&1; then
+    cp "$src" "$PACK/results/"
+  fi
+done
+# 测试结束时的整屏截图 end.png 约 5 MB，转成 JPEG 再放进去；转换失败就保留 PNG。
+if [ -f "$PACK/results/end.png" ] && sips -s format jpeg "$PACK/results/end.png" --out "$PACK/results/end.jpg" >/dev/null 2>&1; then
+  rm -f "$PACK/results/end.png"
+fi
 cp "$RUN_LOG" "$PACK/results/run.log"
 echo "exit=$status" > "$PACK/results/exit-status.txt"
 ZIP="$RESULTS/results-$STAMP.zip"
