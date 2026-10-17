@@ -26,6 +26,9 @@ func foldAll(_ probe: Probe, _ harness: Harness, size: CGSize = CGSize(width: 36
         let point = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 14)
         await glide(to: point, duration: 0.2)
         await doubleClick(at: point)
+        // 收起后指针马上离开卷帘条：停在上面会打开“看一眼”，屏幕下部的卡片向上展开，盖住上面一行待收起窗口的标题栏，
+        // 双击落在卡片上被拒绝（02cd137 上 B17：refused control role=AXImage，8 扇只收起 6 扇）。
+        await glide(to: harness.neutral, duration: 0.15)
         await pause(1.0)
     }
     await glide(to: harness.neutral, duration: 0.2)
