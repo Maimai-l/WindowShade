@@ -74,17 +74,30 @@ extension AppDelegate {
                 }), let id = journalID(entry) else { continue }
 
                 guard let pos = axPosition(win), let size = axSize(win) else { continue }
-                if windowIsVisible(pos: pos, size: size),
+                // 记录停在“准备”：隐藏、最小化的请求可能在退出前发出、退出后才生效，窗口位置在屏幕上也要再看应用程序是否隐藏、窗口是否最小化。
+                var hide = HideMethod(rawValue: journalString(entry, "hide"))
+                if journalString(entry, "stage") == ShadeLifecycleStage.preparing.rawValue {
+                    switch preparingIntentOutcome(windowOnScreen: windowIsVisible(pos: pos, size: size),
+                                                  appHidden: app.isHidden,
+                                                  minimized: axBoolAttribute(win, kAXMinimizedAttribute as String)) {
+                    case .intact:
+                        result.resolvedIDs.insert(id)
+                        wlog("journal: preparing intent resolved (window visible) id=\(id)")
+                        continue
+                    case .unhideApp:
+                        hide = .hidden
+                        wlog("journal: preparing intent left the app hidden; unhiding id=\(id)")
+                    case .unminimize:
+                        hide = .minimized
+                        wlog("journal: preparing intent left the window minimized id=\(id)")
+                    case .moveBack:
+                        break
+                    }
+                } else if windowIsVisible(pos: pos, size: size),
                    journalString(entry,"stage") != ShadeLifecycleStage.restoring.rawValue,
                    journalString(entry,"hide") != HideMethod.minimized.rawValue,
                    journalString(entry,"hide") != HideMethod.hidden.rawValue,
                    journalString(entry,"hide") != HideMethod.privateAlpha.rawValue {
-                    // 记录还停在 preparing、窗口仍然可见：收起没走到隐藏这一步（进程在写记录之后、
-                    // 隐藏之前被结束），窗口完好，直接删掉这条记录。
-                    if journalString(entry, "stage") == ShadeLifecycleStage.preparing.rawValue {
-                        result.resolvedIDs.insert(id)
-                        wlog("journal: preparing intent resolved (window visible) id=\(id)")
-                    }
                     continue
                 }
 
@@ -108,7 +121,7 @@ extension AppDelegate {
                 }
                 result.actions.append(OffscreenRescueAction(id: id, win: win,
                                                             target: safeTarget, size: originalSize,
-                                                            pid:app.processIdentifier,hide:HideMethod(rawValue:journalString(entry,"hide")),
+                                                            pid:app.processIdentifier,hide:hide,
                                                             targetAlpha:journalString(entry,"hide") == HideMethod.privateAlpha.rawValue ? Float(journalNumber(entry,"originalAlpha") ?? 1):nil))
                 rescued += 1
                 wlog("journal: rescued id=\(id) app=\(journalString(entry, "appName")) target=(\(Int(safeTarget.x)),\(Int(safeTarget.y)))")
@@ -245,7 +258,8 @@ extension AppDelegate {
                     }
                     if let alpha=action.targetAlpha { _=PrivateSLSWindowMover.shared.setAlpha(id:action.id,alpha:alpha) }
                     if action.hide == .hidden,let pid=action.pid { _=NSRunningApplication(processIdentifier:pid)?.unhide() }
-                    if action.hide == .minimized { setAXMinimized(action.win,false) }
+                    // 应用程序隐藏、窗口也最小化时，取消隐藏之后还要解除最小化。
+                    if action.hide == .minimized || axBoolAttribute(action.win, kAXMinimizedAttribute as String) { setAXMinimized(action.win,false) }
                     setAXSize(action.win, action.size)
                     setAXPosition(action.win, action.target)
                     raiseAXWindow(action.win)

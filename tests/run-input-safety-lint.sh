@@ -75,6 +75,19 @@ else
   failed=$((failed + 1))
 fi
 
+# 8. 主线程不查窗口列表来判断展开后原窗口是否已排到最前：撤卷帘条、结束“看一眼”的每帧循环里，只经 SourceFrontProbe
+#    发起查询、读结果，查询放在后台队列上（Window/SourceFrontProbe.swift）。窗口服务器正忙时查一次要等它，
+#    2026-10-17 CI 场景 L01 里这样一次查询让主线程停了 530 毫秒。
+loops=$(awk '/func dismissOverlayWhenSourceInFront|func finishWhenSourceInFront/,/^    }$/' \
+  prototype/App/FoldTransaction.swift prototype/App/Glance.swift)
+if grep -q 'probe.poll()' <<<"$loops" \
+   && ! grep -qE 'CGWindowListCopyWindowInfo|cgWindowInfo|WindowListCache|sourceIsInFront|sourceAppIsActive' <<<"$loops"; then
+  echo "ok   the per-frame wait after unfolding reads the window list off the main thread"
+else
+  echo "FAIL the per-frame wait after unfolding reads the window list off the main thread (Window/SourceFrontProbe.swift)"
+  failed=$((failed + 1))
+fi
+
 if [ "$failed" -gt 0 ]; then
   echo "FAIL input-safety-lint: $failed check(s) failed"
   exit 1

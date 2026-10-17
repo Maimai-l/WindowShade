@@ -696,47 +696,32 @@ final class GlanceController {
     ///    重画期间标题栏是空的；
     /// 3. 展开后 80、250 毫秒那两次补升起、补聚焦已经做完：应用程序本来就在前台时第 2 条一开始就成立，
     ///    窗口却要等这两次聚焦才换样式。
-    /// 2026-10-08 的 CI 录像里，这三种情况分别露出别的窗口 2 帧、标题栏空白 2 帧、标题栏变黑 1 帧。每帧查一次，最多等到 deadline。
-    private func finishWhenSourceInFront(_ session: GlanceSession, deadline: Date, readyFrames: Int = 0) {
+    /// 2026-10-08 的 CI 录像里，这三种情况分别露出别的窗口 2 帧、标题栏空白 2 帧、标题栏变黑 1 帧。每帧判断一次，最多等到 deadline。
+    /// 第 1、2 条要查窗口列表，放在后台队列上（SourceFrontProbe），这里每帧只发起查询、读最近一次的结果。
+    private func finishWhenSourceInFront(_ session: GlanceSession, deadline: Date, readyFrames: Int = 0,
+                                         probe: SourceFrontProbe? = nil) {
+        let probe = probe ?? SourceFrontProbe(id: session.id)
+        probe.poll()
         if Date() >= deadline {
             wlog("glance: source not in front and active before deadline id=\(session.id)")
             finish(session, reason: "expanded")
             return
         }
         let refocusDone = session.restoreStartedAt.map { Date().timeIntervalSince($0) >= Self.refocusSettleDelay } ?? true
-        let ready = refocusDone && Self.sourceIsInFront(session.id) && Self.sourceAppIsActive(session.id)
+        let ready = refocusDone && probe.ready
         if ready && readyFrames >= 2 {
             finish(session, reason: "expanded")
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self, weak session] in
             guard let self, let session else { return }
-            self.finishWhenSourceInFront(session, deadline: deadline, readyFrames: ready ? readyFrames + 1 : 0)
+            self.finishWhenSourceInFront(session, deadline: deadline, readyFrames: ready ? readyFrames + 1 : 0, probe: probe)
         }
     }
 
     /// 展开之后最后一次补聚焦在 250 毫秒，交给应用程序的队列执行，留出约 70 毫秒。
     static let refocusSettleDelay: TimeInterval = 0.32
 
-    /// 原窗口所属的应用程序是当前应用程序。
-    static func sourceAppIsActive(_ id: CGWindowID) -> Bool {
-        guard let owner = (cgWindowInfo(id)?[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value else { return false }
-        return NSWorkspace.shared.frontmostApplication?.processIdentifier == owner
-    }
-
-    /// 屏幕上的窗口顺序里，原窗口标题栏那一条之上没有别的应用程序的普通窗口（WindowShade 自己的画面和卷帘条不算）。
-    static func sourceIsInFront(_ id: CGWindowID) -> Bool {
-        let selfPID = ProcessInfo.processInfo.processIdentifier
-        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
-        guard let index = windows.firstIndex(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id }),
-              let bounds = cgWindowBounds(windows[index]) else { return false }
-        let titleBand = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: min(60, bounds.height))
-        return !windows[..<index].contains { info in
-            ((info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1) == 0
-                && (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value != selfPID
-                && (cgWindowBounds(info)?.intersects(titleBand) ?? false)
-        }
-    }
 
     // MARK: 被隐藏的应用程序：盖住再取消隐藏
 
