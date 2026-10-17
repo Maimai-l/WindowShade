@@ -128,6 +128,14 @@ extension AppDelegate {
         eventTapReenableWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
+    /// 卷帘条自己的双击处理（展开它对应的窗口）：带红绿灯的卷帘条（原标题栏和简化标题栏）记在 NativeProxyOverlayWindow 上，
+    /// 没有红绿灯的原标题栏卷帘条记在 TitleStripView 上。
+    func stripDoubleClickAction(_ strip: NSWindow?) -> (() -> Void)? {
+        guard let strip else { return nil }
+        if let proxy = strip as? NativeProxyOverlayWindow, let action = proxy.onDoubleClick { return action }
+        if let view = strip.contentView as? TitleStripView { return view.onDoubleClick }
+        return strip.contentView?.subviews.lazy.compactMap { ($0 as? TitleStripView)?.onDoubleClick }.first
+    }
     func handleTitleBarDoubleClick(at point: CGPoint) -> Bool {
         let startedAt = CFAbsoluteTimeGetCurrent()
         defer {
@@ -149,15 +157,32 @@ extension AppDelegate {
             DispatchQueue.main.async { [weak self] in _ = self?.unshade(pending) }
             return true
         }
-        // 点在一条已经显示出来的卷帘条上：双击交给卷帘条处理。卷帘条知道是哪扇窗口；收起还没做完时，它先记下这次双击，做完再展开。
-        // 收起时卷帘条先显示、原窗口后移开，这段时间命中测试会落到卷帘条后面的原窗口上，按“再收起一次”处理并丢掉双击
-        // （108d26f 上 A32：快速查看窗口收起时双击卷帘条，没有展开）。
-        if NSApp.windows.contains(where: { window in
+        // 点在一条已经显示出来的卷帘条上：不按标题栏双击处理。收起时卷帘条先显示、原窗口后移开，这段时间命中测试会落到
+        // 卷帘条后面的原窗口上，按标题栏双击处理的话，双击会被当成“再收起一次”丢掉（108d26f 上 A32）。
+        // 收起做完了就放行，由卷帘条自己处理；还没做完时不放行，直接调用卷帘条的双击处理（见 StripHitTest.swift）。
+        let strip = NSApp.windows.first(where: { window in
             (window is NativeProxyOverlayWindow || window is OverlayWindow) && window.isVisible
-                && window.alphaValue >= 0.05 && !window.ignoresMouseEvents && window.frame.contains(cocoaPoint)
-        }) {
+                && window.alphaValue >= 0.05 && !window.ignoresMouseEvents
+                && stripShows(at: cocoaPoint, frame: window.frame, shownOn: window.screen?.frame,
+                              separateSpaces: NSScreen.screensHaveSeparateSpaces)
+        })
+        let foldFinished = strip.map { strip in shaded.values.contains { $0.overlay === strip } } ?? false
+        switch stripDoubleClickRoute(onShownStrip: strip != nil, foldFinished: foldFinished) {
+        case .notOnStrip:
+            break
+        case .leaveToStrip:
             wlog("titlebar-double-click: on a shown strip; the strip handles it at=(\(Int(point.x)),\(Int(point.y)))")
             return false
+        case .handleHere:
+            guard stripDoubleClickAction(strip) != nil else {
+                wlog("titlebar-double-click: on a strip still folding without a double-click action; the strip handles it")
+                return false
+            }
+            wlog("titlebar-double-click: on a strip still folding; handing the double click to it at=(\(Int(point.x)),\(Int(point.y)))")
+            DispatchQueue.main.async { [weak self, weak strip] in
+                self?.stripDoubleClickAction(strip)?()
+            }
+            return true
         }
         // 点在一条卷帘条的范围里却没按上面处理：记下它当时的状态（3064c36 上 A36 的第二次双击收起了后面的访达）。
         if let entry = shaded.first(where: { $0.value.overlay?.frame.contains(cocoaPoint) == true }),

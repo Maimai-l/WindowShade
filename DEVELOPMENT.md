@@ -199,6 +199,7 @@ cd prototype
 | 访达快速查看面板显示的文件 | `bash tests/run-quicklook-source-tests.sh` |
 | 展开后判断原窗口是否已排到最前（查询不占主线程） | `bash tests/run-source-front-probe-tests.sh` |
 | 收起途中退出、重新启动时恢复记录停在“准备”这一步，那扇窗口怎样处理 | `bash tests/run-preparing-intent-tests.sh` |
+| 双击是否落在卷帘条显示出来的部分上；收起还没做完时双击怎么交给卷帘条 | `bash tests/run-strip-hit-test-tests.sh` |
 | 输入安全的静态检查（不合成输入、等待都有时限） | `bash tests/run-input-safety-lint.sh` |
 | 静态检查在修复之前的源码上能报出它要防止的缺陷 | `bash tests/run-lint-validity.sh`（要用到修复提交的上一个提交，浅克隆里没有时自动向 origin 取） |
 | 脚本在 macOS 自带的 bash 3.2 上可用 | `bash tests/run-shell-portability-tests.sh` |
