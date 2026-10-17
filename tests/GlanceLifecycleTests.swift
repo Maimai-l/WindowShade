@@ -185,6 +185,21 @@ extension GlanceController {
         precondition(!NSApp.windows.contains { $0 is GlancePanel && $0.isVisible },
                      "No glance panel stays on screen after the glance ends")
 
+        // 展开后撤画面：先淡出，不一下子撤掉（用户 2026-10-17 的录像：撤掉的那一刻，原窗口刚取消隐藏，
+        // 标题栏还没画好，露出 3 帧标题栏底下没经过模糊的正文、2 帧灰色的标题栏）。淡出结束后面板不留在屏幕上。
+        let expanded = install()
+        controller.open(id)
+        let fadingPanel = expanded.panel
+        expanded.stage = .expanding
+        controller.finish(expanded, reason: "expanded")
+        precondition(controller.sessions[id] == nil)
+        precondition(fadingPanel?.isVisible == true, "After an expand the panel fades out instead of vanishing at once")
+        let fadeDeadline = Date().addingTimeInterval(1)
+        while fadingPanel?.isVisible == true, Date() < fadeDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        precondition(fadingPanel?.isVisible != true, "The panel is gone once the fade ends")
+
         // 没有截图：保留有界的首帧等待；清理时待显示的会话整条都要收掉。
         source.snapshot = nil
         now = 20
