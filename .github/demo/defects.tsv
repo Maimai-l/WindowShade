@@ -19,6 +19,7 @@ empty-desktop-dock-click	5d449eb	B06-alone	^I1:
 triple-click-minimize-back	e1cc7bd	A08	
 quicklook-double-click-lost	5e7a4bd	A32	
 settings-login-item-stall	d910ac1	C15	^I6:
+strip-not-shown-double-click	3d69eee	A36	
 #
 # 下面几条的场景在修复之前的版本上跑 3 次都通过，说明不能稳定复现这些缺陷，暂不列进本表；
 # docs/testing.md 第 5 节对应各行的状态写“没有能复现它的测试”（settings-first-open-stall 那一行写“未修复”）。补上能稳定复现的场景后，去掉行首的 # 和行尾的说明，移回上面。

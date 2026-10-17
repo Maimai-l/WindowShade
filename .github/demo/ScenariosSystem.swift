@@ -163,6 +163,92 @@ func finderWindow(titled title: String) -> AXUIElement? {
     return (value as? [AXUIElement] ?? []).first { axString($0, kAXTitleAttribute as String) == title }
 }
 
+/// E11 和 E11-trash：在当前桌面上开一扇访达窗口，切到右边的桌面，用 openTarget 打开要收起的访达窗口，
+/// 只留它一扇在右边的桌面上，收起、展开，检查桌面都没有切换。openTarget 收到一个可以打开的空文件夹，E11 打开它，E11-trash 不用它。
+func foldFinderOnSecondDesktop(_ h: Harness, id: String, openTarget: (URL) -> Void) async {
+        guard await ensureTwoDesktops(), let home = activeSpaceID() else {
+            h.result.notes["skipped"] = "this Mac has only one desktop and adding one failed"; return
+        }
+        let base = FileManager.default.temporaryDirectory
+        let here = base.appendingPathComponent("windowshade-e11-a"), there = base.appendingPathComponent("windowshade-e11-b")
+        for folder in [here, there] { try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        run("/usr/bin/open", [here.path])
+        guard await eventually(5, { finderWindow(titled: here.lastPathComponent) != nil }) else {
+            h.result.notes["skipped"] = "no Finder window opened"; return
+        }
+        await switchDesktop(right: true)
+        guard let other = activeSpaceID(), other != home else {
+            h.result.notes["skipped"] = "Control-Right Arrow did not switch desktops"
+            if let window = finderWindow(titled: here.lastPathComponent) { closeWindow(window) }
+            return
+        }
+        let before = finderWindowElements()
+        openTarget(there)
+        var target: AXUIElement?
+        _ = await eventually(5) {
+            target = finderWindowElements().first { window in !before.contains { CFEqual($0, window) } }
+            return target != nil
+        }
+        await pause(1)
+        // 这个桌面上只能有要收起的这一扇访达窗口：别的访达窗口（例如前面场景留下的）会得到焦点，
+        // 就测不到这个桌面上没有别的访达窗口可以得到焦点的情形（2026-10-10 本机运行时 E11 因此通过，但没有测到）。
+        var parked: [AXUIElement] = []
+        if let target {
+            parked = minimizeFinderWindowsOnThisDesktop(except: target)
+            if !parked.isEmpty { await pause(1) }
+        }
+        let finderHere = finderWindowFramesOnThisDesktop().count
+        if finderHere != 1 {
+            h.result.violations.append("\(id): setup: \(finderHere) Finder windows on this desktop, expected only the one to fold")
+        }
+        if let target, let frame = axFrame(target), finderHere == 1 {
+            AXUIElementPerformAction(target, kAXRaiseAction as CFString)
+            let point = emptyTitleBarPoint(CGPoint(x: frame.midX, y: frame.minY + 14), minX: frame.minX + 80, maxX: frame.maxX - 20)
+            await glide(to: point, duration: 0.3)
+            await doubleClick(at: point)
+            var jumpedTo: UInt64?
+            for _ in 0..<25 {
+                await pause(0.1)
+                if let now = activeSpaceID(), now != other { jumpedTo = now; break }
+            }
+            h.result.notes["desktops"] = "home=\(home) folded on=\(other) after=\(activeSpaceID().map { String($0) } ?? "?")"
+            h.expect(jumpedTo == nil, "\(id): folding the Finder window switched the desktop (\(other) → \(jumpedTo ?? 0))")
+            if activeSpaceID() == other, let strip = stripFrames().first {
+                await doubleClick(at: CGPoint(x: strip.midX, y: strip.minY + 8))
+                await pause(1.5)
+                let afterUnfold = activeSpaceID()
+                h.expect(afterUnfold == other,
+                         "\(id): unfolding the Finder window switched the desktop (\(other) → \(afterUnfold ?? 0))")
+            } else if jumpedTo != nil {
+                await switchDesktop(right: true)
+                if let strip = stripFrames().first {
+                    await doubleClick(at: CGPoint(x: strip.midX, y: strip.minY + 8))
+                    await pause(1.5)
+                }
+            }
+        } else if target == nil {
+            h.result.violations.append("\(id): setup: the Finder window on the second desktop did not open")
+        } else if finderHere == 1 {
+            h.result.violations.append("\(id): setup: cannot read the frame of the Finder window on the second desktop")
+        }
+        if let target { closeWindow(target) }
+        for window in parked { AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) }
+        while let now = activeSpaceID(), now != home {
+            await switchDesktop(right: false)
+            if activeSpaceID() == now { break }
+        }
+        if let window = finderWindow(titled: here.lastPathComponent) { closeWindow(window) }
+        await glide(to: h.neutral, duration: 0.2)
+}
+
+/// 访达的所有标准窗口，各个桌面上的和最小化的都算，从辅助功能接口取。
+func finderWindowElements() -> [AXUIElement] {
+    guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else { return [] }
+    var value: CFTypeRef?
+    AXUIElementCopyAttributeValue(AXUIElementCreateApplication(finder.processIdentifier), kAXWindowsAttribute as CFString, &value)
+    return (value as? [AXUIElement] ?? []).filter { axString($0, kAXSubroleAttribute as String) == (kAXStandardWindowSubrole as String) }
+}
+
 /// 当前桌面上访达的普通窗口（层级 0）的位置和大小，按从前到后的顺序。
 func finderWindowFramesOnThisDesktop() -> [CGRect] {
     guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else { return [] }
@@ -205,75 +291,13 @@ let systemScenarios: [Scenario] = [
     // 用户 2026-10-09 报告：访达在一个桌面上有窗口，在另一个桌面上打开废纸篓、双击标题栏，屏幕切到了前一个桌面。
     // 要两个以上的桌面：只有一个时（CI 的虚拟机）先在调度中心里添加一个，添加不了时跳过。
     Scenario(id: "E11", title: "访达在别的桌面上有窗口时，在这个桌面上收起访达的窗口：不切换桌面", options: []) { _, h in
-        guard await ensureTwoDesktops(), let home = activeSpaceID() else {
-            h.result.notes["skipped"] = "this Mac has only one desktop and adding one failed"; return
+        await foldFinderOnSecondDesktop(h, id: "E11") { there in run("/usr/bin/open", [there.path]) }
+    },
+    // 和用户报告里一样，这个桌面上打开的是废纸篓。
+    Scenario(id: "E11-trash", title: "访达在别的桌面上有窗口时，在这个桌面上收起废纸篓窗口：不切换桌面", options: []) { _, h in
+        await foldFinderOnSecondDesktop(h, id: "E11-trash") { _ in
+            run("/usr/bin/osascript", ["-e", "tell application \"Finder\" to open trash", "-e", "tell application \"Finder\" to activate"])
         }
-        let base = FileManager.default.temporaryDirectory
-        let here = base.appendingPathComponent("windowshade-e11-a"), there = base.appendingPathComponent("windowshade-e11-b")
-        for folder in [here, there] { try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
-        run("/usr/bin/open", [here.path])
-        guard await eventually(5, { finderWindow(titled: here.lastPathComponent) != nil }) else {
-            h.result.notes["skipped"] = "no Finder window opened"; return
-        }
-        await switchDesktop(right: true)
-        guard let other = activeSpaceID(), other != home else {
-            h.result.notes["skipped"] = "Control-Right Arrow did not switch desktops"
-            if let window = finderWindow(titled: here.lastPathComponent) { closeWindow(window) }
-            return
-        }
-        run("/usr/bin/open", [there.path])
-        var target: AXUIElement?
-        _ = await eventually(5) { target = finderWindow(titled: there.lastPathComponent); return target != nil }
-        await pause(1)
-        // 这个桌面上只能有要收起的这一扇访达窗口：别的访达窗口（例如前面场景留下的）会接过焦点，
-        // 就测不到焦点无处可交的情形（2026-10-10 本机运行时 E11 因此通过，但没有测到）。
-        var parked: [AXUIElement] = []
-        if let target {
-            parked = minimizeFinderWindowsOnThisDesktop(except: target)
-            if !parked.isEmpty { await pause(1) }
-        }
-        let finderHere = finderWindowFramesOnThisDesktop().count
-        if finderHere != 1 {
-            h.result.violations.append("E11: setup: \(finderHere) Finder windows on this desktop, expected only the one to fold")
-        }
-        if let target, let frame = axFrame(target), finderHere == 1 {
-            AXUIElementPerformAction(target, kAXRaiseAction as CFString)
-            let point = emptyTitleBarPoint(CGPoint(x: frame.midX, y: frame.minY + 14), minX: frame.minX + 80, maxX: frame.maxX - 20)
-            await glide(to: point, duration: 0.3)
-            await doubleClick(at: point)
-            var jumpedTo: UInt64?
-            for _ in 0..<25 {
-                await pause(0.1)
-                if let now = activeSpaceID(), now != other { jumpedTo = now; break }
-            }
-            h.result.notes["desktops"] = "home=\(home) folded on=\(other) after=\(activeSpaceID().map { String($0) } ?? "?")"
-            h.expect(jumpedTo == nil, "E11: folding the Finder window switched the desktop (\(other) → \(jumpedTo ?? 0))")
-            if activeSpaceID() == other, let strip = stripFrames().first {
-                await doubleClick(at: CGPoint(x: strip.midX, y: strip.minY + 8))
-                await pause(1.5)
-                let afterUnfold = activeSpaceID()
-                h.expect(afterUnfold == other,
-                         "E11: unfolding the Finder window switched the desktop (\(other) → \(afterUnfold ?? 0))")
-            } else if jumpedTo != nil {
-                await switchDesktop(right: true)
-                if let strip = stripFrames().first {
-                    await doubleClick(at: CGPoint(x: strip.midX, y: strip.minY + 8))
-                    await pause(1.5)
-                }
-            }
-        } else if target == nil {
-            h.result.violations.append("setup: the Finder window on the second desktop did not open")
-        } else if finderHere == 1 {
-            h.result.violations.append("setup: cannot read the frame of the Finder window on the second desktop")
-        }
-        if let window = finderWindow(titled: there.lastPathComponent) { closeWindow(window) }
-        for window in parked { AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) }
-        while let now = activeSpaceID(), now != home {
-            await switchDesktop(right: false)
-            if activeSpaceID() == now { break }
-        }
-        if let window = finderWindow(titled: here.lastPathComponent) { closeWindow(window) }
-        await glide(to: h.neutral, duration: 0.2)
     },
     Scenario(id: "E05", title: "收起后切换深色、浅色外观", options: []) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
