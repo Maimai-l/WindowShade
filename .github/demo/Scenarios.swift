@@ -515,20 +515,37 @@ func clearSystemPopups() {
     }
 }
 
+/// 返回登录会话的状态：屏幕是否锁住、会话是否在这台机器的屏幕上。
+/// 锁屏或换到登录窗口后，截屏、录像和查窗口列表的调用都可能停住；df2e916 的 CI 任务 scenarios-1 在 A33-SystemSettings
+/// 之后就是这样，当时最前面的应用程序是 loginwindow。
+func sessionState() -> String {
+    let session = CGSessionCopyCurrentDictionary() as? [String: Any] ?? [:]
+    let locked = session["CGSSessionScreenIsLocked"] as? Bool ?? false
+    let onConsole = session["kCGSSessionOnConsoleKey"] as? Bool ?? true
+    return "screenLocked=\(locked) onConsole=\(onConsole)"
+}
+
 /// 场景看门狗：一个场景超过 limit 秒还没结束（驱动程序自己停在某个同步调用里），
 /// 截一张图，把已有结果连同这一条“没有结束”写进结果文件，然后退出，不让整个任务等到超时。
+/// 另外每 5 秒查一次登录会话的状态，第一次查和状态变化时（锁屏、换到登录窗口、恢复）各记一行日志。
 final class ScenarioWatchdog: @unchecked Sendable {
     private let lock = NSLock()
     private var results: [[String: Any]] = []
     private var failed = 0
     private var current: (id: String, title: String, startedAt: Date, limit: TimeInterval)?
     private let output: URL
+    private var lastSession = ""
 
     init(output: URL) {
         self.output = output
         let thread = Thread { [weak self] in
             while let self {
                 Thread.sleep(forTimeInterval: 5)
+                let session = sessionState()
+                if session != self.lastSession {
+                    log("session: \(session)")
+                    self.lastSession = session
+                }
                 self.check()
             }
         }
@@ -552,13 +569,16 @@ final class ScenarioWatchdog: @unchecked Sendable {
         guard let hung else { return }
         let shot = "\(Suite.outputDir)/fail-\(hung.id).png"
         run("/usr/sbin/screencapture", ["-x", shot], timeout: 10)
-        let violation = "setup: the scenario did not finish within \(Int(hung.limit)) s (the driver is blocked)"
+        let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        let violation = "setup: the scenario did not finish within \(Int(hung.limit)) s (the driver is blocked; "
+            + "frontmost=\(frontmost) \(sessionState()))"
         let entry: [String: Any] = ["id": hung.id, "title": hung.title, "passed": false, "violations": [violation],
-                                    "notes": ["diagnosis": ["screenshot": shot,
-                                                            "frontmost": NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"]]]
+                                    "notes": ["diagnosis": ["screenshot": shot, "frontmost": frontmost]]]
         writeSuite(hung.results + [entry], failed: hung.failed + 1, finished: false, to: output)
         log("scenario \(hung.id): \(violation); stopping the shard")
-        exit(7)
+        // 不用 exit：exit 要先做进程退出时的清理，推测这些清理要等主线程，而主线程正停在同步调用里，进程就一直不退出，
+        // 录制这一步一直等到任务的时限（df2e916 的 CI 任务 scenarios-1）。_exit 不做清理也不会丢结果：结果文件在上面已经写好。
+        _exit(7)
     }
 }
 
