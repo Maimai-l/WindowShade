@@ -58,6 +58,9 @@ jobs:
       - name: Install ffmpeg for the frame check
         run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install ffmpeg
       - name: Build, grant permissions and record
+        # 比整个任务的时限短：录制停住不动时，这一步先到时限、先结束，后面收集日志、上传录像的步骤仍有时间运行，
+        # 停住时的录像和日志才能留下来。
+        timeout-minutes: 45
         env:
           RECORD_PART: ${{ matrix.part }}
         run: bash .github/demo/record.sh
