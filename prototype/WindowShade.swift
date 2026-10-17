@@ -197,8 +197,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var menuPreviewHoverID: CGWindowID?
     var menuPreviewAnchor: NSRect?
     var shadeOperationIDs: Set<CGWindowID> = []
-    /// 卷帘条已经出现、收起还没走完时收到双击的窗口：收起一完成就展开（见 unshadeFromStrip）。
+    /// 收起还没做完时收到双击的窗口：收起一做完就展开（见 unshadeFromStrip、handleTitleBarDoubleClick）。
     var unfoldWhenFolded: Set<CGWindowID> = []
+    /// 双击标题栏收起时记下的窗口顶上那一条（至多 60 点高，屏幕坐标，左上角为原点）：收起还没做完时在这里再双击，
+    /// 是要展开这扇窗口（见 foldingWindow）。下一次双击时清掉已经收起做完的。
+    var foldingTitleBands: [CGWindowID: CGRect] = [:]
     // 显式窗口状态机：operationStates[id] 缺失即 .normal。
     // capturing/failed 为操作期瞬态，folded/restoring 为会话期状态。
     private var operationStates: [CGWindowID: WindowShadeState] = [:]

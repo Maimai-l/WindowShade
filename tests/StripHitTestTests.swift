@@ -1,4 +1,4 @@
-// 一个点是否落在卷帘条显示出来的部分上（两块屏幕各有自己的桌面时，只算显示卷帘条的那块屏幕上的部分），以及双击落在上面时鼠标钩子怎么处理。
+// 一个点是否落在卷帘条显示出来的部分上（两块屏幕各有自己的桌面时，只算显示卷帘条的那块屏幕上的部分）、是否落在收起还没做完的窗口的原标题栏上，以及双击时鼠标钩子怎么处理。
 // 依据见 prototype/Overlay/StripHitTest.swift 开头的注释。
 
 import CoreGraphics
@@ -35,6 +35,15 @@ struct StripHitTestTests {
                      "the fold is done: let the strip handle the double-click")
         suite.expect(stripDoubleClickRoute(onShownStrip: true, foldFinished: false) == .handleHere,
                      "the fold is still running: take the double-click and hand it to the strip directly")
+
+        suite.section("S5", "收起还没做完时在原标题栏上再双击：算这扇窗口的，不算后面窗口标题栏上的双击（A36）")
+        let band = CGRect(x: 160, y: 140, width: 640, height: 32)
+        suite.expect(foldingWindow(at: CGPoint(x: 620, y: 154), bands: [293: band], inFlight: [293]) == 293,
+                     "a double-click on the title bar of a window still folding belongs to that window")
+        suite.expect(foldingWindow(at: CGPoint(x: 620, y: 154), bands: [293: band], inFlight: []) == nil,
+                     "once the fold is done the band no longer counts")
+        suite.expect(foldingWindow(at: CGPoint(x: 620, y: 300), bands: [293: band], inFlight: [293]) == nil,
+                     "a point below the title bar does not count")
 
         suite.finish()
     }

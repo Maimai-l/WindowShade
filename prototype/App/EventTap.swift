@@ -146,6 +146,14 @@ extension AppDelegate {
         }
         guard titlebarDoubleClickEnabled else { return false }
         guard AXIsProcessTrusted() else { return false }
+        // 收起还没做完、窗口还没登记为已收起时，在原标题栏上再双击：等收起做完再展开这扇窗口（场景 A36）。
+        let inFlight = Set(shadeOperationIDs.filter { shaded[$0] == nil })
+        foldingTitleBands = foldingTitleBands.filter { inFlight.contains($0.key) }
+        if let folding = foldingWindow(at: point, bands: foldingTitleBands, inFlight: inFlight) {
+            wlog("titlebar-double-click: on a window still folding; unfolding it when the fold is done id=\(folding)")
+            unfoldWhenFolded.insert(folding)
+            return true
+        }
         // 刚收起、卷帘条还在等“已藏好”的确认时是透明的，不接点击：这时在原处双击，是要展开刚收起的这扇，
         // 不能让双击穿过去，把后面的窗口收起（场景 A36；A05 的诊断里收起了访达）。
         let cocoaPoint = cocoaMousePoint(fromAXPoint: point)
@@ -522,6 +530,9 @@ extension AppDelegate {
         }
         logIfSlow("titlebar-double-click action id=\(id)", threshold: 0.05) {
             wlog("titlebar-double-click: source=\(source) app=\(appDisplayName(pid: pid)) id=\(id)")
+            if let bounds = cgWindowBounds(info) {
+                foldingTitleBands[id] = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: min(60, bounds.height))
+            }
             if let pending {
                 // 钩子返回之后，别的操作可能已经改动了这扇窗口。
                 guard titlebarFoldCanBegin(id: id) else {
