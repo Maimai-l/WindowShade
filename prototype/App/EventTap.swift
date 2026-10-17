@@ -149,6 +149,16 @@ extension AppDelegate {
             DispatchQueue.main.async { [weak self] in _ = self?.unshade(pending) }
             return true
         }
+        // 点在一条已经显示出来的卷帘条上：双击交给卷帘条处理。卷帘条知道是哪扇窗口；收起还没做完时，它先记下这次双击，做完再展开。
+        // 收起时卷帘条先显示、原窗口后移开，这段时间命中测试会落到卷帘条后面的原窗口上，按“再收起一次”处理并丢掉双击
+        // （108d26f 上 A32：快速查看窗口收起时双击卷帘条，没有展开）。
+        if NSApp.windows.contains(where: { window in
+            (window is NativeProxyOverlayWindow || window is OverlayWindow) && window.isVisible
+                && window.alphaValue >= 0.05 && !window.ignoresMouseEvents && window.frame.contains(cocoaPoint)
+        }) {
+            wlog("titlebar-double-click: on a shown strip; the strip handles it at=(\(Int(point.x)),\(Int(point.y)))")
+            return false
+        }
         // 点在一条卷帘条的范围里却没按上面处理：记下它当时的状态（3064c36 上 A36 的第二次双击收起了后面的访达）。
         if let entry = shaded.first(where: { $0.value.overlay?.frame.contains(cocoaPoint) == true }),
            let overlay = entry.value.overlay {

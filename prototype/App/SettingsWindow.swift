@@ -49,7 +49,8 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
   let model: SettingsModel
   private let tabs = SettingsTabController()
 
-  init(owner: AppDelegate, remembersState: Bool = true) {
+  /// buildsPage 为 false 时先不建选中那一页的表单（预先建窗口时分四步做，见 prepareSettingsWindowWhenIdle）。
+  init(owner: AppDelegate, remembersState: Bool = true, buildsPage: Bool = true) {
     app = owner
     self.remembersState = remembersState
     model = SettingsModel(app: owner)
@@ -86,8 +87,13 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
       self.window?.title = section.title
       if self.remembersState { section.remember() }
     }
-    // 先选好分页再装进窗口：装进去时才建选中那一页；反过来会先建第一页，再建上次看的那页。
-    select(section: .lastViewed())
+    // buildsPage 为 true 时先选好分页再装进窗口，免得先建第一页、再建上次看的那页。
+    // 为 false 时只选好分页，表单在第一次显示时（LazySettingsPage.viewWillAppear）或预先建窗口的下一步里建。
+    if buildsPage {
+      select(section: .lastViewed())
+    } else if let index = WindowShadeSettingsSection.allCases.firstIndex(of: .lastViewed()) {
+      tabs.selectedTabViewItemIndex = index
+    }
     window.contentViewController = tabs
     window.setContentSize(Self.contentSize)
     if remembersState { window.setFrameAutosaveName("WindowShade.Settings") }
@@ -105,6 +111,11 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
     page(at: index)?.buildIfNeeded()
     tabs.selectedTabViewItemIndex = index
     window?.title = section.title
+  }
+
+  /// 建好选中那一页的表单。
+  func buildSelectedPage() {
+    page(at: tabs.selectedTabViewItemIndex)?.buildIfNeeded()
   }
 
   private func page(at index: Int) -> LazySettingsPage? {
@@ -180,12 +191,29 @@ extension AppDelegate {
       }
       return
     }
+    // 分四步做，每步之间回到运行循环：先建窗口，再建表单、排版、画好（不显示，见 prepareSettingsWindowStep）。
+    // 一次做完主线程要停 500 毫秒以上（108d26f 上 A28-thumbnail 的 I6），这段时间里用户的点击也要等。
+    // 没做完的步骤在打开设置时补上。
     let started = CFAbsoluteTimeGetCurrent()
-    let prepared = SettingsWindow(owner: self)
-    prepared.window?.layoutIfNeeded()
-    prepared.window?.displayIfNeeded()
+    let prepared = SettingsWindow(owner: self, buildsPage: false)
     settingsWindow = prepared
-    wlog("settings: window prepared while idle in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms")
+    wlog("settings: prepared step 1/4 in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms")
+    prepareSettingsWindowStep(prepared, step: 0)
+  }
+
+  private func prepareSettingsWindowStep(_ prepared: SettingsWindow, step: Int) {
+    guard step < 3 else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self, weak prepared] in
+      guard let self, let prepared else { return }
+      let started = CFAbsoluteTimeGetCurrent()
+      switch step {
+      case 0: prepared.buildSelectedPage()
+      case 1: prepared.window?.layoutIfNeeded()
+      default: prepared.window?.displayIfNeeded()
+      }
+      wlog("settings: prepared step \(step + 2)/4 in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms")
+      self.prepareSettingsWindowStep(prepared, step: step + 1)
+    }
   }
 
   /// 普通的“设置…”回到上次看的分页；从别处点进来的可以指定分页。
