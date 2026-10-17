@@ -112,6 +112,38 @@ DRAG_LAG = 20
 DRAG_STALL_FRAMES = 2
 # The strip may not move against the pointer by more than this.
 DRAG_BACKWARD = 1.5
+# The strip must start moving within this many seconds after the pointer starts.
+DRAG_PICKUP = 0.1
+
+
+def lights_positions(video, events, scale, screen_w, samples):
+    """The same samples with the strip position read from its red button instead of the brightness profile.
+
+    The profile match is coarse where the strip is plain (it read the strip in 4-point steps and reported
+    backward jumps that the frames do not show, 2026-10-17). While dragged the strip is the active window
+    and its red button is a sharp patch; its center moves with the strip to a fraction of a point.
+    Before WindowShade gets the press the strip is not yet active and its lights are gray; those first
+    frames keep the profile reading, and the red readings are anchored on the profile reading of the
+    first red frame. Returns None when the red button is missing later in the drag.
+    """
+    window, path = events["window"], events["drag"]["path"]
+    left = max(0, window["x"] - 40)
+    right = min(screen_w, window["x"] + window["w"] + 300)
+    rect = (left, window["y"], right - left, 60)
+    frames, ow, oh, points_per_pixel = frames_between(video, rect, scale, path[0][0], path[-1][0])
+    if len(frames) != len(samples):
+        return None
+    centres = []
+    for frame in frames:
+        patches = red_patches(frame, ow, oh, points_per_pixel)
+        if not patches and any(c is not None for c in centres):
+            return None
+        centres.append(max(patches)[3] if patches else None)
+    first = next((i for i, c in enumerate(centres) if c is not None), None)
+    if first is None:
+        return None
+    anchor = samples[first][1] - centres[first]
+    return samples[:first] + [(t, anchor + c, p) for (t, _, p), c in zip(samples[first:], centres[first:])]
 
 
 def profile(crop, width, height):
@@ -140,7 +172,7 @@ def best_offset(template, signal, low, high):
 
 
 def check_drag(video, events, times, scale, screen_w):
-    """Section 6.5: while the strip is dragged it follows the pointer: it trails by at most DRAG_LAG points, does not stall and does not jump back."""
+    """Section 6.5: while the strip is dragged it follows the pointer: it starts moving within DRAG_PICKUP seconds, trails by at most DRAG_LAG points, does not stall and does not jump back."""
     drag = events.get("drag")
     if not drag or not drag.get("path"):
         return [], "no drag recorded"
@@ -180,6 +212,14 @@ def check_drag(video, events, times, scale, screen_w):
         samples.append((times[i], (offset - t_left) * points_per_column, pointer_dx(times[i])))
     if len(samples) < 10:
         return [f"drag: only {len(samples)} frames during the drag"], "too few frames"
+    samples = lights_positions(video, events, scale, screen_w, samples) or samples
+
+    # The strip starts moving when WindowShade gets the press. A click on the strip first makes WindowShade
+    # the active app, which on a real Mac took 39 to 70 ms (2026-10-17); the frames before that are the
+    # pick-up, judged by DRAG_PICKUP, not stalls.
+    moved = next((i for i, (_, s, _) in enumerate(samples) if abs(s - samples[0][1]) > 0.5), 0)
+    pickup = samples[moved][0] - start
+    samples = samples[max(0, moved - 1):]
 
     lags = [abs(p - s) for _, s, p in samples]
     stalls, run, backward = 0, 0, 0
@@ -193,9 +233,11 @@ def check_drag(video, events, times, scale, screen_w):
             run = 0
         if abs(dp) > 2 and ds * dp < 0 and abs(ds) > DRAG_BACKWARD:
             backward += 1
-    summary = (f"drag: {len(samples)} frames, largest lag {max(lags):.1f} pt, "
+    summary = (f"drag: {len(samples)} frames, picked up after {pickup * 1000:.0f} ms, largest lag {max(lags):.1f} pt, "
                f"{stalls} stalls, {backward} backward jumps")
     failures = []
+    if pickup > DRAG_PICKUP:
+        failures.append(f"drag: the strip started moving {pickup * 1000:.0f} ms after the pointer (limit {DRAG_PICKUP * 1000:.0f} ms)")
     if max(lags) > DRAG_LAG:
         failures.append(f"drag: the strip trailed the pointer by {max(lags):.1f} pt (limit {DRAG_LAG})")
     if stalls:
@@ -203,6 +245,79 @@ def check_drag(video, events, times, scale, screen_w):
     if backward:
         failures.append(f"drag: the strip jumped back against the pointer {backward} times")
     return failures, summary
+
+
+# While the strip is dragged it is the active window and shows colored traffic
+# lights. The red button is one round patch about 12 points across (11-13 on
+# the recordings of 2026-10-17). A wider red patch, or a second one, means two
+# sets of lights are showing: on the CI machine (macOS 26) the Finder strip
+# showed its own buttons and, about 10 points off, the lights in the window
+# picture underneath, merged into one red patch 23 points across.
+LIGHT_MAX = 17
+# Red patches smaller than this (square points) are edges of other things.
+LIGHT_MIN_AREA = 20
+
+
+def frames_between(video, rect, scale, start, end):
+    """Crops of rect (points) from the frames between start and end (seconds), halved in size, as rgb24 bytes."""
+    x, y, w, h = (int(round(v * scale)) // 2 * 2 for v in rect)
+    shrink = 2
+    ow, oh = w // shrink, h // shrink
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", video, "-fps_mode", "passthrough",
+         "-vf", f"select='between(t,{start:.4f},{end:.4f})',crop={w}:{h}:{x}:{y},scale={ow}:{oh}",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True, check=True).stdout
+    size = ow * oh * 3
+    return [raw[i:i + size] for i in range(0, len(raw) - size + 1, size)], ow, oh, shrink / scale
+
+
+def red_patches(crop, width, height, points_per_pixel):
+    """Connected patches of the traffic-light red, as (area in square points, width, height, center x in points)."""
+    red = bytearray(width * height)
+    for i in range(width * height):
+        r, g, b = crop[3 * i], crop[3 * i + 1], crop[3 * i + 2]
+        red[i] = r > 200 and g < 120 and b < 120
+    patches, seen = [], bytearray(width * height)
+    for start in range(width * height):
+        if not red[start] or seen[start]:
+            continue
+        stack, cells = [start], []
+        seen[start] = 1
+        while stack:
+            i = stack.pop()
+            cells.append(i)
+            x, y = i % width, i // width
+            for j, ok in ((i - 1, x > 0), (i + 1, x < width - 1), (i - width, y > 0), (i + width, y < height - 1)):
+                if ok and red[j] and not seen[j]:
+                    seen[j] = 1
+                    stack.append(j)
+        area = len(cells) * points_per_pixel ** 2
+        if area >= LIGHT_MIN_AREA:
+            xs, ys = [i % width for i in cells], [i // width for i in cells]
+            patches.append((area, (max(xs) - min(xs) + 1) * points_per_pixel, (max(ys) - min(ys) + 1) * points_per_pixel,
+                            (sum(xs) / len(xs) + 0.5) * points_per_pixel))
+    return patches
+
+
+def check_lights(video, events, scale, screen_w):
+    """While the strip is dragged (it is the active window), it shows one set of traffic lights."""
+    drag = events.get("drag")
+    if not drag or not drag.get("path"):
+        return []
+    window, path = events["window"], drag["path"]
+    left = max(0, window["x"] - 40)
+    right = min(screen_w, window["x"] + window["w"] + 300)
+    rect = (left, window["y"], right - left, 60)
+    # From 0.2 s after the press, when the strip has become the active window, to the end of the drag.
+    frames, ow, oh, points_per_pixel = frames_between(video, rect, scale, path[0][0] + 0.2, path[-1][0])
+    for frame in frames[::5]:
+        patches = red_patches(frame, ow, oh, points_per_pixel)
+        widest = max((max(pw, ph) for _, pw, ph, _ in patches), default=0)
+        if len(patches) > 1 or widest > LIGHT_MAX:
+            shapes = ", ".join(f"{pw:.0f}x{ph:.0f} pt" for _, pw, ph, _ in patches)
+            return [f"lights: two sets of traffic lights on the dragged strip (red patches: {shapes})"]
+    return []
 
 
 def check_state_machine(log_text):
@@ -280,6 +395,7 @@ def check(video, events_path, log_path):
         for line in drag_failures:
             print(f"INFO {video}: {line} (not judged on CI)")
     print(f"INFO {video}: {drag_summary}")
+    failures += check_lights(video, events, scale, screen_w)
     log_text = open(log_path, errors="replace").read()
     failures += check_geometry(log_text, window)
     failures += check_state_machine(log_text)
