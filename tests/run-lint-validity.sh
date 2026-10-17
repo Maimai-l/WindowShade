@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 ROWS=(
   "login-item-main-thread|d910ac1|run-input-safety-lint.sh|the login item is queried and registered only off the main thread"
   "mouse-tap-in-process|b1a164f|run-input-safety-lint.sh|the mouse tap lives in the tap helper and asks WindowShade with time limits"
+  "window-list-on-main-after-unfold|5e6eca7|run-input-safety-lint.sh|the per-frame wait after unfolding reads the window list off the main thread"
 )
 
 work=$(mktemp -d)

@@ -18,6 +18,8 @@ frozen-process-blocks-clicks	b1a164f	X11	^I2:
 empty-desktop-dock-click	5d449eb	B06-alone	^I1: 
 triple-click-minimize-back	e1cc7bd	A08	
 quicklook-double-click-lost	5e7a4bd	A32	^(A32: Quick Look did not reopen|I1: a strip is still on screen)
+unfold-wait-window-list-stall	5e6eca7	L01	^I6:
+kill-mid-fold-app-left-hidden	5e6eca7	L03	^I1: the window is not back
 #
 # 下面几条的场景在修复之前的版本上跑 3 次都通过，说明不能稳定复现这些缺陷，暂不列进本表；
 # docs/testing.md 第 5 节对应各行的状态写“没有能复现它的测试”。补上能稳定复现的场景后，去掉行首的 # 和行尾的说明，移回上面。
