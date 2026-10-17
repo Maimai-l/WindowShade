@@ -15,7 +15,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 先只跑这次改动相关的部分（.github/demo/quick-part.txt），几分钟出结果。macOS 机器同时最多 5 台，
+  # 下面 10 个任务要排队，整套跑完要二三十分钟；quick 任务没通过就不跑整套，省下排队的时间。
+  quick:
+    name: record (quick)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: .github/scripts/select-xcode.sh
+      - name: Install ffmpeg for the frame check
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install ffmpeg
+      - name: Build, grant permissions and record
+        timeout-minutes: 25
+        run: |
+          RECORD_PART="$(grep -v '^#' .github/demo/quick-part.txt | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          echo "quick part: $RECORD_PART"
+          RECORD_PART="$RECORD_PART" bash .github/demo/record.sh
+      - name: Collect the WindowShade log
+        if: always()
+        run: cp ~/Library/Logs/WindowShade/windowshade.log .build/demo/windowshade.log 2>/dev/null || true
+      - name: Upload recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-quick
+          path: |
+            .build/demo/*.mp4
+            .build/demo/*.png
+            .build/demo/*.log
+            .build/demo/*.ips
+            .build/demo/*.json
+
   record:
+    needs: quick
     # 场景一条一条跑要一个多小时：分成几台机器并行。recordings 录像并跑检查的检查和权限场景组，random 跑随机操作，
     # 其余各跑主场景组的三分之一
     # （.github/demo/record.sh 的 RECORD_PART）。

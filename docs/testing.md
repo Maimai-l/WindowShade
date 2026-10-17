@@ -306,7 +306,7 @@ CI 虚拟机的耗时波动较大：2026-10-08 的 5 次运行中，访达的收
 | 运行全部第 1 至 3 层测试 | `.github/scripts/run-tests.sh` |
 | 编译检查 | `prototype/build.sh --check` |
 | CI 的第 1 至 3 层测试 | `.github/workflows/ci.yml`，结果表写入 job summary |
-| CI 的第 4、5 层测试 | `.github/workflows/demo.yml`，录像、日志、崩溃报告作为 artifact 上传 |
+| CI 的第 4、5 层测试 | `.github/workflows/demo.yml`，录像、日志、崩溃报告作为 artifact 上传。每次推送先跑 quick 任务：只跑 `.github/demo/quick-part.txt` 写的部分（这次改动相关的部分或场景），约 7 分钟出结果；它通过了才跑完整的一套。修一处缺陷时，先把相关的场景写进这个文件 |
 | 测试代码 | `tests/*.swift`、`tests/run-*.sh` |
 | 测试数据 | `tests/fixtures/` |
 | 模拟平台层 | `tests/support/Fakes/`：`FakeWindowControl`（移开原窗口）、`FakeFocusControl`（转移焦点）、`FakeRestoreControl`（放回原窗口） |
