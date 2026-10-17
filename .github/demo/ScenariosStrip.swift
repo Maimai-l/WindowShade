@@ -32,6 +32,35 @@ func answerSheet(_ probe: Probe, _ button: String, _ harness: Harness) async {
     await pause(0.8)
 }
 
+/// 点卷帘条上的关闭按钮之后、窗口关掉之前，约每 10 毫秒看一次屏幕上的窗口，最多看 2 秒；返回看到原窗口在原处的取样次数。
+/// 依据：用户 2026-10-17 的录像，点关闭后原窗口先在原处出现约 3 帧，然后才关掉。
+func flashesBeforeClose(_ probe: Probe, _ frame: CGRect) async -> Int {
+    var seen = 0
+    let start = Date()
+    while Date().timeIntervalSince(start) < 2, probe.count("closed") == 0 {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let shown = windows.contains { info in
+            guard (info[kCGWindowOwnerPID as String] as? Int).map({ pid_t($0) }) == probe.pid,
+                  (info[kCGWindowLayer as String] as? Int) == 0,
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) })
+            else { return false }
+            return abs(bounds.minX - frame.minX) <= 2 && abs(bounds.minY - frame.minY) <= 2 && abs(bounds.height - frame.height) <= 2
+        }
+        if shown { seen += 1 }
+        await pause(0.01)
+    }
+    return seen
+}
+
+/// 收起时隐藏了应用程序、窗口关掉之前又取消了隐藏时返回 true。依据是 ProbeApp 记下的 hidden、unhidden、closed 事件的时刻。
+func unhiddenBeforeClose(_ probe: Probe) -> Bool {
+    let events = probe.events()
+    func times(_ name: String) -> [Double] { events.filter { $0["event"] as? String == name }.compactMap { $0["time"] as? Double } }
+    guard let closedAt = times("closed").first, let hiddenAt = times("hidden").last(where: { $0 < closedAt }) else { return false }
+    return times("unhidden").contains { $0 > hiddenAt && $0 < closedAt }
+}
+
 func forwardedCount(_ harness: Harness, _ action: String) -> Int {
     harness.logLines().filter { $0.contains("traffic: \(action) forwarded") }.count
 }
@@ -100,11 +129,16 @@ let stripScenarios: [Scenario] = [
                  "C05: the document was not saved and closed")
         await expectNoStrip(h, within: 2)
     },
-    Scenario(id: "C06", title: "已保存的文档：点关闭直接关掉", options: []) { probe, h in
+    Scenario(id: "C06", title: "已保存的文档：点关闭直接关掉，原窗口不先露出来", options: []) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
-        await clickStripButton(folded, 0, h)
+        await click(stripButton(folded, 0))
+        let shown = await flashesBeforeClose(probe, folded.frame)
+        await glide(to: h.neutral, duration: 0.2)
         h.expect(await eventually(3) { probe.count("closed") == 1 }, "C06: the window did not close")
         h.expectOnce("close was requested", probe.count("close-request"))
+        h.result.notes["shownBeforeClose"] = shown
+        h.expect(shown == 0, "C06: the window showed at its place \(shown) times before it closed")
+        h.expect(!unhiddenBeforeClose(probe), "C06: the app was unhidden before the window closed")
         await expectNoStrip(h, within: 2)
     },
     Scenario(id: "C07", title: "点卷帘条上的最小化按钮", options: []) { probe, h in
