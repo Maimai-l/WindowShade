@@ -71,13 +71,21 @@ def summary(out, summary_path):
             found, before_text = False, f"跑了 {tries[-1][0]} 次都" + clean[2]
         elif results:
             found, before_text = None, results[-1][2]
-        after_ok = all(i in after and after[i].get("passed") for i in wanted)
-        after_text = "通过" if after_ok else "；".join(
-            f"{i}: " + ("没有结果" if i not in after else "；".join(after[i]["violations"]))
-            for i in wanted if not after.get(i, {}).get("passed"))
+        # 当前代码一侧和修复之前用同一个标准：只看这条缺陷应当报出的问题。场景里别的问题（例如和这条缺陷无关的停顿）
+        # 照样写出来，由 CI 的 scenarios-1 至 scenarios-3 任务和 docs/testing.md 第 5 节的缺陷回归记录另外跟踪，
+        # 不算这条缺陷仍未修复。没有结果、有场景没跑到或有准备失败时，记为无法判定。
+        after_found, after_note = judge(after if after else None, wanted, pattern)
+        after_ok = after_found is False
+        if after_found:
+            after_text = "仍报出：" + after_note
+        elif after_found is None:
+            after_text = "无法判定：" + after_note
+        else:
+            others = [f"{i} {v}" for i in wanted for v in after[i].get("violations", [])]
+            after_text = "通过" + ("（其他问题：" + "；".join(others) + "）" if others else "")
         if found and after_ok:
             verdict = "有效"
-        elif found is None:
+        elif found is None or after_found is None:
             verdict = "无法判定"
         elif not found:
             verdict = "修复前没有失败"
