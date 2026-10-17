@@ -2,6 +2,7 @@
 // 只看窗口位置在屏幕上不够：隐藏应用程序、最小化窗口的请求可能在 WindowShade 退出前发出、退出后才生效，
 // 这时窗口位置在屏幕上，也要放回来。
 // 依据：2026-10-17 CI 场景 L03（dd40ef5），kill -9 之后测试应用程序才隐藏，重新启动后应用程序一直隐藏着。
+// J5 测 WindowShade 运行期间的后台扫描：写回之前再核对一次记录和正在收起的窗口。依据：2026-10-17 CI 场景 A07（54f1aa1）。
 
 @main
 struct PreparingIntentTests {
@@ -25,6 +26,14 @@ struct PreparingIntentTests {
         suite.section("J4", "窗口在屏幕外：放回原处")
         suite.expect(preparingIntentOutcome(windowOnScreen: false, appHidden: false, minimized: false) == .moveBack,
                      "a window parked off screen is moved back")
+
+        suite.section("J5", "扫描开始后记录已经删掉或窗口正在收起：写回时不再动它（A07）")
+        suite.expect(rescueActionStillApplies(id: 7, liveJournalIDs: [7], inFlightIDs: []),
+                     "the entry is still there and nothing is in flight: apply")
+        suite.expect(!rescueActionStillApplies(id: 7, liveJournalIDs: [], inFlightIDs: []),
+                     "the entry was removed during the scan (the window was unfolded): skip")
+        suite.expect(!rescueActionStillApplies(id: 7, liveJournalIDs: [7], inFlightIDs: [7]),
+                     "the window is being folded: skip")
 
         suite.finish()
     }

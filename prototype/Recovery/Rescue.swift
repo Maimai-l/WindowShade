@@ -247,9 +247,17 @@ extension AppDelegate {
                     return
                 }
                 self.pruneShadeJournal(reason: "rescue")
+                // 扫描期间记录已经删掉或窗口正在收起的，不再动它（见 PreparingIntent.swift 的 rescueActionStillApplies）；id 为 0 的动作不核对。
+                let liveJournalIDs = Set(self.shadeJournalEntries().compactMap { self.journalID($0) }.map { UInt32($0) })
+                let inFlightIDs = Set(self.shadeOperationIDs.map { UInt32($0) })
                 // 先恢复、逐条验证，再清理：验证失败的 entry 保留，下一轮重试。
                 var verifiedIDs = result.resolvedIDs
                 for action in result.actions {
+                    if action.id != 0,
+                       !rescueActionStillApplies(id: UInt32(action.id), liveJournalIDs: liveJournalIDs, inFlightIDs: inFlightIDs) {
+                        wlog("rescue: skip id=\(action.id); its entry was removed or it is being folded")
+                        continue
+                    }
                     guard action.id != 0 else {
                         setAXSize(action.win, action.size)
                         setAXPosition(action.win, action.target)
