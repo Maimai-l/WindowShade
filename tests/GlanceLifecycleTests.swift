@@ -173,6 +173,18 @@ extension GlanceController {
         controller.finish(withSnapshot, reason: "test-cleanup")
         precondition(controller.sessions[id] == nil)
 
+        // 同一次“看一眼”再打开一次（例如展开途中）：不建第二个面板；结束后屏幕上不留面板
+        // （2026-10-17 CI 场景 A33-Safari，33232d9：两个面板一直留在屏幕上）。
+        let twice = install()
+        controller.open(id)
+        let firstPanel = twice.panel
+        twice.stage = .expanding
+        controller.open(id)
+        precondition(twice.panel === firstPanel, "A second open must not replace the panel of the same glance")
+        controller.finish(twice, reason: "test-cleanup")
+        precondition(!NSApp.windows.contains { $0 is GlancePanel && $0.isVisible },
+                     "No glance panel stays on screen after the glance ends")
+
         // 没有截图：保留有界的首帧等待；清理时待显示的会话整条都要收掉。
         source.snapshot = nil
         now = 20

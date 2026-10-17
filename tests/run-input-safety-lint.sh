@@ -88,6 +88,18 @@ else
   failed=$((failed + 1))
 fi
 
+# 9. 打开“看一眼”时不新建面板：面板只在 GlanceController.panels 这个备用池里建，用完放回
+#    （Overlay/SpareWindowPool.swift）。新建窗口要等窗口服务器回话，2026-10-17 CI 场景 A33-Safari 里等了 1,113 毫秒。
+hits=$(grep -rn --include='*.swift' 'GlancePanel(' prototype | grep -v '^prototype/Vendor/' \
+  | grep -v 'SpareWindowPool<GlancePanel>' || true)
+if [ -z "$hits" ]; then
+  echo "ok   the glance panel is reused, not made when a strip is clicked"
+else
+  echo "FAIL the glance panel is reused, not made when a strip is clicked (Overlay/SpareWindowPool.swift)"
+  echo "$hits" | sed 's/^/     /'
+  failed=$((failed + 1))
+fi
+
 if [ "$failed" -gt 0 ]; then
   echo "FAIL input-safety-lint: $failed check(s) failed"
   exit 1

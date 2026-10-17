@@ -311,6 +311,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logIfSlow("launch eventTap", threshold: 0.1) { setupEventTapWhenTrusted() }
         prepareAppIcons()
         FirstUseWarmup.start()
+        // 先建好“看一眼”的面板，第一次打开“看一眼”时不用新建窗口（SpareWindowPool.swift）。启动 2 秒后再建，避开启动时的其他工作。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { GlanceController.panels.prepare() }
         // 启动时先在后台查一次登录项状态；查询要等系统的后台服务，不放在主线程（见 App/LaunchAtLogin.swift）。
         LaunchAtLoginState.refresh {}
         installStripKeyForwarding()

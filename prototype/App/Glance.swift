@@ -144,6 +144,8 @@ private final class GlanceSession {
         capture = nil
         panel?.orderOut(nil)
         panel?.contentView = nil
+        // 面板放回备用池下次用（SpareWindowPool.swift）；池里已经满了就关掉。
+        if let panel, !GlanceController.panels.giveBack(panel) { panel.close() }
         panel = nil
         content = nil
     }
@@ -151,6 +153,9 @@ private final class GlanceSession {
 
 @MainActor
 final class GlanceController {
+    /// “看一眼”的面板：用完放回，下次打开直接拿来用，不用每次新建窗口（SpareWindowPool.swift）。
+    static let panels = SpareWindowPool<GlancePanel>(capacity: 1) { GlancePanel(frame: .zero) }
+
     /// 实时画面最多等这么久；等不到就先给截图。
     static let firstFrameWait: TimeInterval = 0.25
 
@@ -511,6 +516,9 @@ final class GlanceController {
     private func open(_ id: CGWindowID) {
         guard let session = sessions[id] else { return }
         if session.stage == .shown || session.stage == .waitingForFrame { return }
+        // 同一次“看一眼”只建一个面板：再建一个会替换 session.panel，前一个就没有代码撤掉，会一直留在屏幕上
+        // （2026-10-17 CI 场景 A33-Safari，33232d9：两个面板一直留到后面几个场景，挡住了场景 B17 里窗口的标题栏）。
+        if session.panel != nil { return }
         guard let target = target(for: id) else {
             // 卷帘条还在，但背后的窗口已经不能看一眼：忘掉这条卷帘条的意图，立刻结束已经开始准备的会话。
             wlog("glance: no room id=\(id)")
@@ -520,7 +528,8 @@ final class GlanceController {
         }
         let now = clock()
         session.openRequestedAt = now
-        let panel = GlancePanel(frame: target.panel)
+        let panel = Self.panels.take().window
+        panel.setFrame(target.panel, display: false)
         let content = GlanceContentView(
             frame: NSRect(origin: .zero, size: target.panel.size),
             cardFrame: target.card, pictureFrame: target.picture,
@@ -637,6 +646,12 @@ final class GlanceController {
         session.tearDown()
         if reason != "discard" && reason != "close-before-show" {
             wlog("glance: end id=\(session.id) reason=\(reason)")
+        }
+        // 不属于任何会话、还留在屏幕上的面板，一律在这里撤掉。
+        for window in NSApp.windows where window is GlancePanel && window.isVisible
+            && !sessions.values.contains(where: { $0.panel === window }) {
+            window.orderOut(nil)
+            wlog("glance: removed a panel no glance owns")
         }
     }
 
