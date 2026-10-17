@@ -4,6 +4,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/traffic-forwarder-tests
 swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.0" \
-  prototype/Platform/TrafficForwarder.swift tests/support/TestSuite.swift tests/TrafficForwarderTests.swift \
+  prototype/Domain/AppProfiles.swift prototype/Platform/TrafficForwarder.swift tests/support/TestSuite.swift tests/TrafficForwarderTests.swift \
   -o .build/traffic-forwarder-tests/forwarder
 .build/traffic-forwarder-tests/forwarder

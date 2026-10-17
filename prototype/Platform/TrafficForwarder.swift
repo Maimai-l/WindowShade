@@ -1,7 +1,7 @@
 // 卷帘条上的红绿灯转给原窗口（docs/design.md S3）：只用辅助功能操作原窗口的按钮或属性，
 // 不合成任何鼠标、键盘事件，不移动光标。
 //
-// 每个动作至多按一次。原窗口刚放回来时按钮可能还没就绪，就等一会儿再看；一旦按过（不论按的结果），
+// 每个动作至多按一次。按钮可能还没就绪（例如原窗口刚放回来），就等一会儿再看；一旦按过（不论按的结果），
 // 就不再按第二次：关闭一个有未保存内容的窗口时会弹出“是否保存”，窗口还在是正常的，不能因此再按一次。
 // 底层经由 TrafficButtonControl：App 里是辅助功能调用，测试里是模拟实现。只依赖 Foundation。
 
@@ -12,7 +12,7 @@ enum ForwardedTrafficAction: String, Equatable, Sendable {
 }
 
 protocol TrafficButtonControl {
-    /// 原窗口已经回到可操作的位置和大小。
+    /// 读得到原窗口的位置和大小，宽、高都大于 1 点。
     var windowReady: Bool { get }
     /// 原窗口上这个按钮存在、有大小、可用。
     func buttonReady(_ action: ForwardedTrafficAction) -> Bool
@@ -53,5 +53,15 @@ struct TrafficForwarder {
 
     private func wait(after attempt: Int) -> Step {
         attempt < Self.waitDelays.count ? .wait(Self.waitDelays[attempt]) : .gaveUp
+    }
+}
+
+/// 点卷帘条上的关闭按钮时，能不能不先放回原窗口、直接按它的关闭按钮。先放回再关，原窗口会在原处露出来一下
+/// （用户 2026-10-17 的录像）。原窗口看不见（透明、整个应用程序隐藏）或停在屏幕外、屏幕角落时，关闭按钮仍然能按。
+/// 最小化的窗口要先解除最小化；WindowShade 自己的窗口和快速查看窗口另有处理。
+func closesInPlace(_ hide: HideMethod) -> Bool {
+    switch hide {
+    case .offscreen, .privateOffscreen, .privateAlpha, .hidden: return true
+    case .none, .minimized, .ownWindowOrderedOut, .quickLookClosed: return false
     }
 }

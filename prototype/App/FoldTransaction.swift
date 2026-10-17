@@ -164,6 +164,7 @@ extension AppDelegate {
     }
 
     /// 卷帘条上的红绿灯转给原窗口（docs/design.md S3）：先把原窗口放回原处、带到最前，再按它自己的按钮。
+    /// 关闭例外：原窗口看不见、但关闭按钮仍然能按时直接按（closesInPlace），按过之后窗口还在（例如弹出“是否保存”）才放回，见 closeInPlaceAttempt。
     /// 全部在该应用程序的队列上做，主线程不等（R5）；按钮还没就绪时在同一条队列上过一会儿再看。
     func performForwardedTrafficAction(state: ShadeState, pos: CGPoint,
                                        id: CGWindowID, action: TrafficAction) {
@@ -179,6 +180,10 @@ extension AppDelegate {
         if own { restoreWindow(state, to: pos) }
         let request = restoreRequest(state, to: pos)
         let restorer = windowRestorer
+        if forwarded == .close, !own, closesInPlace(state.hide) {
+            restorer.run(pid: state.pid) { closeInPlaceAttempt(request: request, restorer: restorer, attempt: 0) }
+            return
+        }
         restorer.run(pid: state.pid) {
             if !own { _ = restorer.restore(request) }
             forwardTrafficAttempt(forwarded, request: request, restorer: restorer, attempt: 0)
@@ -899,5 +904,34 @@ private func forwardTrafficAttempt(_ action: ForwardedTrafficAction, request: Re
         }
     case .gaveUp:
         wlog("traffic: \(action.rawValue) gave up id=\(request.id) attempt=\(index)")
+    }
+}
+
+/// 不放回原窗口，直接按它的关闭按钮；在该应用程序的队列上执行。按过 0.4 秒后窗口还在（例如弹出了“是否保存”），
+/// 就放回原处、带到最前，让对话框看得见；窗口关掉了、收起时隐藏过应用程序，就取消隐藏，不激活应用程序。
+/// 按钮等到最后仍没就绪时，和其他按钮一样，先放回再按。
+private func closeInPlaceAttempt(request: RestoreRequest, restorer: WindowRestorer, attempt index: Int) {
+    let window = restorer.control.resolve(request.window, id: request.id, pid: request.pid)
+    let element = unsafeDowncast(window.element, to: AXUIElement.self)
+    switch TrafficForwarder(control: AXTrafficButtons(window: element)).step(.close, attempt: index) {
+    case .done(let how):
+        wlog("traffic: close forwarded id=\(request.id) how=\(how) attempt=\(index) in-place hide=\(request.hide.rawValue)")
+        restorer.run(pid: request.pid, after: 0.4) {
+            let current = restorer.control.resolve(request.window, id: request.id, pid: request.pid)
+            if restorer.control.frame(current) != nil {
+                wlog("traffic: close left the window open id=\(request.id); putting it back")
+                restorer.bringToFront(restorer.restore(request), pid: request.pid)
+            } else if request.hide == .hidden {
+                restorer.control.unhideApp(pid: request.pid)
+            }
+        }
+    case .wait(let delay):
+        restorer.run(pid: request.pid, after: delay) {
+            closeInPlaceAttempt(request: request, restorer: restorer, attempt: index + 1)
+        }
+    case .gaveUp:
+        wlog("traffic: close not ready in place id=\(request.id); putting the window back first")
+        _ = restorer.restore(request)
+        forwardTrafficAttempt(.close, request: request, restorer: restorer, attempt: 0)
     }
 }

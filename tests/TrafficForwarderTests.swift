@@ -119,6 +119,14 @@ struct TrafficForwarderTests {
             t.expect(buttons.attributeWrites.isEmpty, "\(action): no attribute writes")
         }
 
+        t.section("S3", "关闭时不先放回原窗口的收起方式：最小化的窗口先放回，WindowShade 自己的窗口和快速查看窗口另有处理")
+        for hide in [HideMethod.offscreen, .privateOffscreen, .privateAlpha, .hidden] {
+            t.expect(closesInPlace(hide), "\(hide): press close without putting the window back")
+        }
+        for hide in [HideMethod.minimized, .none, .ownWindowOrderedOut, .quickLookClosed] {
+            t.expect(!closesInPlace(hide), "\(hide): put the window back first, or handled elsewhere")
+        }
+
         t.finish()
     }
 }
