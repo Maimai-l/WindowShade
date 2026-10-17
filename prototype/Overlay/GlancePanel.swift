@@ -372,6 +372,9 @@ final class GlanceContentView: NSView {
         CATransaction.commit()
     }
 
+    /// 遮罩此刻露出的高度（点），写日志用。卷下、卷上途中比整张卡片矮。
+    var shownHeight: CGFloat { rollMask.presentation()?.bounds.height ?? rollMask.bounds.height }
+
     /// 展开后撤画面前淡出：duration 秒内整张变透明。调用方在 duration 秒后撤掉面板。
     func fadeOut(duration: CFTimeInterval) {
         CATransaction.begin()

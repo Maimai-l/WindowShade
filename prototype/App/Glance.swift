@@ -158,6 +158,8 @@ final class GlanceController {
 
     /// 展开后画面淡出的时长（秒）。
     static let expandFadeDuration: TimeInterval = 0.15
+    /// 展开期间最近一次记下的画面面板状态（reportPanelDuringExpand）。
+    private var expandPanelReports: [CGWindowID: String] = [:]
     /// 正在淡出的面板：会话已经结束，淡出完才撤，期间不当作“不属于任何会话的面板”撤掉。
     private var fadingPanels: Set<ObjectIdentifier> = []
 
@@ -644,6 +646,7 @@ final class GlanceController {
         if sessions[session.id] === session {
             sessions.removeValue(forKey: session.id)
         }
+        expandPanelReports.removeValue(forKey: session.id)
         if session.viaUnhide, session.unhideAt != nil, session.stage != .expanding,
            session.rehiddenAt == nil, owner.shaded[session.id] != nil {
             _ = rehide(session)
@@ -709,6 +712,8 @@ final class GlanceController {
         guard !session.restoreStarted, !session.cancelled else { return true }
         session.restoreStarted = true
         session.restoreStartedAt = Date()
+        // 从开始展开起每帧记一次画面面板的状态，最多 0.6 秒（reportPanelDuringExpand）。
+        watchPanelFrame(session, 36)
         let restored = owner.unshadeReturningElement(session.id, onVerified: { [weak self, weak session] _ in
             guard let self, let session else { return }
             self.finishWhenSourceInFront(session, deadline: Date().addingTimeInterval(0.6))
@@ -751,6 +756,29 @@ final class GlanceController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self, weak session] in
             guard let self, let session else { return }
             self.finishWhenSourceInFront(session, deadline: deadline, readyFrames: ready ? readyFrames + 1 : 0, probe: probe)
+        }
+    }
+
+    private func watchPanelFrame(_ session: GlanceSession, _ framesLeft: Int) {
+        reportPanelDuringExpand(session)
+        guard framesLeft > 0, session.panel != nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60) { [weak self, weak session] in
+            guard let self, let session else { return }
+            self.watchPanelFrame(session, framesLeft - 1)
+        }
+    }
+
+    /// 展开期间画面面板的状态有变化时写一行日志：是否可见、是否被遮挡、面板和内容的透明度、遮罩露出的高度、窗口层级。
+    /// 依据：CI 录像（bd76b1e）里，画面在“看一眼”结束前约 70 毫秒消失，原因不明。
+    private func reportPanelDuringExpand(_ session: GlanceSession) {
+        guard let panel = session.panel else { return }
+        let opacity = session.content?.layer?.presentation()?.opacity ?? session.content?.layer?.opacity ?? -1
+        let report = "visible=\(panel.isVisible) unoccluded=\(panel.occlusionState.contains(.visible))"
+            + " alpha=\(String(format: "%.2f", panel.alphaValue)) opacity=\(String(format: "%.2f", opacity))"
+            + " shownHeight=\(Int(session.content?.shownHeight ?? -1)) level=\(panel.level.rawValue)"
+        if expandPanelReports[session.id] != report {
+            expandPanelReports[session.id] = report
+            wlog("glance: panel during expand id=\(session.id) \(report)")
         }
     }
 
