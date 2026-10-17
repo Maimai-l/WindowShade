@@ -197,7 +197,8 @@ cd prototype
 | 鼠标钩子问主线程的时限、钩子进程与 WindowShade 之间的询问 | `bash tests/run-tap-decision-tests.sh`、`bash tests/run-tap-protocol-tests.sh` |
 | 卷帘条红绿灯转给原窗口（模拟窗口） | `bash tests/run-traffic-forwarder-tests.sh` |
 | 访达快速查看面板显示的文件 | `bash tests/run-quicklook-source-tests.sh` |
-| 输入安全的源码检查（不合成输入、等待都有时限） | `bash tests/run-input-safety-lint.sh` |
+| 输入安全的静态检查（不合成输入、等待都有时限） | `bash tests/run-input-safety-lint.sh` |
+| 静态检查在修复之前的源码上能报出它要防止的缺陷 | `bash tests/run-lint-validity.sh`（要用到修复提交的上一个提交，浅克隆里没有时自动向 origin 取） |
 | 脚本在 macOS 自带的 bash 3.2 上可用 | `bash tests/run-shell-portability-tests.sh` |
 | 录像逐帧检查的自检（K05，需要 ffmpeg） | `bash tests/run-frame-check-selftest.sh`；不在 `ci.yml` 里，由 `.github/demo/record.sh` 在 `demo.yml` 的 recordings 任务里运行 |
 

@@ -18,8 +18,8 @@ frozen-process-blocks-clicks	b1a164f	X11	^I2:
 empty-desktop-dock-click	5d449eb	B06-alone	^I1: 
 triple-click-minimize-back	e1cc7bd	A08	
 quicklook-double-click-lost	5e7a4bd	A32	
-settings-login-item-stall	d910ac1	C15	^I6:
 strip-not-shown-double-click	3d69eee	A36	
+strip-double-click-swallowed	ca57d53	A32	
 #
 # 下面几条的场景在修复之前的版本上跑 3 次都通过，说明不能稳定复现这些缺陷，暂不列进本表；
 # docs/testing.md 第 5 节对应各行的状态写“没有能复现它的测试”。补上能稳定复现的场景后，去掉行首的 # 和行尾的说明，移回上面。
@@ -28,3 +28,8 @@ strip-not-shown-double-click	3d69eee	A36
 # strip-double-click-zoom	d234a8d	B16	——B16 在 265c67b 的检查里报出过一次，108d26f 上跑 3 次都通过
 # dock-click-strip-stays	23cc739	B06	——B06 跑 3 次都通过（108d26f），通知的先后顺序不固定
 # proxy-fold-stall	60aea1c	A28-proxy	——A28-proxy 跑 3 次都没有超过 500 毫秒的停顿（108d26f）
+#
+# 下面这条缺陷的场景 C15 分不出它：C15 在修复之前的版本上和当前代码上都有超过 500 毫秒的停顿，停顿采样都落在第一次建设置表单
+# （SwiftUI 排版、画符号），没有落在查询登录项上（1b5c572）。这个缺陷由静态检查 tests/run-input-safety-lint.sh 第 7 条防止再次出现，
+# 那一条的有效性由 tests/run-lint-validity.sh 检查。
+# settings-login-item-stall	d910ac1	C15	^I6:	——见 docs/testing.md 第 5 节 2026-10-08 设置窗口一行
