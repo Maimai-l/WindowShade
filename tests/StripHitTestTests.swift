@@ -1,6 +1,8 @@
 // 一个点是否落在卷帘条显示出来的部分上（两块屏幕各有自己的桌面时，只算显示卷帘条的那块屏幕上的部分），以及双击落在上面时鼠标钩子怎么处理。
 // 依据见 prototype/Overlay/StripHitTest.swift 开头的注释。
 
+import CoreGraphics
+
 @main
 struct StripHitTestTests {
     static func main() {
