@@ -504,7 +504,10 @@ let systemScenarios: [Scenario] = [
             return
         }
         kill(first, SIGKILL)
-        await h.probeFor(1)
+        // 钩子进程被结束时正在处理的点击可能被系统丢掉（1b5c572 上的 X12：结束钩子进程后马上发出的探测点击没有到）；
+        // 这里要求的是钩子进程退出以后的点击照常送到，所以等 0.2 秒再连续探测 1.5 秒。
+        await pause(0.2)
+        await h.probeFor(1.5)
         let relaunched = await eventually(4) { tapHelperPID().map { $0 != first } ?? false }
         h.expect(relaunched, "X12: WindowShade did not launch the tap helper again after it was killed")
         h.result.notes["helpers"] = [Int(first), tapHelperPID().map { Int($0) } ?? 0]
