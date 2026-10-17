@@ -29,6 +29,10 @@ protocol FocusControl: Sendable {
     func appName(pid: pid_t) -> String
     func activate(pid: pid_t)
     func focus(_ window: WindowHandle, pid: pid_t)
+    /// 前台应用程序的进程号；读不到时为 nil。
+    func frontmostPID() -> pid_t?
+    /// 让当前线程等 seconds 秒。只在后台队列上调用。
+    func pause(_ seconds: Double)
     func log(_ message: String)
 }
 
@@ -60,7 +64,15 @@ struct FocusHandoffRequest: Sendable {
 struct FocusHandoff: Sendable {
     let control: FocusControl
 
-    func handOff(_ request: FocusHandoffRequest) -> FocusHandoffResult {
+    /// 焦点交给别的应用程序后，最多等它多少秒到前台（heirWaitLimit），每隔多少秒看一次（heirWaitStep）。
+    static let heirWaitLimit = 0.3
+    static let heirWaitStep = 0.01
+
+    /// waitForHeir：焦点交给别的应用程序后，等它到了前台再返回，最多等 heirWaitLimit 秒。激活要过一会儿才生效；
+    /// 它还没到前台就隐藏原应用程序，系统会按最近使用顺序另挑一个应用程序，挑中的可能在别的桌面上，屏幕会跟着切过去。
+    /// 依据：用户的 macOS 14.5 本机运行（4f1a815），见 docs/testing.md 第 5 节。
+    /// 只有隐藏之前、在后台队列上交接的调用方传 true；隐藏之后才交接或在主线程上交接的不等。
+    func handOff(_ request: FocusHandoffRequest, waitForHeir: Bool = false) -> FocusHandoffResult {
         guard request.frontmostPID == request.pid || request.frontmostPID == request.selfPID else {
             return .notFrontmost
         }
@@ -95,7 +107,16 @@ struct FocusHandoff: Sendable {
                 if distance <= 96, best == nil || distance < best!.distance { best = (heir, distance) }
             }
             if let heir = best?.window { control.focus(heir, pid: info.pid) }
-            control.log("focus: handoff strategy=top-window heir=\(control.appName(pid: info.pid)) id=\(request.id)")
+            var wait = ""
+            if waitForHeir {
+                var waited = 0.0
+                while control.frontmostPID() != info.pid, waited + Self.heirWaitStep <= Self.heirWaitLimit + 0.0001 {
+                    control.pause(Self.heirWaitStep)
+                    waited += Self.heirWaitStep
+                }
+                wait = " waitedMs=\(Int((waited * 1000).rounded())) inFront=\(control.frontmostPID() == info.pid)"
+            }
+            control.log("focus: handoff strategy=top-window heir=\(control.appName(pid: info.pid)) id=\(request.id)\(wait)")
             return .otherApp(pid: info.pid)
         }
 

@@ -81,6 +81,49 @@ struct FocusHandoffTests {
             t.expect(control.focused == [30], "焦点给位置与屏幕上那扇窗一致的窗口 30")
         }
 
+        // 依据：用户的 macOS 14.5 本机运行（4f1a815），见 docs/testing.md 第 5 节。
+        t.section("F4", "隐藏原应用程序之前把焦点交给别的应用程序：等它到了前台再返回")
+        do {
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            control.appWindows[otherPID] = [FakeWindow(id: 30, pid: otherPID, frame: frame)]
+            control.regularApps = [otherPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(30, otherPID)]
+            control.frontmost = appPID
+            control.activationDelay = 3
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID), waitForHeir: true)
+            t.expect(result == .otherApp(pid: otherPID), "交给应用程序 \(otherPID)")
+            t.expect(control.frontmost == otherPID, "返回时应用程序 \(otherPID) 已在前台（实际是 \(control.frontmost.map { String($0) } ?? "nil")）")
+        }
+
+        t.section("F4", "接手的应用程序一直没到前台：最多等 300 毫秒")
+        do {
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            control.appWindows[otherPID] = [FakeWindow(id: 30, pid: otherPID, frame: frame)]
+            control.regularApps = [otherPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(30, otherPID)]
+            control.frontmost = appPID
+            control.activationDelay = nil
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID), waitForHeir: true)
+            t.expect(result == .otherApp(pid: otherPID), "仍交给应用程序 \(otherPID)")
+            t.expect(control.pauses > 0 && Double(control.pauses) * FocusHandoff.heirWaitStep <= FocusHandoff.heirWaitLimit + 0.0001,
+                     "等了 \(control.pauses) 次，合计不超过 \(FocusHandoff.heirWaitLimit) 秒")
+        }
+
+        t.section("F4", "不要求等待时（隐藏之后才交接、在主线程上交接）：不等")
+        do {
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            control.appWindows[otherPID] = [FakeWindow(id: 30, pid: otherPID, frame: frame)]
+            control.regularApps = [otherPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(30, otherPID)]
+            control.frontmost = appPID
+            control.activationDelay = 3
+            _ = FocusHandoff(control: control).handOff(request(frontmost: appPID))
+            t.expect(control.pauses == 0, "没有等待（等了 \(control.pauses) 次）")
+        }
+
         t.section("F4", "同一应用程序的其他窗口已被收起：不交给它们，交给别的应用程序（场景 A37、Q01）")
         do {
             // 收起后停在屏幕角落的窗口还露出 1 像素，算在屏幕上；交给它，它成了当前窗口，

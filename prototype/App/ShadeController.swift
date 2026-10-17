@@ -459,7 +459,7 @@ extension AppDelegate {
                 continueInstall(appHideSafe: safe, noFocusHeir: nowhere)
             }
             windowHideQueue.async {
-                let result = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest)
+                let result = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest, waitForHeir: true)
                 DispatchQueue.main.async { resume.value(result.appHideSafe, result == .nowhere) }
             }
         }

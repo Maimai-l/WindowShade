@@ -73,6 +73,8 @@ struct FocusControlSystem: FocusControl {
     func appName(pid: pid_t) -> String { NSRunningApplication(processIdentifier: pid)?.localizedName ?? String(pid) }
     func activate(pid: pid_t) { NSRunningApplication(processIdentifier: pid)?.activate(options: []) }
     func focus(_ window: WindowHandle, pid: pid_t) { focusAXWindow(element(window), pid: pid) }
+    func frontmostPID() -> pid_t? { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+    func pause(_ seconds: Double) { Thread.sleep(forTimeInterval: seconds) }
     func log(_ message: String) { wlog(message) }
 }
 
