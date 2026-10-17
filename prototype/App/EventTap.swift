@@ -147,7 +147,11 @@ extension AppDelegate {
         guard titlebarDoubleClickEnabled else { return false }
         guard AXIsProcessTrusted() else { return false }
         // 收起还没做完、窗口还没登记为已收起时，在原标题栏上再双击：等收起做完再展开这扇窗口（场景 A36）。
-        let inFlight = Set(shadeOperationIDs.filter { shaded[$0] == nil })
+        // 收起做到一半时，窗口先离开 shadeOperationIDs（installOverlay 接手），等藏好才登记进 shaded；
+        // 这段时间状态还是“截图中”，也算没做完（03134a8 上 A36：这段约 160 毫秒里的双击收起了后面的访达）。
+        let inFlight = Set(foldingTitleBands.keys.filter { id in
+            shaded[id] == nil && (shadeOperationIDs.contains(id) || currentOperationState(id) == .capturing)
+        })
         foldingTitleBands = foldingTitleBands.filter { inFlight.contains($0.key) }
         if let folding = foldingWindow(at: point, bands: foldingTitleBands, inFlight: inFlight) {
             wlog("titlebar-double-click: on a window still folding; unfolding it when the fold is done id=\(folding)")
