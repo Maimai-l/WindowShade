@@ -102,6 +102,13 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     private let inactiveLights = InactiveTrafficLightsView()
     private var pointerOverLights = false
     private var activationObservers: [NSObjectProtocol] = []
+    /// 对准原窗口红绿灯排好的系统按钮位置（按钮父视图的坐标）。CI 上 macOS 26 的访达录像（8515f0e）里，
+    /// 卷帘条成为当前窗口后出现两组红绿灯，错开约 10 点。推测是标题栏重新布局，把按钮挪回了系统默认的位置，
+    /// 露出截图里原窗口的红绿灯。按钮被挪动时放回这里，第一次被挪动时记一行日志。
+    private var alignedButtonFrames: [NSWindow.ButtonType: NSRect] = [:]
+    private var buttonFrameObservers: [NSObjectProtocol] = []
+    private var loggedButtonMove = false
+    private var loggedKeyLights = false
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
@@ -110,6 +117,18 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         super.becomeKey()
         wlog("strip: became key window=\(windowNumber) appActive=\(NSApp.isActive)")
         refreshTrafficLightAppearance()
+        // 第一次成为当前窗口时，等这一轮布局做完，记下按钮的位置和排好的位置，用来核对 alignedButtonFrames 注释里的推测。
+        guard !loggedKeyLights else { return }
+        loggedKeyLights = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let report = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].map { type -> String in
+                let now = self.standardWindowButton(type).map { "\($0.frame.origin)" } ?? "none"
+                let aligned = self.alignedButtonFrames[type].map { "\($0.origin)" } ?? "none"
+                return "\(type.rawValue):\(now)/\(aligned)"
+            }
+            wlog("strip: lights when key window=\(self.windowNumber) now/aligned \(report.joined(separator: " "))")
+        }
     }
 
     override func resignKey() {
@@ -170,6 +189,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         isClosingProgrammatically = true
         activationObservers.forEach { NotificationCenter.default.removeObserver($0) }
         activationObservers.removeAll()
+        buttonFrameObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        buttonFrameObservers.removeAll()
         inactiveLights.buttons = []
         onDoubleClick = nil
         onClick = nil
@@ -282,8 +303,38 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                                   width: buttonSize.width,
                                   height: buttonSize.height)
             button.frame = superview.convert(centered, from: content)
+            alignedButtonFrames[type] = button.frame
         }
+        watchAlignedButtons()
         layoutInactiveLights()
+    }
+
+    private func watchAlignedButtons() {
+        guard buttonFrameObservers.isEmpty else { return }
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = standardWindowButton(type) else { continue }
+            let raw = type.rawValue
+            button.postsFrameChangedNotifications = true
+            buttonFrameObservers.append(NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification, object: button, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let type = NSWindow.ButtonType(rawValue: raw) else { return }
+                    self?.putBackAlignedButton(type)
+                }
+            })
+        }
+    }
+
+    /// 标题栏把按钮挪离了排好的位置时放回去（见 alignedButtonFrames）。
+    private func putBackAlignedButton(_ type: NSWindow.ButtonType) {
+        guard let target = alignedButtonFrames[type], let button = standardWindowButton(type) else { return }
+        guard abs(button.frame.minX - target.minX) > 0.5 || abs(button.frame.minY - target.minY) > 0.5 else { return }
+        if !loggedButtonMove {
+            loggedButtonMove = true
+            wlog("strip: title bar moved button \(type.rawValue) from \(target.origin) to \(button.frame.origin); "
+                 + "putting it back window=\(windowNumber) key=\(isKeyWindow)")
+        }
+        button.setFrameOrigin(target.origin)
     }
 
     func configureTrafficLightButtons(_ configuration: ProxyTrafficLightConfiguration) {
