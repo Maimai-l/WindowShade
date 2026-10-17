@@ -302,8 +302,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                                   y: sourceRect.midY - buttonSize.height / 2,
                                   width: buttonSize.width,
                                   height: buttonSize.height)
-            button.frame = superview.convert(centered, from: content)
-            alignedButtonFrames[type] = button.frame
+            // 先记下新位置再挪按钮：按钮一挪就会发出位置变化的通知，putBackAlignedButton 会把按钮放回记下的位置。
+            let target = superview.convert(centered, from: content)
+            alignedButtonFrames[type] = target
+            button.frame = target
         }
         watchAlignedButtons()
         layoutInactiveLights()
