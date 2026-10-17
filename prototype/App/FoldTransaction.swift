@@ -342,9 +342,11 @@ extension AppDelegate {
     /// 移开原窗口。WindowShade 自己的窗口在主线程 orderOut；其他应用程序的窗口交给
     /// WindowHider（Platform/WindowHider.swift）在后台队列上做，做完在主线程调用 completion。
     /// delay：开始移开之前等多久（卷帘条刚亮出来时等两帧，让它先上屏）。
+    /// focusOnStrip：焦点已经交给卷帘条；等 WindowShade 到了前台再隐藏应用程序，没到前台照旧处理。
     func hideWindowInBackground(_ win: AXUIElement, pid: pid_t, originalPosition pos: CGPoint,
                                 size: CGSize, policy: ShadePolicy, appHideSafe: Bool,
                                 delay: TimeInterval = 0, handOffFocusAfter: Bool = false, noFocusHeir: Bool = false,
+                                focusOnStrip: Bool = false,
                                 completion: @escaping (HideMethod, FoldVerifier.Observation) -> Void) {
         let id = windowID(of: win)
         if let hide = orderOutOwnWindowIfNeeded(id: id, pid: pid, reason: "shade") {
@@ -362,7 +364,14 @@ extension AppDelegate {
         let finish = HandOff(completion)
         let element = HandOff(win)
         windowHideQueue.asyncAfter(deadline: .now() + delay) {
-            let hide = hider.hide(request)
+            var effective = request
+            // 焦点交给了卷帘条（focusOnStrip）时，等 WindowShade 到了前台再隐藏应用程序，系统就不会另挑窗口、切换桌面；
+            // 0.3 秒内没到前台，照旧按 noFocusHeir 最小化。
+            if focusOnStrip, let id, waitUntilFrontmost(ProcessInfo.processInfo.processIdentifier, id: id) {
+                effective.appHideSafe = true
+                effective.noFocusHeir = false
+            }
+            let hide = hider.hide(effective)
             if let focusRequest { _ = FocusHandoff(control: FocusControlSystem()).handOff(focusRequest) }
             // minimize / app-hide 的状态读回是异步的，立即验证可能读到“还没藏好”；调用方据此决定立即显示还是延迟验证。
             let observation = id.map {
@@ -905,6 +914,19 @@ private func forwardTrafficAttempt(_ action: ForwardedTrafficAction, request: Re
     case .gaveUp:
         wlog("traffic: \(action.rawValue) gave up id=\(request.id) attempt=\(index)")
     }
+}
+
+/// 等 pid 成为前台应用程序，最多 FocusHandoff.heirWaitLimit 秒；在后台队列上调用。返回它是否到了前台。
+private func waitUntilFrontmost(_ pid: pid_t, id: CGWindowID) -> Bool {
+    let control = FocusControlSystem()
+    var waited = 0.0
+    while control.frontmostPID() != pid, waited + FocusHandoff.heirWaitStep <= FocusHandoff.heirWaitLimit + 0.0001 {
+        control.pause(FocusHandoff.heirWaitStep)
+        waited += FocusHandoff.heirWaitStep
+    }
+    let inFront = control.frontmostPID() == pid
+    control.log("focus: handoff strategy=strip id=\(id) waitedMs=\(Int((waited * 1000).rounded())) inFront=\(inFront)")
+    return inFront
 }
 
 /// 不放回原窗口，直接按它的关闭按钮；在该应用程序的队列上执行。按过 0.4 秒后窗口还在（例如弹出了“是否保存”），

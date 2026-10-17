@@ -40,7 +40,7 @@ struct HideRequest: Sendable {
     let size: CGSize
     let policy: ShadePolicy
     /// 交出焦点之后，隐藏整个应用程序不会让系统切换桌面（见 FoldTransaction.handOffFocus）。
-    let appHideSafe: Bool
+    var appHideSafe: Bool
     let layout: ScreenLayout
     /// 同一应用程序里已被 WindowShade 收起的其他窗口数。不为 0 时不隐藏整个应用程序：
     /// 之后展开其中任何一扇，应用程序都会重新显示，这一扇会被当成用户唤回而跟着展开（场景 A37）。

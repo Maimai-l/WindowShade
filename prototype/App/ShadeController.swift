@@ -275,7 +275,7 @@ extension AppDelegate {
             }
             // 收起事务的顺序：可能隐藏整个应用程序时，先把焦点交给当前桌面上的下一扇窗口，再隐藏原窗口。
             // 隐藏前台应用程序时，macOS 会自己挑下一扇窗口接收焦点，可能切换桌面，或激活同一应用程序的其他窗口；
-            // 当前桌面上没有窗口能接手焦点时，隐藏应用程序不安全：应用程序只有这一扇窗口时直接最小化（WindowHider.fallbackHide），否则用下面的办法。
+            // 当前桌面上没有窗口能接手焦点时，直接隐藏应用程序不安全：应用程序只有这一扇窗口时，先把焦点交给卷帘条再隐藏，WindowShade 没到前台才最小化（WindowHider.fallbackHide），否则用下面的办法。
             // 不会隐藏整个应用程序时（移到屏幕外、设成透明或停到角落，都不行时才最小化），先藏再交接：
             // 先交接的话，下一扇窗口会先盖到这扇窗上面，等它藏好才露出卷帘条。
             // 其中最小化同样会让系统自己挑下一扇窗口、可能切换桌面，由 scheduleSourceSpaceReturnIfNeeded 切回
@@ -345,11 +345,20 @@ extension AppDelegate {
             }
             // 移开原窗口是对另一个进程的辅助功能写操作：在后台做，主线程不等对方响应。
             // 卷帘条先亮出来时，提交之后窗口服务器下一帧才画出来：等两帧再挪走或隐藏窗口，窗口消失那一刻卷帘条已经在屏上。
+            // 当前桌面上没有别的窗口能接手焦点：把焦点交给已经亮出来的卷帘条（WindowShade 自己的窗口，就在这个桌面上），
+            // 等 WindowShade 到了前台再隐藏应用程序。原先改用最小化，会播放窗口缩进程序坞、再从程序坞放大的动画
+            // （用户 2026-10-17 的录像）。WindowShade 0.3 秒内没到前台时，照旧最小化（WindowHider.fallbackHide）。
+            let focusOnStrip = noFocusHeir && mayHideApp && revealedBeforeHide
+            if focusOnStrip {
+                overlay.makeKeyAndOrderFront(nil)
+                NSApp.activate()
+            }
             let hideStartedAt = CFAbsoluteTimeGetCurrent()
             hideWindowInBackground(win, pid: pid, originalPosition: pos, size: size,
                                    policy: policy, appHideSafe: appHideSafe,
                                    delay: revealedBeforeHide ? 2.0 / 60 : 0,
-                                   handOffFocusAfter: !mayHideApp, noFocusHeir: noFocusHeir) { [self] hide, observation in
+                                   handOffFocusAfter: !mayHideApp, noFocusHeir: noFocusHeir,
+                                   focusOnStrip: focusOnStrip) { [self] hide, observation in
             foldPhaseTotals["后台移开、交接与验证", default: 0] += CFAbsoluteTimeGetCurrent() - hideStartedAt
             // 交接已在后台做完：撤掉截图期的焦点停靠。
             if !mayHideApp { focusParkingWindow?.orderOut(nil) }
