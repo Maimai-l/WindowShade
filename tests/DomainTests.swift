@@ -115,6 +115,21 @@ struct DomainTests {
                     == .fold(ShadePlan(mode: .proxyTitleBar, policy: profile.hiding, reason: "user-mode")),
                  "Adobe 没有截图权限时照用户设置")
 
+        t.section("S6", "按住卷帘条切到别的桌面：卷帘条留在新桌面，原窗口跟过去")
+        t.expect(stripSpaceAction(stripSpace: 5, windowSpace: 5, stripHeldByPointer: true) == .none,
+                 "卷帘条和原窗口在同一个桌面上：不用处理")
+        t.expect(stripSpaceAction(stripSpace: 24, windowSpace: 5, stripHeldByPointer: true) == .carry(to: 24),
+                 "按住卷帘条时到了别的桌面：原窗口跟过去，卷帘条不挪回")
+        t.expect(stripSpaceAction(stripSpace: 24, windowSpace: 5, stripHeldByPointer: false) == .moveBack,
+                 "没按住时到了别的桌面：挪回原窗口所在的桌面")
+        t.expect(carryMethod(for: .hidden) == .minimize(unhideAppFirst: true), "隐藏了整个应用程序的：先取消隐藏，再最小化")
+        t.expect(carryMethod(for: .offscreen) == .minimize(unhideAppFirst: false)
+                    && carryMethod(for: .privateOffscreen) == .minimize(unhideAppFirst: false),
+                 "移到屏幕外的：直接最小化")
+        t.expect(carryMethod(for: .minimized) == .alreadyMinimized, "已经最小化的：不用再动")
+        t.expect([HideMethod.none, .privateAlpha, .ownWindowOrderedOut, .quickLookClosed].allSatisfy { carryMethod(for: $0) == .notSupported },
+                 "没移开的、设成透明的、WindowShade 自己的窗口、快速查看窗口：不跟过去")
+
         t.finish()
     }
 }
