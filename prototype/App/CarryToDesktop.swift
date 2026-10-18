@@ -31,9 +31,18 @@ extension AppDelegate {
         let pid = state.pid
         restorer.run(pid: pid) {
             if unhideFirst { restorer.control.unhideApp(pid: pid) }
-            let resolved = restorer.control.resolve(window, id: windowID, pid: pid)
-            restorer.control.setMinimized(resolved, true)
-            wlog("space: carried window minimized id=\(windowID) minimized=\(restorer.control.isMinimized(resolved))")
+            // 刚取消隐藏时，窗口设为最小化不生效（CI 场景 S6-carry 记录到 minimized=false）。
+            // 所以每 0.05 秒重新找一次窗口再试，最多 30 次，约 1.5 秒。
+            var resolved = restorer.control.resolve(window, id: windowID, pid: pid)
+            var attempts = 0
+            while attempts < 30 {
+                attempts += 1
+                restorer.control.setMinimized(resolved, true)
+                if restorer.control.isMinimized(resolved) { break }
+                Thread.sleep(forTimeInterval: 0.05)
+                resolved = restorer.control.resolve(resolved, id: windowID, pid: pid)
+            }
+            wlog("space: carried window minimized id=\(windowID) minimized=\(restorer.control.isMinimized(resolved)) attempts=\(attempts)")
         }
         return true
     }
