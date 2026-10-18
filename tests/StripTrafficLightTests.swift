@@ -77,6 +77,38 @@ struct StripTrafficLightTests {
     strip.sendEvent(pointer(.mouseExited, at: NSPoint(x: -20, y: -20)))
     precondition(showsGray(), "Pointer leaves the strip: gray dots again")
 
+    // 按在绿色按钮上再拖动 12 点：当作拖动卷帘条，松开时不算点了绿色按钮
+    // （2026-10-18 用户录像：按住绿色按钮挪了约 6 点，Edge 进了全屏）。
+    var actions: [TrafficAction] = []
+    strip.onAction = { actions.append($0) }
+    let zoomCenter = content.convert(buttonCenters()[2], to: nil)
+    func press(_ type: NSEvent.EventType, at point: NSPoint) -> NSEvent {
+      NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                         windowNumber: strip.windowNumber, context: nil, eventNumber: 0,
+                         clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!
+    }
+    let moved = NSPoint(x: zoomCenter.x + 12, y: zoomCenter.y)
+    strip.sendEvent(press(.leftMouseDown, at: zoomCenter))
+    strip.sendEvent(press(.leftMouseDragged, at: moved))
+    strip.sendEvent(press(.leftMouseUp, at: moved))
+    precondition(actions.isEmpty, "Dragging from the green button does not press it: \(actions)")
+    // 原地按下、松开：照常算点了绿色按钮。
+    strip.sendEvent(press(.leftMouseDown, at: content.convert(buttonCenters()[2], to: nil)))
+    strip.sendEvent(press(.leftMouseUp, at: content.convert(buttonCenters()[2], to: nil)))
+    precondition(actions.count == 1, "A click on the green button still presses it: \(actions)")
+    // 关闭按钮也一样：按下后拖动不算点，原地按下、松开才算。
+    actions.removeAll()
+    let closeAt = content.convert(buttonCenters()[0], to: nil)
+    strip.sendEvent(press(.leftMouseDown, at: closeAt))
+    strip.sendEvent(press(.leftMouseDragged, at: NSPoint(x: closeAt.x + 12, y: closeAt.y)))
+    strip.sendEvent(press(.leftMouseUp, at: NSPoint(x: closeAt.x + 12, y: closeAt.y)))
+    precondition(actions.isEmpty, "Dragging from the close button does not press it: \(actions)")
+    let closeNow = content.convert(buttonCenters()[0], to: nil)
+    strip.sendEvent(press(.leftMouseDown, at: closeNow))
+    strip.sendEvent(press(.leftMouseUp, at: closeNow))
+    precondition(actions == [.close], "A click on the close button still presses it: \(actions)")
+    strip.onAction = nil
+
     // 隐藏的按钮不画灰点。
     var noZoom = ProxyTrafficLightConfiguration.standard
     noZoom.zoomVisible = false
