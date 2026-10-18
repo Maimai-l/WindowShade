@@ -3,7 +3,8 @@ name: Mac tests (self-hosted)
 # 在自托管的 Mac 上跑场景测试和录像检查（运行器标签 self-hosted、macOS）。不用排队，出结果比在 GitHub 的 macOS 机器上快。
 # 用的脚本和测试包里的相同，都是 run-on-this-mac.sh。它把程序固定编到 ~/WindowShadeTests/build，所以权限在这台 Mac 上只要给一次。
 # 不需要关闭 SIP。这台 Mac 要用运行器所用的账户登录，并且不锁屏。运行器用 svc.sh install 装成登录项，这样它在桌面会话里运行。
-# PR 改动了程序、测试脚本或这个工作流时，跑 .github/demo/quick-part.txt 里写的部分；手动触发时可以指定要跑的部分和场景；填 all 跑全部。
+# 只在手动触发时运行（这台 Mac 连 GitHub 不稳定，2026-10-18 第一次运行时下载代码超时）。
+# 手动触发时可以指定要跑的部分和场景，填 all 跑全部，留空时跑 .github/demo/quick-part.txt 里写的部分。
 on:
   workflow_dispatch:
     inputs:
@@ -11,11 +12,6 @@ on:
         description: "要跑的部分和场景，例如 recordings A36；留空时跑 quick-part.txt 里写的部分；填 all 跑全部"
         required: false
         default: ""
-  pull_request:
-    paths:
-      - "prototype/**"
-      - ".github/demo/**"
-      - ".github/workflows/mac.yml"
 
 concurrency:
   group: mac-${{ github.ref }}
