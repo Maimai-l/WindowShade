@@ -393,11 +393,11 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         refreshTrafficLightAppearance()
     }
 
-    /// 按下点所在的、能点的红绿灯按钮：按钮要看得见、可用；绿色按钮还要卷帘条允许管理窗口。
+    /// 按下点所在的、能点的红绿灯按钮：按钮要看得见；绿色按钮还要卷帘条允许管理窗口。
+    /// 不看按钮的 isEnabled：绿色按钮由卷帘条自己处理，只看是否允许管理窗口；关闭、最小化按钮不可用时，performClick 不起作用。
     private func pressableButton(at pointInWindow: NSPoint) -> NSWindow.ButtonType? {
         [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].first { type in
-            guard pointHitsStandardButton(type, pointInWindow), standardWindowButton(type)?.isEnabled == true else { return false }
-            return type != .zoomButton || allowsWindowManagement
+            pointHitsStandardButton(type, pointInWindow) && (type != .zoomButton || allowsWindowManagement)
         }
     }
 
