@@ -67,6 +67,11 @@ extension AppDelegate {
     /// 出现在别处：多半是系统把停在屏幕角落的窗口拉回屏幕内（应用程序被激活时会这样），
     /// 只撤卷帘条会把窗口留在一个它从没待过的地方（CI 场景 A24）：按展开的流程放回原处。
     func settleRevealedSource(id: CGWindowID, state: ShadeState, at pos: CGPoint, reason: String) {
+        // 正在把原窗口移到别的桌面：窗口露出来，是因为移窗口时临时取消隐藏了应用程序，不是用户唤回（CI 场景 S6-carry，06529c3）。
+        if carryRevealHolds.contains(id) {
+            wlog("\(reason): source visible while it is being moved to another desktop; keeping the strip id=\(id)")
+            return
+        }
         let expected = state.overlay.map { axPosition(fromCocoaFrame: restoreReferenceFrame(id: id, overlay: $0)) }
             ?? state.originalPosition
         if abs(pos.x - expected.x) <= 4 && abs(pos.y - expected.y) <= 4 {

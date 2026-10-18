@@ -33,15 +33,12 @@ extension AppDelegate {
                 }
                 let method = mover.moveOtherAppWindow(id: windowID, toSpace: target)
                 _ = setAXAppHidden(pid: pid, true)
-                Thread.sleep(forTimeInterval: 0.1)
-                _ = mover.setAlpha(id: windowID, alpha: 1)
                 wlog("space: carried hidden window id=\(id) window=\(windowID) shownOn=\(shownOn.map(String.init) ?? "-") "
                      + "method=\(method ?? "none") now=\(mover.windowSpace(id: windowID).map(String.init) ?? "-")")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                     MainActor.assumeIsolated {
-                        guard let self else { return }
-                        self.carryRevealHolds.remove(id)
-                        if method == nil, let original { self.undoCarry(id: id, backTo: original) }
+                        self?.finishCarriedHide(id: id, pid: pid, windowID: windowID, moved: method != nil,
+                                                original: original, attempt: 1)
                     }
                 }
             }
@@ -54,6 +51,29 @@ extension AppDelegate {
         }
         recordCarry(id: id, state: state, toSpace: target, method: method)
         return true
+    }
+
+    /// 移完后应用程序要重新隐藏好，才把窗口设回不透明；从这以后，应用程序再显示就按用户唤回处理。
+    /// 应用程序还没处理完取消隐藏时，发给它的隐藏请求可能不起作用（CI 场景 S6-carry，06529c3）。
+    /// 这样窗口会留在新桌面上，被当成用户唤回，卷帘条就撤掉了。
+    /// 这时每隔 0.4 秒再隐藏一次，最多再试 3 次；仍然没有隐藏，也把窗口设回不透明。
+    private func finishCarriedHide(id: CGWindowID, pid: pid_t, windowID: CGWindowID, moved: Bool,
+                                   original: UInt64?, attempt: Int) {
+        let restorer = windowRestorer
+        if let app = runningApp(pid: pid), !app.isTerminated, !app.isHidden, attempt < 4 {
+            wlog("space: app still shown after carrying id=\(id) attempt=\(attempt); hiding it again")
+            restorer.run(pid: pid) { _ = setAXAppHidden(pid: pid, true) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.finishCarriedHide(id: id, pid: pid, windowID: windowID, moved: moved,
+                                            original: original, attempt: attempt + 1)
+                }
+            }
+            return
+        }
+        restorer.run(pid: pid) { _ = PrivateSLSWindowMover.shared.setAlpha(id: windowID, alpha: 1) }
+        carryRevealHolds.remove(id)
+        if !moved, let original { undoCarry(id: id, backTo: original) }
     }
 
     private func recordCarry(id: CGWindowID, state: ShadeState, toSpace target: UInt64, method: String) {
