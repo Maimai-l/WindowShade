@@ -206,6 +206,14 @@ let checkScenarios: [Scenario] = [
                  "K04: I6 counted a tracking period or a stack sample as a stall")
         h.expect(reported.contains { $0.hasPrefix("I5:") }, "K04: I5 did not report an illegal transition")
         h.expect(reported.count == 2, "K04: expected exactly 2 violations, got \(reported)")
+        // 第一次打开设置窗口时的停顿：虚拟机上不算，真机上算；别的停顿在虚拟机上照算。
+        let settings = ["12:00:05.000 main-thread stall ≈800ms \(Harness.firstSettingsOpenStall)"]
+        h.expect(Harness.logViolations(settings, onVirtualMachine: true).isEmpty,
+                 "K04: I6 reported the first settings window opening on a virtual machine")
+        h.expect(Harness.logViolations(settings, onVirtualMachine: false).count == 1,
+                 "K04: I6 did not report the first settings window opening on a real Mac")
+        h.expect(Harness.logViolations([lines[0]], onVirtualMachine: true).count == 1,
+                 "K04: I6 did not report an unlabelled stall on a virtual machine")
         h.result.notes["reported"] = reported
     },
     Scenario(id: "K06", title: "检查的检查 I2：钩子收下一次点击后 8 秒不返回，检查报错；同时测按键是否也被延迟",

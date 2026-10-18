@@ -308,7 +308,10 @@ final class Harness {
     }
 
     /// I5、I6：日志里的非法状态转换、超过 500 毫秒的主线程停顿。检查的检查（K04）直接调用它。
-    static func logViolations(_ lines: [String]) -> [String] {
+    /// 在虚拟机上，第一次打开设置窗口时的停顿不算：虚拟机没有显卡，SwiftUI 只能用处理器画，主线程停 500 至 1000 毫秒；
+    /// 用户的 macOS 14.5 真机上不到 250 毫秒（docs/testing.md 第 5 节“第一次打开设置窗口时主线程等待 695 至 996 毫秒”一行）。
+    /// 这段时间的停顿，WindowShade 写的日志里带 firstSettingsOpenStall 这段文字。
+    static func logViolations(_ lines: [String], onVirtualMachine: Bool = Harness.runningOnVirtualMachine) -> [String] {
         var violations: [String] = []
         for line in lines where line.contains("illegal transition") {
             violations.append("I5: \(line)")
@@ -316,10 +319,22 @@ final class Harness {
         for line in lines {
             guard let range = line.range(of: #"main-thread stall ≈(\d+)ms"#, options: .regularExpression) else { continue }
             let digits = line[range].filter(\.isNumber)
-            if let ms = Int(digits), ms > 500 { violations.append("I6: \(line)") }
+            guard let ms = Int(digits), ms > 500 else { continue }
+            if onVirtualMachine && line.contains(firstSettingsOpenStall) { continue }
+            violations.append("I6: \(line)")
         }
         return violations
     }
+
+    /// 停顿日志里，第一次打开设置窗口那段时间的标记（SettingsWindow.swift 的 firstSettingsOpenActivity 前面加上“期间=”）。
+    static let firstSettingsOpenStall = "期间=settings: 第一次打开设置窗口"
+
+    /// 这台机器是不是虚拟机（GitHub 的 macOS 机器是虚拟机）。
+    static let runningOnVirtualMachine: Bool = {
+        var value: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        return sysctlbyname("kern.hv_vmm_present", &value, &size, nil, 0) == 0 && value == 1
+    }()
 
     /// I4：不可撤销的动作（关闭、退出、弹出对话框）正好一次。检查的检查（K03）直接调用它。
     static func onceViolation(_ what: String, _ count: Int) -> String? {

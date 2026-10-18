@@ -63,6 +63,8 @@ enum MainThreadActivity {
     /// 只在主线程读写：push/pop 先查 Thread.isMainThread，attribution 只由主线程上的卡顿哨兵调用。
     nonisolated(unsafe) private static var stack: [(label: String, start: CFAbsoluteTime)] = []
     nonisolated(unsafe) private static var recent: [Span] = []
+    /// mark 记下的时段单独存，不会因为 recent 删掉最旧的记录而丢掉。
+    nonisolated(unsafe) private static var marks: [Span] = []
     private static let maxSpans = 512
 
     static func push(_ label: String) {
@@ -74,6 +76,14 @@ enum MainThreadActivity {
         guard Thread.isMainThread, let item = stack.popLast() else { return }
         recent.append(Span(label: item.label, start: item.start, end: CFAbsoluteTimeGetCurrent()))
         if recent.count > maxSpans { recent.removeFirst(recent.count - maxSpans) }
+    }
+
+    /// 从现在起的一段时间记在 label 名下。不进栈，这段时间里别的标记照常进出栈；卡顿归因时，它和别的标记一起比谁占时最多。
+    static func mark(_ label: String, for seconds: Double) {
+        guard Thread.isMainThread else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        marks.removeAll { $0.end < now - 60 }
+        marks.append(Span(label: label, start: now, end: now + seconds))
     }
 
     /// 卡顿窗口里累计占用最久的标记，附带次数与占比。
@@ -89,7 +99,7 @@ enum MainThreadActivity {
             entry.count += 1
             totals[label] = entry
         }
-        for span in recent { accumulate(span.label, from: span.start, to: span.end) }
+        for span in recent + marks { accumulate(span.label, from: span.start, to: span.end) }
         for active in stack { accumulate(active.label, from: active.start, to: until) }
         guard let top = totals.max(by: { $0.value.seconds < $1.value.seconds }) else { return "未标记" }
         let window = until - since

@@ -171,9 +171,18 @@ final class SettingsTabController: NSTabViewController {
 }
 
 extension AppDelegate {
+  /// 第一次打开设置窗口这段时间的主线程标记。停顿日志里带“期间=settings: 第一次打开设置窗口”。
+  static let firstSettingsOpenActivity = "settings: 第一次打开设置窗口"
+
   /// 普通的“设置…”回到上次看的分页；从别处点进来的可以指定分页。
   func showSettingsWindow(section: WindowShadeSettingsSection? = nil) {
     if settingsWindow == nil {
+      // 第一次打开时，SwiftUI 建表单、排版、画材质背景都在接下来的一两轮运行循环里。
+      // 打开后 1 秒内的主线程停顿，通常记在这个标记名下：哨兵报的是占时最多的标记，这个标记盖住整段 1 秒，一般占时最多。
+      // CI 的虚拟机没有显卡，这里会停 500 至 1000 毫秒；用户的 macOS 14.5 真机上不到 250 毫秒
+      // （docs/testing.md 第 5 节“第一次打开设置窗口时主线程等待 695 至 996 毫秒”一行）。
+      // 记在这个标记名下的停顿，场景的 I6 检查在虚拟机上不算，真机上照算（Scenarios.swift 的 logViolations）。
+      MainThreadActivity.mark(Self.firstSettingsOpenActivity, for: 1.0)
       settingsWindow = SettingsWindow(owner: self)
     }
     // 不用 showWindow：第一次调用时它要加载 QuickLookUI、注册全局通知（为文档窗口准备的），
