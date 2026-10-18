@@ -20,7 +20,7 @@ enum BridgedSpaceMove {
         "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperationP47SLSAsynchronousBridgedWindowManagementOperation"
 
     /// 第一次用到时查一次类和函数地址；有一样找不到就为 nil，调用方改用别的办法。
-    nonisolated(unsafe) private static let perform: PerformFunction? = {
+    private static let perform: PerformFunction? = {
         guard NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation") != nil,
               let address = findLocalSymbol(image: skyLightPath, name: performSymbol) else { return nil }
         return unsafeBitCast(address, to: PerformFunction.self)
