@@ -666,6 +666,10 @@ extension AppDelegate {
             wlog("ignore app reveal caused by glance id=\(id) app=\(state.appName)")
             return
         }
+        if carryRevealHolds.contains(id) {
+            wlog("ignore app reveal caused by moving the window to another desktop id=\(id) app=\(state.appName)")
+            return
+        }
         if Date() < state.ignoreAppRevealUntil {
             // 收起刚完成时的显示可能是收起过程自己引起的，先不算；但用户也可能就在这时把它叫回来
             // （场景 B18：收起后 1 秒内在“窗口”菜单里选它）。忽略期一过再看一次：应用程序仍然显示着，就展开。

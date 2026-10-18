@@ -1,0 +1,79 @@
+// 卷帘条被带到别的桌面时，原窗口跟过去（需求 S6）。
+
+import Cocoa
+
+extension AppDelegate {
+    /// 卷帘条留在 target 桌面，原窗口用私有接口移过去，收起方式不变（见 Domain/DesktopCarry.swift 的 canCarry）。
+    /// 返回 false 表示原窗口跟不过去，由调用方把卷帘条挪回原桌面；已隐藏的应用程序总是返回 true，移不过去时稍后由 undoCarry 挪回。
+    func carryFoldedWindow(id: CGWindowID, state: ShadeState, toSpace target: UInt64) -> Bool {
+        guard canCarry(state.hide) else {
+            wlog("space: carry not supported id=\(id) hide=\(state.hide.rawValue); moving the strip back")
+            return false
+        }
+        let mover = PrivateSLSWindowMover.shared
+        let windowID = state.sourceWindowID
+        if state.hide == .hidden {
+            // 应用程序隐藏后，查不到它的窗口在哪张桌面上，移了也核对不了（CI 场景 S6-carry，30acfcc）：
+            // 先把窗口设成透明，再在后台临时取消隐藏应用程序，等查到窗口在哪张桌面后移过去、核对，
+            // 然后重新隐藏应用程序，把窗口设回不透明。
+            // 用户这时已经在新桌面上，看不到原桌面上的这番操作。
+            recordCarry(id: id, state: state, toSpace: target, method: "pending")
+            carryRevealHolds.insert(id)
+            let restorer = windowRestorer
+            let pid = state.pid
+            let original = state.sourceSpaceID
+            restorer.run(pid: pid) {
+                _ = mover.setAlpha(id: windowID, alpha: 0)
+                restorer.control.unhideApp(pid: pid)
+                var shownOn: UInt64?
+                for _ in 0..<20 {
+                    shownOn = mover.windowSpace(id: windowID)
+                    if shownOn != nil { break }
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+                let method = mover.moveOtherAppWindow(id: windowID, toSpace: target)
+                _ = setAXAppHidden(pid: pid, true)
+                Thread.sleep(forTimeInterval: 0.1)
+                _ = mover.setAlpha(id: windowID, alpha: 1)
+                wlog("space: carried hidden window id=\(id) window=\(windowID) shownOn=\(shownOn.map(String.init) ?? "-") "
+                     + "method=\(method ?? "none") now=\(mover.windowSpace(id: windowID).map(String.init) ?? "-")")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.carryRevealHolds.remove(id)
+                        if method == nil, let original { self.undoCarry(id: id, backTo: original) }
+                    }
+                }
+            }
+            return true
+        }
+        guard let method = mover.moveOtherAppWindow(id: windowID, toSpace: target) else {
+            wlog("space: carry failed id=\(id) window=\(windowID) to=\(target) hide=\(state.hide.rawValue) "
+                 + "on=\(mover.windowSpace(id: windowID).map(String.init) ?? "-"); moving the strip back")
+            return false
+        }
+        recordCarry(id: id, state: state, toSpace: target, method: method)
+        return true
+    }
+
+    private func recordCarry(id: CGWindowID, state: ShadeState, toSpace target: UInt64, method: String) {
+        var updated = state
+        updated.sourceSpaceID = target
+        shaded[id] = updated
+        pendingSpaceReturns.removeValue(forKey: id)
+        updateShadeJournal(id: id, reason: "carried-to-space") { entry in entry["spaceID"] = Double(target) }
+        wlog("space: carried strip id=\(id) from=\(state.sourceSpaceID.map(String.init) ?? "-") to=\(target) "
+             + "hide=\(state.hide.rawValue) method=\(method)")
+    }
+
+    /// 原窗口没能移过去：卷帘条回到原窗口所在的桌面。
+    private func undoCarry(id: CGWindowID, backTo original: UInt64) {
+        guard var state = shaded[id] else { return }
+        state.sourceSpaceID = original
+        shaded[id] = state
+        updateShadeJournal(id: id, reason: "carry-undone") { entry in entry["spaceID"] = Double(original) }
+        if let overlayID = state.overlayID { _ = PrivateSLSWindowMover.shared.moveWindow(id: overlayID, toSpace: original) }
+        wlog("space: carry undone id=\(id); the window could not be moved, the strip goes back to \(original)")
+        _ = enforceOverlaySpaceInvariant(id: id, state: state, reason: "carry-undone")
+    }
+}

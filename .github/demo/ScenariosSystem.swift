@@ -203,6 +203,51 @@ func finderWindow(titled title: String) -> AXUIElement? {
     return (value as? [AXUIElement] ?? []).first { axString($0, kAXTitleAttribute as String) == title }
 }
 
+/// 测试窗口是否显示在当前桌面上（窗口列表里只有当前桌面上的窗口算“在屏幕上”）。
+func probeWindowOnThisDesktop(_ probe: Probe) -> Bool {
+    let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    return list.contains { info in
+        (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == probe.pid
+            && (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0
+    }
+}
+
+/// S6-carry（需求 S6）：收起测试窗口，按住卷帘条按 Control-右方向键，松开。卷帘条要留在右边的桌面，不挪回原来的桌面；
+/// 双击展开后，窗口出现在右边的桌面，屏幕不切回原来的桌面。依据：2026-10-18 用户的日志，卷帘条被挪回了原来的桌面。
+func carryStripToNextDesktop(_ probe: Probe, _ h: Harness) async {
+    guard await ensureTwoDesktops(), let home = activeSpaceID() else {
+        h.result.notes["skipped"] = "this Mac has only one desktop and adding one failed"; return
+    }
+    guard await foldProbe(probe, h) != nil, let strip = stripFrames().first else { await returnToDesktop(home); return }
+    // 按在卷帘条的中间（避开左边的红绿灯），按住时切到右边的桌面，再松开。
+    let grab = CGPoint(x: strip.midX, y: strip.midY)
+    await glide(to: grab, duration: 0.3)
+    await pause(0.3)
+    post(.leftMouseDown, at: grab)
+    await pause(0.4)
+    await switchDesktop(right: true)
+    let other = activeSpaceID()
+    post(.leftMouseUp, at: grab)
+    await pause(1.5)
+    guard let other, other != home else {
+        h.result.notes["skipped"] = "Control-Right Arrow did not switch desktops"
+        await returnToDesktop(home)
+        return
+    }
+    h.result.notes["desktops"] = "home=\(home) carried to=\(other) now=\(activeSpaceID().map { String($0) } ?? "?")"
+    h.expect(activeSpaceID() == other, "S6-carry: the desktop switched back after the strip was released (now \(activeSpaceID() ?? 0))")
+    let carried = stripFrames().first
+    h.expect(carried != nil, "S6-carry: the strip did not stay on the new desktop")
+    if let carried {
+        await doubleClick(at: CGPoint(x: carried.midX, y: carried.midY))
+        await pause(2.0)
+        h.expect(activeSpaceID() == other, "S6-carry: unfolding switched the desktop (\(other) → \(activeSpaceID() ?? 0))")
+        h.expect(probeWindowOnThisDesktop(probe), "S6-carry: the window did not open on the new desktop")
+        await expectNoStrip(h, within: 3)
+    }
+    await returnToDesktop(home)
+}
+
 /// E11 和 E11-trash：在当前桌面上开一扇访达窗口，切到右边的桌面，用 openTarget 打开要收起的访达窗口，
 /// 只留它一扇在右边的桌面上，收起、展开，检查桌面都没有切换。openTarget 收到一个可以打开的空文件夹，E11 打开它，E11-trash 不用它。
 func foldFinderOnSecondDesktop(_ h: Harness, id: String, openTarget: (URL) -> Void) async {
@@ -435,6 +480,9 @@ let systemScenarios: [Scenario] = [
         await foldFinderOnSecondDesktop(h, id: "E11-trash") { _ in
             run("/usr/bin/osascript", ["-e", "tell application \"Finder\" to open trash", "-e", "tell application \"Finder\" to activate"])
         }
+    },
+    Scenario(id: "S6-carry", title: "按住卷帘条按 Control-右方向键：卷帘条留在右边的桌面，展开后窗口也在那里", options: []) { probe, h in
+        await carryStripToNextDesktop(probe, h)
     },
     Scenario(id: "E12", title: "别的桌面上有最近用过的应用程序时，收起只有一扇窗口的应用程序：不切换桌面", options: []) { probe, h in
         await foldWithRecentAppOnOtherDesktop(probe, h)
