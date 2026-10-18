@@ -17,22 +17,14 @@ func stripSpaceAction(stripSpace: UInt64, windowSpace: UInt64, stripHeldByPointe
     return stripHeldByPointer ? .carry(to: stripSpace) : .moveBack
 }
 
-/// 原窗口跟到新桌面的办法。别的应用程序的窗口，macOS 没有公开接口能移到别的桌面，私有接口从 macOS 14.5 起也不起作用。
-/// 取消最小化时，系统把窗口放到当前桌面，所以在原桌面上把它最小化，展开时它就出现在新桌面。
-enum CarryMethod: Equatable, Sendable {
-    /// 已经最小化，展开时系统把它放到当前桌面。
-    case alreadyMinimized
-    /// 改成最小化。隐藏了整个应用程序的，先取消隐藏，窗口回到原桌面上（用户这时在新桌面，看不到），再最小化。
-    case minimize(unhideAppFirst: Bool)
-    /// 没有移开的窗口、设成透明的窗口、WindowShade 自己的窗口、已关掉的快速查看窗口：不跟过去，卷帘条挪回原桌面。
-    case notSupported
-}
-
-func carryMethod(for hide: HideMethod) -> CarryMethod {
+/// 这几种收起方式下，原窗口试着跟到新桌面：隐藏了整个应用程序、移到屏幕外、最小化的窗口还在原来的桌面上，
+/// 用私有接口（PrivateSLSWindowMover.moveOtherAppWindow）把它移到新桌面，收起方式不变，展开时它就在新桌面。
+/// 私有接口没能移过去时，卷帘条挪回原桌面。
+/// 不能用最小化代替：取消最小化时，系统把窗口放回最小化之前所在的桌面（CI 场景 S6-carry，e9cf2c1）。
+/// 没有移开的窗口、设成透明的窗口、WindowShade 自己的窗口、已关掉的快速查看窗口：不跟过去，卷帘条挪回原桌面。
+func canCarry(_ hide: HideMethod) -> Bool {
     switch hide {
-    case .minimized: return .alreadyMinimized
-    case .hidden: return .minimize(unhideAppFirst: true)
-    case .offscreen, .privateOffscreen: return .minimize(unhideAppFirst: false)
-    case .none, .privateAlpha, .ownWindowOrderedOut, .quickLookClosed: return .notSupported
+    case .hidden, .offscreen, .privateOffscreen, .minimized: return true
+    case .none, .privateAlpha, .ownWindowOrderedOut, .quickLookClosed: return false
     }
 }

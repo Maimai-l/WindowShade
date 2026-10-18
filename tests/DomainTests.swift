@@ -122,13 +122,10 @@ struct DomainTests {
                  "按住卷帘条时到了别的桌面：原窗口跟过去，卷帘条不挪回")
         t.expect(stripSpaceAction(stripSpace: 24, windowSpace: 5, stripHeldByPointer: false) == .moveBack,
                  "没按住时到了别的桌面：挪回原窗口所在的桌面")
-        t.expect(carryMethod(for: .hidden) == .minimize(unhideAppFirst: true), "隐藏了整个应用程序的：先取消隐藏，再最小化")
-        t.expect(carryMethod(for: .offscreen) == .minimize(unhideAppFirst: false)
-                    && carryMethod(for: .privateOffscreen) == .minimize(unhideAppFirst: false),
-                 "移到屏幕外的：直接最小化")
-        t.expect(carryMethod(for: .minimized) == .alreadyMinimized, "已经最小化的：不用再动")
-        t.expect([HideMethod.none, .privateAlpha, .ownWindowOrderedOut, .quickLookClosed].allSatisfy { carryMethod(for: $0) == .notSupported },
-                 "没移开的、设成透明的、WindowShade 自己的窗口、快速查看窗口：不跟过去")
+        t.expect([HideMethod.hidden, .offscreen, .privateOffscreen, .minimized].allSatisfy { canCarry($0) },
+                 "隐藏了整个应用程序、移到屏幕外、最小化的窗口：跟过去")
+        t.expect([HideMethod.none, .privateAlpha, .ownWindowOrderedOut, .quickLookClosed].allSatisfy { !canCarry($0) },
+                 "没移开的、设成透明的、WindowShade 自己的窗口、已关掉的快速查看窗口：不跟过去")
 
         t.finish()
     }

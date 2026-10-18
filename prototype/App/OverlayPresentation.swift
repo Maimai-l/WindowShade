@@ -143,14 +143,17 @@ extension AppDelegate {
         let held = (overlay as? NativeProxyOverlayWindow)?.isHeldByPointer == true && NSEvent.pressedMouseButtons & 1 != 0
         // 按住卷帘条切到了别的桌面，卷帘条却还在原来的桌面：卷帘条的 isMovable 为 false，系统不会把它带过去，
         // 所以由这里把它移到当前桌面，再让原窗口跟过去（需求 S6；CI 场景 S6-carry 里见过卷帘条留在原来的桌面）。
-        if held, carryMethod(for: state.hide) != .notSupported,
+        if held, canCarry(state.hide),
            let displayID = state.sourceDisplayID,
            let active = mover.currentSpace(displayID: displayID), active != sourceSpaceID, overlaySpaceID != active {
             overlay.orderFrontRegardless()
-            if mover.moveWindow(id: overlayID, toSpace: active), carryFoldedWindow(id: id, state: state, toSpace: active) {
-                return true
+            if mover.moveWindow(id: overlayID, toSpace: active) {
+                if carryFoldedWindow(id: id, state: state, toSpace: active) { return true }
+                // 原窗口跟不过去：卷帘条也回原来的桌面。
+                _ = mover.moveWindow(id: overlayID, toSpace: sourceSpaceID)
+            } else {
+                wlog("space: could not move the held strip id=\(overlayID) source=\(id) to=\(active) reason=\(reason)")
             }
-            wlog("space: could not move the held strip id=\(overlayID) source=\(id) to=\(active) reason=\(reason)")
         }
         if overlaySpaceID == nil {
             let active = sourceSpaceIsActive(state)
@@ -185,7 +188,7 @@ extension AppDelegate {
             return active
         }
 
-        // 按住卷帘条切到了别的桌面，卷帘条已经在当前桌面：原窗口跟过去（需求 S6）；这种收起方式跟不过去时，照常把卷帘条挪回。
+        // 按住卷帘条切到了别的桌面，卷帘条已经在当前桌面：原窗口跟过去（需求 S6）；原窗口跟不过去时（这种收起方式不跟，或私有接口没能移过去），照常把卷帘条挪回。
         if let overlaySpaceID,
            case .carry(let target) = stripSpaceAction(stripSpace: overlaySpaceID, windowSpace: sourceSpaceID, stripHeldByPointer: held),
            carryFoldedWindow(id: id, state: state, toSpace: target) {
