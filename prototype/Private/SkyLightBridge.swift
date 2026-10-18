@@ -18,8 +18,6 @@ private typealias SLSManagedDisplayGetCurrentSpaceFunction = @convention(c) (Int
 private typealias SLSManagedDisplaySetCurrentSpaceFunction = @convention(c) (Int32, CFString, UInt64) -> Int32
 private typealias SLSGetWindowAlphaFunction = @convention(c) (Int32, UInt32, UnsafeMutablePointer<Float>) -> Int32
 private typealias SLSSetWindowAlphaFunction = @convention(c) (Int32, UInt32, Float) -> Int32
-private typealias SLSSpaceSetCompatIDFunction = @convention(c) (Int32, UInt64, Int32) -> Int32
-private typealias SLSSetWindowListWorkspaceFunction = @convention(c) (Int32, UnsafePointer<UInt32>, Int32, Int32) -> Int32
 
 final class PrivateSLSWindowMover: Sendable {
     static let shared = PrivateSLSWindowMover()
@@ -33,8 +31,6 @@ final class PrivateSLSWindowMover: Sendable {
     private let managedDisplaySetCurrentSpace: SLSManagedDisplaySetCurrentSpaceFunction?
     private let getWindowAlpha: SLSGetWindowAlphaFunction?
     private let setWindowAlpha: SLSSetWindowAlphaFunction?
-    private let spaceSetCompatID: SLSSpaceSetCompatIDFunction?
-    private let setWindowListWorkspace: SLSSetWindowListWorkspaceFunction?
 
     private init() {
         let paths = [
@@ -60,8 +56,6 @@ final class PrivateSLSWindowMover: Sendable {
             managedDisplaySetCurrentSpace = nil
             getWindowAlpha = nil
             setWindowAlpha = nil
-            spaceSetCompatID = nil
-            setWindowListWorkspace = nil
             return
         }
         mainConnectionID = unsafeBitCast(mainSymbol, to: SLSMainConnectionIDFunction.self)
@@ -104,9 +98,6 @@ final class PrivateSLSWindowMover: Sendable {
         } else {
             setWindowAlpha = nil
         }
-        spaceSetCompatID = dlsym(handle, "SLSSpaceSetCompatID").map { unsafeBitCast($0, to: SLSSpaceSetCompatIDFunction.self) }
-        setWindowListWorkspace = dlsym(handle, "SLSSetWindowListWorkspace")
-            .map { unsafeBitCast($0, to: SLSSetWindowListWorkspaceFunction.self) }
     }
 
     var isAvailable: Bool {
@@ -157,21 +148,6 @@ final class PrivateSLSWindowMover: Sendable {
         }
         _ = reassociateWindowByGeometry(id: id)
         return windowSpace(id: id) == sid
-    }
-
-    /// 把别的应用程序的窗口移到 sid 桌面，返回生效的那种办法的名字；两种办法都不生效时返回 nil（需求 S6）。
-    /// 先用 SLSMoveWindowsToManagedSpace；从 macOS 14.5 起，它移不了别的应用程序的窗口，这时再试另一个办法：
-    /// 临时给目标桌面设一个兼容编号，按这个编号把窗口移过去，再清掉编号（窗口管理工具 yabai 7.1 用过）。
-    func moveOtherAppWindow(id: CGWindowID, toSpace sid: UInt64) -> String? {
-        if moveWindow(id: id, toSpace: sid) { return "managed-space" }
-        guard let mainConnectionID, let spaceSetCompatID, let setWindowListWorkspace else { return nil }
-        let cid = mainConnectionID()
-        let tag: Int32 = 0x7961_6265
-        _ = spaceSetCompatID(cid, sid, tag)
-        var window = UInt32(id)
-        _ = setWindowListWorkspace(cid, &window, 1, tag)
-        _ = spaceSetCompatID(cid, sid, 0)
-        return windowSpace(id: id) == sid ? "compat-workspace" : nil
     }
 
     private func managedDisplayUUIDString(displayID: CGDirectDisplayID) -> CFString? {

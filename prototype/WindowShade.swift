@@ -193,8 +193,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 浅深色切换的 KVO 令牌（系统外观刷新用）。
     var appearanceObservation: NSKeyValueObservation?
     var pendingSpaceReturns: [CGWindowID: PendingSpaceReturn] = [:]
-    /// 正在把已隐藏的应用程序的窗口移到别的桌面（需求 S6）：这期间应用程序会临时取消隐藏，由此收到的“应用程序已显示”通知不算用户唤回。
-    var carryRevealHolds: Set<CGWindowID> = []
     // 记下菜单里指针停在哪一项：截图要异步等，结果回来时指针已经移开，就不再弹出不相干窗口的预览。
     var menuPreviewHoverID: CGWindowID?
     var menuPreviewAnchor: NSRect?

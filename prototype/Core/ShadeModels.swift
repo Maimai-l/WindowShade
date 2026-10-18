@@ -60,7 +60,7 @@ struct ShadeState {
     let originalPosition: CGPoint
     var originalSize: CGSize
     let sourceDisplayID: CGDirectDisplayID?
-    var sourceSpaceID: UInt64?   // 卷帘条被带到别的桌面时改写（需求 S6）
+    let sourceSpaceID: UInt64?
     let overlay: NSWindow?
     let overlayID: CGWindowID?
     var hide: HideMethod         // 原窗口实际被移开的方式（见 HideMethod）；延迟验证补救时可能改写
