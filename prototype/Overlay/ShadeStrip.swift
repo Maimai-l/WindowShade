@@ -86,7 +86,13 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var usesProxyTitleLayout = false
     var trafficLightConfiguration = ProxyTrafficLightConfiguration.standard
     private var redirectingFullScreen = false
-    private var zoomMouseDown = false
+    /// 按下时落在哪个红绿灯按钮上，以及当时指针在卷帘条里的位置（窗口坐标）。
+    /// 三个按钮都由这里跟踪：按下后移动不超过 buttonDragSlop、松开时还在按钮上，才算点了按钮；移动超过它就改为拖动卷帘条。
+    /// 依据：2026-10-18 用户录像，按住绿色按钮挪了约 6 点，窗口进了全屏。
+    private var pressedButton: NSWindow.ButtonType?
+    private var buttonPressPoint: NSPoint = .zero
+    /// 按在按钮上以后，指针移动超过这个距离（单位：点）就算拖动卷帘条，不再算点按钮。
+    static let buttonDragSlop: CGFloat = 3
     private var potentialWindowDrag = false
     private var didWindowDrag = false
     /// 按下时指针在卷帘条里的位置（窗口坐标，取自按下事件本身）和卷帘条的大小：
@@ -387,6 +393,14 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         refreshTrafficLightAppearance()
     }
 
+    /// 按下点所在的、能点的红绿灯按钮：按钮要看得见、可用；绿色按钮还要卷帘条允许管理窗口。
+    private func pressableButton(at pointInWindow: NSPoint) -> NSWindow.ButtonType? {
+        [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].first { type in
+            guard pointHitsStandardButton(type, pointInWindow), standardWindowButton(type)?.isEnabled == true else { return false }
+            return type != .zoomButton || allowsWindowManagement
+        }
+    }
+
     private func pointHitsAnyStandardButton(_ pointInWindow: NSPoint) -> Bool {
         [.closeButton, .miniaturizeButton, .zoomButton].contains {
             pointHitsStandardButton($0, pointInWindow)
@@ -410,10 +424,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             updatePointerOverLights(event.locationInWindow)
             // 离开事件还要交给 AppKit 发到内容视图的跟踪区域，标题上的“双击展开”提示才会消失。
         }
-        if event.type == .leftMouseDown,
-           allowsWindowManagement,
-           pointHitsStandardButton(.zoomButton, event.locationInWindow) {
-            zoomMouseDown = true
+        if event.type == .leftMouseDown, let type = pressableButton(at: event.locationInWindow) {
+            pressedButton = type
+            buttonPressPoint = event.locationInWindow
+            standardWindowButton(type)?.highlight(true)
             return
         }
         if event.type == .leftMouseDown,
@@ -425,12 +439,28 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             pressOnResizeEdge = styleMask.contains(.resizable)
                 && (pressPoint.x < Self.resizeEdge || pressPoint.x > frame.width - Self.resizeEdge)
         }
-        if event.type == .leftMouseUp, zoomMouseDown {
-            zoomMouseDown = false
-            if allowsWindowManagement, pointHitsStandardButton(.zoomButton, event.locationInWindow) {
-                onAction?(greenAction)
+        if event.type == .leftMouseUp, let type = pressedButton {
+            pressedButton = nil
+            standardWindowButton(type)?.highlight(false)
+            if pointHitsStandardButton(type, event.locationInWindow) {
+                if type == .zoomButton {
+                    if allowsWindowManagement { onAction?(greenAction) }
+                } else {
+                    standardWindowButton(type)?.performClick(nil)
+                }
             }
             return
+        }
+        // 按在按钮上以后移动超过 buttonDragSlop：改为拖动卷帘条，松开时不算点了按钮（见 pressedButton）。
+        if event.type == .leftMouseDragged, let type = pressedButton,
+           hypot(event.locationInWindow.x - buttonPressPoint.x, event.locationInWindow.y - buttonPressPoint.y) > Self.buttonDragSlop {
+            pressedButton = nil
+            standardWindowButton(type)?.highlight(false)
+            potentialWindowDrag = true
+            didWindowDrag = false
+            pressPoint = buttonPressPoint
+            pressSize = frame.size
+            pressOnResizeEdge = false
         }
         if event.type == .leftMouseDragged, potentialWindowDrag {
             didWindowDrag = true
@@ -443,7 +473,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                 return
             }
         }
-        if event.type == .leftMouseDragged, zoomMouseDown {
+        if event.type == .leftMouseDragged, pressedButton != nil {
             return
         }
         if event.type == .leftMouseUp, potentialWindowDrag {
