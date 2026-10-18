@@ -173,6 +173,14 @@ extension AppDelegate {
             return active
         }
 
+        // 按住卷帘条切到了别的桌面：卷帘条留在新桌面，原窗口跟过去（需求 S6）；这种收起方式跟不过去时，照常把卷帘条挪回。
+        let held = (overlay as? NativeProxyOverlayWindow)?.isHeldByPointer == true && NSEvent.pressedMouseButtons & 1 != 0
+        if let overlaySpaceID,
+           case .carry(let target) = stripSpaceAction(stripSpace: overlaySpaceID, windowSpace: sourceSpaceID, stripHeldByPointer: held),
+           carryFoldedWindow(id: id, state: state, toSpace: target) {
+            return true
+        }
+
         if mover.moveWindow(id: overlayID, toSpace: sourceSpaceID) {
             wlog("space: corrected overlay id=\(overlayID) source=\(id) from=\(overlaySpaceID.map(String.init) ?? "-") to=\(sourceSpaceID) reason=\(reason)")
             return sourceSpaceIsActive(state)

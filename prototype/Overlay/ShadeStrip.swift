@@ -90,6 +90,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     /// 三个按钮都由这里跟踪：按下后移动不超过 buttonDragSlop、松开时还在按钮上，才算点了按钮；移动超过它就改为拖动卷帘条。
     /// 依据：2026-10-18 用户录像，按住绿色按钮挪了约 6 点，窗口进了全屏。
     private var pressedButton: NSWindow.ButtonType?
+    /// 鼠标左键正按在卷帘条上（从按下到松开）。这时卷帘条到了别的桌面，就当作用户把它带了过去（需求 S6）。
+    private(set) var isHeldByPointer = false
     private var buttonPressPoint: NSPoint = .zero
     /// 按在按钮上以后，指针移动超过这个距离（单位：点）就算拖动卷帘条，不再算点按钮。
     static let buttonDragSlop: CGFloat = 3
@@ -407,6 +409,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown { isHeldByPointer = true }
+        if event.type == .leftMouseUp { isHeldByPointer = false }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             // 卷帘条上的按下、松开都记一行（不常发生）：点了没反应时，看得出点击到没到卷帘条、落在哪里
             // （随机操作 Q01 种子 647145595 第 126 步：点关闭按钮，日志里什么也没有；场景 C24）。
