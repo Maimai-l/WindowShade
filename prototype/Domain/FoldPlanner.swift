@@ -51,22 +51,57 @@ struct FoldSettings: Sendable {
     var screenCaptureKitAvailable = true
 }
 
+/// 不收起的原因。log 写进日志；notice 是菜单栏上给用户看的那句话，说用户能看到的情况，不说“这个窗口”。
+enum FoldRejection: Error, Equatable, Sendable {
+    case offSpace
+    case fullScreen
+    case minimized
+    case hasSheet
+    case modalDialog
+    case quickLookWithoutFile
+    case adobePanel(String)
+
+    var log: String {
+        switch self {
+        case .offSpace: return "invisible/off-space window"
+        case .fullScreen: return "fullscreen window"
+        case .minimized: return "minimized window"
+        case .hasSheet: return "window has a sheet"
+        case .modalDialog: return "app shows a modal dialog"
+        case .quickLookWithoutFile: return "quick look preview with no file to reopen"
+        case .adobePanel(let detail): return "adobe panel \(detail)"
+        }
+    }
+
+    var notice: String {
+        switch self {
+        case .offSpace: return "窗口不在当前桌面上"
+        case .fullScreen: return "全屏时不能收起"
+        case .minimized: return "已最小化的窗口不能收起"
+        case .hasSheet: return "先回答窗口上的对话框"
+        case .modalDialog: return "先回答弹出的提示框"
+        case .quickLookWithoutFile: return "这个预览不能收起"
+        case .adobePanel: return "浮动面板不能收起"
+        }
+    }
+}
+
 enum FoldDecision: Equatable, Sendable {
-    case reject(String)
+    case reject(FoldRejection)
     case fold(ShadePlan)
 }
 
 enum FoldPlanner {
     static func decide(facts: FoldFacts, profile: AppProfile, settings: FoldSettings) -> FoldDecision {
-        guard facts.visibleOnActiveSpace else { return .reject("invisible/off-space window") }
-        guard !facts.fullScreen else { return .reject("fullscreen window") }
-        guard !facts.minimized else { return .reject("minimized window") }
-        guard !facts.hasSheet else { return .reject("window has a sheet") }
-        guard !facts.appHasModalDialog else { return .reject("app shows a modal dialog") }
+        guard facts.visibleOnActiveSpace else { return .reject(.offSpace) }
+        guard !facts.fullScreen else { return .reject(.fullScreen) }
+        guard !facts.minimized else { return .reject(.minimized) }
+        guard !facts.hasSheet else { return .reject(.hasSheet) }
+        guard !facts.appHasModalDialog else { return .reject(.modalDialog) }
         // 快速查看窗口收起时要关掉，展开时靠文件路径重新打开；读不到路径就关掉，展开时预览找不回来（场景 A32）。
-        guard !facts.isQuickLook || facts.quickLookReopenable else { return .reject("quick look preview with no file to reopen") }
+        guard !facts.isQuickLook || facts.quickLookReopenable else { return .reject(.quickLookWithoutFile) }
         guard facts.adobeKind != .floatingPanel, facts.adobeCanShade else {
-            return .reject("adobe panel kind=\(facts.adobeKind.rawValue) reason=\(facts.adobeReason)")
+            return .reject(.adobePanel("kind=\(facts.adobeKind.rawValue) reason=\(facts.adobeReason)"))
         }
 
         let policy: ShadePolicy = facts.isQuickLook ? .closeQuickLookPreview : profile.hiding

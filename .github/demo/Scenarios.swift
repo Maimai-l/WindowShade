@@ -985,7 +985,7 @@ func runScenarioSuite(output: URL, probeApp: String, shadeApp: String, only: Set
     var results: [[String: Any]] = []
     var failed = 0
     let all = scenarios + foldScenarios + unfoldScenarios + stripScenarios + glanceScenarios + systemScenarios
-        + checkScenarios + randomScenarios
+        + checkScenarios + randomScenarios + compatScenarios
     var needsRelaunch = false
     let watchdog = ScenarioWatchdog(output: output)
     // 场景要在套件开始时的桌面上跑。场景打开的应用程序把窗口开在别的桌面上时，系统会切到那个桌面，结束这个应用程序后屏幕仍停在那里

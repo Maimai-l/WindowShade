@@ -89,7 +89,7 @@ extension AppDelegate {
                                pid: pid_t, profile: WindowChromeProfile,
                                options: ShadeInvocationOptions,
                                fullScreen: Bool, minimized: Bool, hasSheet: Bool,
-                               appHasModalDialog: Bool, quickLookReopenable: Bool) -> ShadePlan? {
+                               appHasModalDialog: Bool, quickLookReopenable: Bool) -> Result<ShadePlan, FoldRejection> {
         let visible = windowIsVisible(pos: pos, size: size)
         let facts = FoldFacts(visibleOnActiveSpace: visible,
                               fullScreen: fullScreen,
@@ -109,10 +109,10 @@ extension AppDelegate {
                                     screenCaptureKitAvailable: screenCaptureKitAvailable)
         switch FoldPlanner.decide(facts: facts, profile: appProfile(for: pid), settings: settings) {
         case .reject(let reason):
-            wlog("plan: reject \(reason) pid=\(pid)")
-            return nil
+            wlog("plan: reject \(reason.log) pid=\(pid)")
+            return .failure(reason)
         case .fold(let plan):
-            return plan
+            return .success(plan)
         }
     }
     func resolvedSourceSpaceID(windowID id: CGWindowID,
@@ -213,7 +213,7 @@ extension AppDelegate {
         let pos = readout.pos
         let size = readout.size
         guard readout.isWindow else {
-            quietNotice("这个窗口不能收起", log: "shade: reject non-window role=\(readout.role ?? "?") id=\(id)")
+            quietNotice("只有窗口能收起", log: "shade: reject non-window role=\(readout.role ?? "?") id=\(id)")
             return
         }
         let bundleID = appBundleID(pid: pid)
@@ -223,15 +223,18 @@ extension AppDelegate {
             dumpWindow(win)
         }
         let profile = readout.profile
-        // guard 的条件里不能写尾随闭包，先算好再解包。
         let shadePlan = foldPhase("折叠计划") {
             makeShadePlan(pos: pos, size: size, pid: pid, profile: profile, options: options,
                           fullScreen: readout.fullScreen, minimized: readout.minimized, hasSheet: readout.hasSheet,
                           appHasModalDialog: readout.appHasModalDialog,
                           quickLookReopenable: readout.quickLookReopenURL != nil)
         }
-        guard let plan = shadePlan else {
-            quietNotice("这个窗口不能收起", log: "shade: plan rejected app=\(appName) id=\(id)")
+        let plan: ShadePlan
+        switch shadePlan {
+        case .success(let accepted):
+            plan = accepted
+        case .failure(let rejection):
+            quietNotice(rejection.notice, log: "shade: plan rejected app=\(appName) id=\(id) reason=\(rejection.log)")
             return
         }
         let policy = plan.policy

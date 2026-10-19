@@ -64,14 +64,21 @@ struct DomainTests {
         func decide(_ facts: FoldFacts, _ settings: FoldSettings = FoldSettings(), _ profile: AppProfile = AppProfiles.standard) -> FoldDecision {
             FoldPlanner.decide(facts: facts, profile: profile, settings: settings)
         }
-        t.expect(decide(FoldFacts(visibleOnActiveSpace: false)) == .reject("invisible/off-space window"), "不在当前桌面的窗口不收起")
-        t.expect(decide(FoldFacts(fullScreen: true)) == .reject("fullscreen window"), "全屏窗口不收起")
-        t.expect(decide(FoldFacts(minimized: true)) == .reject("minimized window"), "已最小化的窗口不收起")
+        t.expect(decide(FoldFacts(visibleOnActiveSpace: false)) == .reject(.offSpace), "不在当前桌面的窗口不收起")
+        t.expect(decide(FoldFacts(fullScreen: true)) == .reject(.fullScreen), "全屏窗口不收起")
+        t.expect(decide(FoldFacts(minimized: true)) == .reject(.minimized), "已最小化的窗口不收起")
         // 缺陷回归（CI 场景 A10）：挂着“是否保存”这类对话框的窗口收起后，对话框跟着被移开，用户看不到要回答的问题。
-        t.expect(decide(FoldFacts(hasSheet: true)) == .reject("window has a sheet"), "挂着对话框的窗口不收起")
+        t.expect(decide(FoldFacts(hasSheet: true)) == .reject(.hasSheet), "挂着对话框的窗口不收起")
         // 缺陷回归（CI 场景 A11）：应用程序弹出独立的模态提示框时，原窗口照样收起，焦点交给了提示框。
-        t.expect(decide(FoldFacts(appHasModalDialog: true)) == .reject("app shows a modal dialog"),
+        t.expect(decide(FoldFacts(appHasModalDialog: true)) == .reject(.modalDialog),
                  "应用程序弹出模态提示框时不收起")
+        // 缺陷回归（2026-10-19 用户实测）：全屏窗口不收起时，菜单栏上只说“这个窗口不能收起”，不说原因。
+        t.expect(FoldRejection.fullScreen.notice == "全屏时不能收起", "全屏窗口不收起时，提示说的是全屏")
+        let rejections: [FoldRejection] = [.offSpace, .fullScreen, .minimized, .hasSheet, .modalDialog,
+                                           .quickLookWithoutFile, .adobePanel("")]
+        t.expect(rejections.allSatisfy { !$0.notice.contains("这个窗口") }, "每个不收起的原因都有自己的提示，不用“这个窗口不能收起”")
+        t.expect(Set(rejections.map(\.notice)).count == rejections.count, "不同的原因提示不同")
+        t.expect(rejections.allSatisfy { $0.notice.count <= 14 }, "提示不超过 14 个字，菜单栏上显示得下")
         if case .reject = decide(FoldFacts(adobeKind: .floatingPanel)) {
             t.expect(true, "Adobe 浮动面板不收起")
         } else { t.expect(false, "Adobe 浮动面板不收起") }
@@ -104,7 +111,7 @@ struct DomainTests {
         t.expect(decide(FoldFacts(isQuickLook: true))
                     == .fold(ShadePlan(mode: .nativeScreenshot, policy: .closeQuickLookPreview, reason: "user-mode-quicklook")),
                  "快速查看窗口：关闭，展开时重新打开")
-        t.expect(decide(FoldFacts(isQuickLook: true, quickLookReopenable: false)) == .reject("quick look preview with no file to reopen"),
+        t.expect(decide(FoldFacts(isQuickLook: true, quickLookReopenable: false)) == .reject(.quickLookWithoutFile),
                  "快速查看窗口读不到显示的文件：不收起，免得关掉后找不回来（场景 A32）")
         t.expect(decide(FoldFacts(), settings, finder) == .fold(ShadePlan(mode: .nativeScreenshot, policy: finder.hiding, reason: "user-mode")),
                  "其他窗口按应用程序配置")

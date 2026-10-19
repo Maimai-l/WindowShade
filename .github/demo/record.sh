@@ -322,6 +322,20 @@ if [ -n "$SHARD" ]; then
 fi
 
 if [ -n "$ONLY" ]; then
+  # COMPAT- 场景要用别家的应用程序：只在 CI 的临时虚拟机上装，装不上就跳过（场景记一条 skipped）。
+  if [ "$LOCAL" != "1" ] && [[ ",$ONLY," == *",COMPAT-"* ]]; then
+    echo "==> install apps for the COMPAT scenarios"
+    export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+    [[ ",$ONLY," == *",COMPAT-netease,"* ]] && { brew install --cask neteasemusic || true; }
+    [[ ",$ONLY," == *",COMPAT-quickrecorder,"* ]] && { brew install --cask lihaoyun6/tap/quickrecorder || true; }
+    for app in /Applications/NeteaseMusic.app /Applications/QuickRecorder.app; do
+      [ -d "$app" ] || continue
+      xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
+      id=$(defaults read "$app/Contents/Info" CFBundleIdentifier 2>/dev/null) || continue
+      sudo python3 .github/demo/grant-tcc.py "$id=$app" >/dev/null || true
+    done
+    sudo killall tccd 2>/dev/null || true
+  fi
   echo "==> scenarios: $ONLY"
   open -W --stderr "$OUT/driver-scenarios.log" "$DRIVER" --args "$OUT/scenarios.json" scenarios "$PROBE" "$APP" "$ONLY"
   cat "$OUT/driver-scenarios.log" || true
