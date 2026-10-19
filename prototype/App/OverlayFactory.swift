@@ -65,7 +65,16 @@ extension AppDelegate {
             }
 
             let iv = TitleStripView(frame: NSRect(origin: .zero, size: frame.size))
-            iv.image = NSImage(cgImage: image, size: frame.size)
+            // 截图里原窗口的红绿灯用标题栏底色盖掉，只留系统按钮（见 Overlay/SnapshotLights.swift）。卷帘条上不显示对应系统按钮的那个红绿灯不盖。
+            let covered = buttons.filter { _, action in
+                switch action {
+                case .close: return trafficLights.closeVisible
+                case .minimize: return trafficLights.minimizeVisible
+                case .zoom, .fullScreen: return trafficLights.zoomVisible
+                }
+            }.map(\.0)
+            let strippedImage = SnapshotLights.erase(image, rects: covered, size: frame.size)
+            iv.image = NSImage(cgImage: strippedImage, size: frame.size)
             iv.imageScaling = .scaleAxesIndependently
             iv.configureAccessibility(appName: shaded[id]?.appName ?? "",
                                       windowTitle: shaded[id]?.title ?? "")
