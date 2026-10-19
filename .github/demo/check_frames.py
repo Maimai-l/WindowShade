@@ -117,7 +117,7 @@ DRAG_PICKUP = 0.1
 
 
 def pointer_x(path, t):
-    """Where the pointer was at time t during the drag (path: [time, x, y] points)."""
+    """The pointer's x (points) at time t during the drag; path is a list of [time, x, y]."""
     if t <= path[0][0]:
         return path[0][1]
     for (t0, x0, _), (t1, x1, _) in zip(path, path[1:]):
@@ -134,8 +134,8 @@ def lights_positions(video, events, scale, screen_w, samples):
     and its red button is a sharp patch; its center moves with the strip to a fraction of a point.
     Before WindowShade gets the press the strip is not yet active and its lights are gray; those first
     frames keep the profile reading, and the red readings are anchored on the profile reading of the
-    first red frame. The red button is followed from frame to frame (strip_red), so the red button of a
-    window that the drag uncovers is not taken for it. Returns None when the red button is missing later
+    first red frame. The red button is tracked from frame to frame (strip_red), so the red button of a
+    window that the drag uncovers is not mistaken for the strip's. Returns None when the red button is missing later
     in the drag.
     """
     window, path = events["window"], events["drag"]["path"]
@@ -263,9 +263,12 @@ def check_drag(video, events, times, scale, screen_w):
 LIGHT_MAX = 17
 # Red patches smaller than this (square points) are edges of other things.
 LIGHT_MIN_AREA = 20
-# The strip's red button sits about 15 points inside the strip's left edge
-# (14.8-16.6 on the recordings of 2026-10-19). A red patch more than this many
-# points left of it is not on the strip.
+# The center of the strip's red button is about 15 points right of the
+# strip's left edge (14.8-16.6 on the recordings of 2026-10-19). A red patch
+# whose center is more than this many points left of the button's center is
+# not on the strip. 12 rather than 15 leaves room for the spread in those
+# readings, and still counts the second set of lights seen on 2026-10-17,
+# about 10 points off.
 ON_STRIP_LEFT = 12
 
 
@@ -312,18 +315,19 @@ def red_patches(crop, width, height, points_per_pixel):
 
 
 def strip_red(frames_patches, moves):
-    """For each frame (its red patches, in drag order), the center of the strip's red button, or None before it shows.
+    """The center of the strip's red button in each frame (points), or None for a frame with no red patch.
 
-    moves: for each frame, where the pointer was (points, from any fixed origin).
+    frames_patches: the red patches of each frame of the drag, in order.
+    moves: the pointer's x in each frame (points, from any fixed origin).
 
     The strip's red button moves with the strip; the red button of a window behind the strip stays where it
     is. Dragging the strip uncovers what was behind it: on the CI recording of 2026-10-19 (a5e17ba) a
     TextEdit window under the Finder strip showed its red button until TextEdit redrew the window as
-    inactive. So in each frame the strip's red button is taken as the patch nearest to where it was in the
-    frame before, moved as far as the pointer moved since then (on the CI machine the strip moved 10 points
-    between two frames, and the uncovered red button was 9 points from where the strip's had been). In the
-    first frame with red it is the patch furthest right: the drag starts to the right, away from what it
-    uncovers.
+    inactive. So in each frame the strip's red button is taken as the patch nearest to its expected
+    position: where it was in the last frame with a red patch, moved as far as the pointer has moved since.
+    Its old position alone is not enough: on that recording the strip moved 10 points between two frames,
+    and the uncovered red button was 9 points from the strip's old position. In the first frame with a red
+    patch it is the patch furthest right, because the drag starts to the right, away from what it uncovers.
     """
     track, last, last_move = [], None, None
     for patches, move in zip(frames_patches, moves):
@@ -341,7 +345,9 @@ def strip_red(frames_patches, moves):
 
 
 def on_strip(patches, red, width):
-    """The red patches on the strip, whose red button is centered at red (None: not known, keep all)."""
+    """The red patches on the strip: from ON_STRIP_LEFT points left of the strip's red button (centered at red)
+    to width points right of it. When red is None (not known), all patches are kept.
+    """
     if red is None:
         return patches
     return [p for p in patches if red - ON_STRIP_LEFT <= p[3] <= red + width]
@@ -360,7 +366,7 @@ def check_lights(video, events, scale, screen_w, times):
     ow = max(1, int(round(rect[2] * scale)) // shrink)
     oh = max(1, int(round(rect[3] * scale)) // shrink)
     points_per_pixel = shrink / scale
-    # The strip's red button is followed from the press; the frames are judged from 0.2 s after the press,
+    # The strip's red button is tracked from the press. The frames are judged from 0.2 s after the press,
     # when the strip has become the active window, to the end of the drag.
     drag = [(t, red_patches(frame, ow, oh, points_per_pixel))
             for t, frame in zip(times, crops(video, rect, scale, shrink)) if path[0][0] <= t <= path[-1][0]]
