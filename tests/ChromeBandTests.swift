@@ -11,7 +11,7 @@ struct ChromeBandTests {
     static let toolbar: Color = (236, 236, 236, 255)
 
     /// 宽 400 点、高 140 点的窗口顶部，颜色按点坐标给出。
-    static func image(_ color: (CGFloat, CGFloat) -> Color) -> RGBAPixels {
+    static func image(_ color: (CGFloat, CGFloat) -> Color) -> TopPixels {
         let scale: CGFloat = 2, width = 800, height = 280
         var data = [UInt8](repeating: 0, count: width * height * 4)
         for y in 0..<height { for x in 0..<width {
@@ -19,7 +19,7 @@ struct ChromeBandTests {
             let i = (y * width + x) * 4
             data[i] = c.0; data[i + 1] = c.1; data[i + 2] = c.2; data[i + 3] = c.3
         } }
-        return RGBAPixels(data: data, width: width, height: height, bytesPerRow: width * 4)
+        return TopPixels(data: data, width: width, height: height, bytesPerRow: width * 4)
     }
 
     static func bottom(_ color: @escaping (CGFloat, CGFloat) -> Color, floor: CGFloat = 28,

@@ -456,7 +456,7 @@ func quickWindowPreviewCGImage(id: CGWindowID,
 let maxPixelBoundaryHeight: CGFloat = 96
 
 /// 截图顶部 points 点高的一块，按 RGBA 读出来。
-func topPixels(of image: CGImage, points: CGFloat, scale: CGFloat) -> RGBAPixels? {
+func topPixels(of image: CGImage, points: CGFloat, scale: CGFloat) -> TopPixels? {
     let w = image.width, h = min(image.height, Int(ceil(points * scale)))
     guard w > 0, h > 0, let top = image.cropping(to: CGRect(x: 0, y: 0, width: w, height: h)) else { return nil }
     var data = [UInt8](repeating: 0, count: w * h * 4)
@@ -467,7 +467,7 @@ func topPixels(of image: CGImage, points: CGFloat, scale: CGFloat) -> RGBAPixels
         ctx.draw(top, in: CGRect(x: 0, y: 0, width: w, height: h))
         return true
     }
-    return drawn ? RGBAPixels(data: data, width: w, height: h, bytesPerRow: w * 4) : nil
+    return drawn ? TopPixels(data: data, width: w, height: h, bytesPerRow: w * 4) : nil
 }
 
 // 截图后的标题栏条制备结果：像素分析全部在后台完成，主线程只消费这些值。

@@ -6,7 +6,7 @@
 import CoreGraphics
 
 /// 截图的一块像素，RGBA，每像素 4 字节。
-struct RGBAPixels {
+struct TopPixels {
     let data: [UInt8]
     let width: Int
     let height: Int
@@ -33,7 +33,7 @@ enum ChromeBand {
     /// 顶部区域的下沿（点，从窗口顶边算）。找不到时返回 nil，调用方改用简化标题栏。
     /// floor：下沿最高到这里（调用方传红绿灯的下沿，至少 12 点）。ceiling：最深找到这里。
     /// controls：辅助功能读到的顶部控件的上下沿（点）；下沿不落在任何一个控件中间。
-    static func bottom(of pixels: RGBAPixels, scale: CGFloat, floor: CGFloat, ceiling: CGFloat = 140,
+    static func bottom(of pixels: TopPixels, scale: CGFloat, floor: CGFloat, ceiling: CGFloat = 140,
                        controls: [ClosedRange<CGFloat>] = []) -> CGFloat? {
         guard pixels.width > 40, pixels.height > 8, scale > 0 else { return nil }
         let px = { (points: CGFloat) in Int((points * scale).rounded()) }
@@ -122,9 +122,9 @@ enum ChromeBand {
     }
 
     /// 这一行 85% 以上的取样点是同一种颜色时，返回这种颜色。
-    private static func uniformColor(_ pixels: RGBAPixels, y: Int, xs: [Int]) -> (Int, Int, Int)? {
+    private static func uniformColor(_ pixels: TopPixels, y: Int, xs: [Int]) -> (Int, Int, Int)? {
         let samples = xs.map { pixels.pixel(x: $0, y: y) }
-        let color = (median(samples.map(\.r)), median(samples.map(\.g)), median(samples.map(\.b)))
+        let color = (median(samples.map { $0.r }), median(samples.map { $0.g }), median(samples.map { $0.b }))
         let near = samples.filter { same(($0.r, $0.g, $0.b), color) }.count
         return Double(near) >= Double(samples.count) * 0.85 ? color : nil
     }
