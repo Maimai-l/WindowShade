@@ -329,7 +329,7 @@ if [ -n "$ONLY" ]; then
     [[ ",$ONLY," == *",COMPAT-netease,"* ]] && { brew install --cask neteasemusic || true; }
     [[ ",$ONLY," == *",COMPAT-quickrecorder,"* ]] && { brew install --cask lihaoyun6/tap/quickrecorder || true; }
     if [[ ",$ONLY," == *",COMPAT-texpile,"* ]]; then
-      # Texpile 不在 Homebrew 里：按官网 latest.json 写的文件名下载 DMG，拷进“应用程序”。
+      # Texpile 不在 Homebrew 里：从 dl.texpile.com/latest.json 读出 DMG 的路径，下载后复制到“应用程序”。
       dmg_path=$(curl -fsSL https://dl.texpile.com/latest.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["mac"])') \
         && curl -fsSL -o "$RUNNER_TEMP/texpile.dmg" "https://dl.texpile.com/$dmg_path" \
         && hdiutil attach -nobrowse -quiet -mountpoint /Volumes/texpile "$RUNNER_TEMP/texpile.dmg" \
