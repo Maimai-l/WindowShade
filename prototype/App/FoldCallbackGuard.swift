@@ -24,7 +24,7 @@ extension AppDelegate {
             maximumAge: maximumAge)
     }
 
-    /// 只问还是不是同一次收起，不看时间和呈现代次。给过期核对的收尾用（见 resolveExpiredFoldVerification）。
+    /// 只问还是不是同一次收起，不看时间和呈现编号。给过期的收起验证收尾用（见 resolveExpiredFoldVerification）。
     func foldCallbackIsSameFold(_ expected: FoldCallbackStamp) -> Bool {
         guard let state = shaded[expected.window], state.sourceWindowID == expected.window,
               state.lifecycleStage == .folded else { return false }

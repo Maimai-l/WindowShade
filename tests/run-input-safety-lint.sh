@@ -100,7 +100,7 @@ else
   failed=$((failed + 1))
 fi
 
-# 10. 鼠标钩子每隔几秒查一次是否还开着（CGEvent.tapIsEnabled），关了就重新打开：系统在回调超时或输入过多时会停用钩子，
+# 10. 鼠标钩子每隔几秒查一次是否还开着（CGEvent.tapIsEnabled），关了就重新打开：回调超时或因用户输入，系统会停用钩子，
 #     有时不发 tapDisabledBy* 事件。钩子进程和 WindowShade 自己的备用钩子都要查。依据：上游 surfine/WindowShade 31047b0。
 if grep -q 'CGEvent.tapIsEnabled' "$HELPER" && grep -q 'CGEvent.tapIsEnabled' prototype/WindowShade.swift; then
   echo "ok   the mouse tap is checked every few seconds and turned back on when the system turned it off"

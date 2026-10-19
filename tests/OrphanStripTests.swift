@@ -8,7 +8,7 @@ struct OrphanStripTests {
   static func main() {
     _ = NSApplication.shared
     let owner = AppDelegate()
-    // 一个一定在运行、系统也认得的应用程序：程序坞。
+    // 一个一定在运行、runningApp(pid:) 找得到的应用程序：程序坞。
     guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier else {
       preconditionFailure("the Dock is not running")
     }
@@ -25,7 +25,7 @@ struct OrphanStripTests {
     precondition(!owner.sourceWindowMissingShouldCleanup(id: missing, state: closed),
                  "第一轮查不到窗口：先不撤，窗口服务器可能还没更新")
     precondition(owner.sourceWindowMissingShouldCleanup(id: missing, state: closed),
-                 "连续两轮查不到窗口：窗口已经在别处被关掉，撤掉卷帘条")
+                 "连续两轮读不到窗口、窗口服务器也查不到：窗口已经在别处被关掉，撤掉卷帘条")
 
     // 快速查看的收起本来就是把窗口关掉：查不到窗口也不撤。
     let quickLookID: CGWindowID = 0x7FFF_FFF1

@@ -96,14 +96,14 @@ extension AppDelegate {
         ).start()
     }
 
-    /// 核对途中过期以后收尾（见 FoldVerifier.ExpiredVerdict）：不看时间，只要还是同一次收起，就重新读一次真实状态，照实收尾；
-    /// 换了一次收起就不碰。这里不再改动窗口，只按已经发生的事收尾。依据：上游 surfine/WindowShade 2d66e57。
+    /// 收起验证途中过期以后收尾（见 FoldVerifier.ExpiredVerdict）：不看时间，只要还是同一次收起，就重新读一次真实状态，照实收尾；
+    /// 已经是另一次收起，就不处理。读到窗口还在时回滚；别的情况不再改动窗口，只按已经发生的事收尾。依据：上游 surfine/WindowShade 2d66e57。
     func resolveExpiredFoldVerification(id: CGWindowID, expected: FoldCallbackStamp) {
         var seen = FoldVerifier.Observation.unknown
         if foldCallbackIsSameFold(expected), let state = shaded[id] {
             seen = observeFoldHide(state.hide, win: state.element, pid: state.pid, id: id)
         }
-        // 读的时候可能又等了一个忙着的应用程序：收尾之前再核对一次是不是同一次收起。
+        // 读状态时可能等过一个迟迟不响应的应用程序，所以收尾之前再确认一次是不是同一次收起。
         let same = foldCallbackIsSameFold(expected)
         let verdict = FoldVerifier.expiredVerdict(sameFold: same, observation: seen)
         let age = Int((ProcessInfo.processInfo.systemUptime - expected.capturedAt) * 1000)

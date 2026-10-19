@@ -87,7 +87,7 @@ extension AppDelegate {
     func shouldLogReconcileInvalidCount(_ count: Int) -> Bool {
         count == 1 || count == 3 || count == 10 || count % 60 == 0
     }
-    /// 连续几轮查不到原窗口才算它已经在别处被关掉（每轮间隔见 shadedWindowReconcileInterval）。
+    /// 辅助功能连续几轮读不到原窗口，才去窗口服务器确认它是不是在别处被关掉了（每轮间隔见 shadedWindowReconcileInterval）。
     var orphanStripConfirmRounds: Int { 2 }
     func sourceWindowMissingShouldCleanup(id: CGWindowID, state: ShadeState) -> Bool {
         guard runningApp(pid: state.pid) != nil else {
@@ -99,8 +99,9 @@ extension AppDelegate {
         reconcileInvalidCounts[id] = count
 
         // 应用程序还在运行，窗口服务器却查不到原窗口：隐藏、最小化、移到屏幕外的窗口都还查得到，查不到只能是被关掉了。
-        // 关闭通知到达时会查一次（FoldTransaction.handleAXNotification）；通知没收到，或者那时窗口服务器还没删干净，
-        // 卷帘条就一直留着。这里连续两轮都查不到才撤卷帘条，和通知那条路一样，要查询本身成功、结果为空才算查不到。
+        // 关闭通知到达时会查一次（FoldTransaction.handleAXNotification）；通知没收到，或者那时窗口服务器还没删掉这扇窗口，
+        // 卷帘条就一直留着。这里辅助功能连续两轮读不到原窗口时，再查一次窗口服务器，查不到才撤卷帘条。
+        // 和处理关闭通知时一样，查询成功、结果为空才算查不到。
         // 快速查看的收起本来就是把窗口关掉，不算。依据：上游 surfine/WindowShade 343fdfa（真机上卷帘条一直留着）。
         if count >= orphanStripConfirmRounds, state.hide != .quickLookClosed,
            let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, state.sourceWindowID) as? [[String: Any]],

@@ -793,7 +793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
             CGEvent.tapEnable(tap: tap, enable: true)
-            // 系统停用钩子时有时不发事件：每 5 秒查一次，关了就重新打开（同钩子进程，上游 surfine/WindowShade 31047b0）。
+            // 系统停用钩子时有时不发事件：和钩子进程一样，每 5 秒查一次，关了就重新打开（上游 surfine/WindowShade 31047b0）。
             let watch = Timer(timeInterval: 5, repeats: true) { _ in
                 guard !CGEvent.tapIsEnabled(tap: tap) else { return }
                 CGEvent.tapEnable(tap: tap, enable: true)

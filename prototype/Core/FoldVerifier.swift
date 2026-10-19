@@ -16,21 +16,21 @@ final class FoldVerifier {
     private var finished = false
     private static let quickInterval: TimeInterval = 0.03
 
-    /// 核对途中过期以后怎么收尾。过期是因为机器很忙、主线程堵得比时限还久，或者切了桌面换了呈现代次；
-    /// 以前过期就丢掉：窗口已经藏起来，卷帘条却没显示，也没记“收起状态未确认”，也没回滚，用户看到窗口凭空消失
+    /// 收起验证途中过期以后怎么收尾。过期是因为机器很忙、主线程一直没空，超过了时限，或者切了桌面、显示器变化换了呈现编号；
+    /// 以前过期就丢掉：窗口已经藏起来，卷帘条却没显示，也没提示“这个窗口可能没有收起”，也没回滚，用户看到窗口凭空消失
     /// （上游 surfine/WindowShade 2d66e57：虚拟机上安装阶段用了 9.5 秒）。
     enum ExpiredVerdict: Equatable, Sendable {
-        /// 这扇窗口已经换了一次收起，或已经展开、清理：旧的核对不碰。
+        /// 这扇窗口已经是另一次收起，或已经展开、清理：旧的收起验证不处理。
         case ignore
         /// 重新读到已藏好：显示卷帘条，按核对通过收尾。
         case complete
         /// 重新读到窗口还在：回滚。
         case rollback
-        /// 读不准：保留“收起状态未确认”的恢复入口。
+        /// 读不准：照样显示卷帘条，提示“这个窗口可能没有收起，双击展开”，保留恢复记录。
         case retainUnconfirmed
     }
 
-    /// 过期以后只看是不是同一次收起（不看时间）和重新读到的真实状态。
+    /// 过期以后不看时间，只看两件事：是不是同一次收起，重新读到的真实状态。
     static func expiredVerdict(sameFold: Bool, observation: Observation) -> ExpiredVerdict {
         guard sameFold else { return .ignore }
         switch observation {
@@ -115,9 +115,9 @@ final class FoldVerifier {
         result(value)
     }
 
-    /// 主核对链（check → 补救 → 补救后再读）每一步之前的检查。链在这里断了就不会再排下一步，
+    /// 收起验证的主链（check → 补救 → 补救后再读）每一步前后的检查。链在这里断了就不会再排下一步，
     /// 所以过期时交给 onExpired 收尾，不静默丢掉。快速轮询那条支线不走这里：它断了，主链还在。
-    /// 没给 onExpired 时和以前一样，只返回 false。
+    /// 没给 onExpired 时只返回 false。
     private func live() -> Bool {
         guard !finished else { return false }
         if isCurrent() { return true }

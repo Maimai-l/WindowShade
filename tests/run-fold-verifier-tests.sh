@@ -1,5 +1,5 @@
 #!/bin/bash
-# 收起之后的核对（prototype/Core/FoldVerifier.swift、FoldCallbackStamp.swift）：纯逻辑，不碰窗口。
+# 收起验证（prototype/Core/FoldVerifier.swift、FoldCallbackStamp.swift）：纯逻辑，不碰窗口。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/fold-verifier-tests
