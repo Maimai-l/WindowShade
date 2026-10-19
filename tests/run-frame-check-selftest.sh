@@ -46,7 +46,8 @@ expect() {
 }
 # 拖动卷帘条（第 6.5 节）：收起 3.4 至 9.4 秒，标题栏上三块浅色方块代表卷帘条上的内容；5.6 至 6.1 秒指针匀速
 # 往右 120 点，6.1 至 6.6 秒拖回，深色条和上面的方块一起移动；条的左端有一块红色方块代表红色按钮。
-# 卷帘条跟手、落后 0.15 秒、中途停 0.15 秒三种录像，再加一个红色方块宽一倍、代表两组红绿灯的录像。
+# 卷帘条跟手、落后 0.15 秒、中途停 0.15 秒三种录像，再加一个红色方块宽一倍、代表两组红绿灯的录像，
+# 和一个卷帘条后面有别的窗口的录像：那扇窗口的红色按钮在卷帘条左端底下，拖开卷帘条后露出来，不算卷帘条上的。
 python3 - "$WORK/drag-events.json" <<'PY'
 import json, sys
 def dx(t):
@@ -60,26 +61,28 @@ json.dump({"window": {"x": 100, "y": 100, "w": 600, "h": 400}, "scale": 1, "scre
            "fold": 3.0, "unfold": 9.0, "drag": {"grab": [400, 112], "path": path}}, open(sys.argv[1], "w"))
 PY
 make_drag_video() {
-  local out="$1" shift_expr="$2" red_w="${3:-12}"
+  local out="$1" shift_expr="$2" red_w="${3:-12}" behind="${4:-}"
   local dx="if(between(T,5.6,6.1),240*(T-5.6),if(between(T,6.1,6.6),120-240*(T-6.1),0))"
   dx="${dx//T/$shift_expr}"
   # drawbox 的位置不逐帧重算：卷帘条单独画好，用 overlay 按时间移动。
+  # 卷帘条从窗口左端（100）画起，和真的卷帘条一样盖住整条标题栏；条上的内容在屏幕上的位置不变。
   ffmpeg -v error -y -f lavfi -i "color=c=0x202020:s=800x600:r=30:d=12.5" \
-    -f lavfi -i "color=c=0x3c3c3c:s=510x20:r=30:d=12.5" -filter_complex "\
-[1]drawbox=x=20:y=0:w=40:h=20:color=0xc0c0c0:t=fill,\
-drawbox=x=4:y=4:w=$red_w:h=12:color=0xff4040:t=fill,\
-drawbox=x=140:y=0:w=60:h=20:color=0xe0e0e0:t=fill,\
-drawbox=x=300:y=0:w=30:h=20:color=0xa0a0a0:t=fill[strip];\
-[0]drawbox=x=100:y=100:w=600:h=400:color=0x505050:t=fill,\
+    -f lavfi -i "color=c=0x3c3c3c:s=590x20:r=30:d=12.5" -filter_complex "\
+[1]drawbox=x=100:y=0:w=40:h=20:color=0xc0c0c0:t=fill,\
+drawbox=x=84:y=4:w=$red_w:h=12:color=0xff4040:t=fill,\
+drawbox=x=220:y=0:w=60:h=20:color=0xe0e0e0:t=fill,\
+drawbox=x=380:y=0:w=30:h=20:color=0xa0a0a0:t=fill[strip];\
+[0]drawbox=x=100:y=100:w=600:h=400:color=0x505050:t=fill$behind,\
 drawbox=x=180:y=103:w=510:h=20:color=0x808080:t=fill:enable='lt(t,3.4)+gte(t,9.4)',\
 drawbox=x=140:y=170:w=300:h=60:color=0xf0f0f0:t=fill:enable='lt(t,3.4)+gte(t,9.4)',\
 drawbox=x=140:y=170:w=300:h=60:color=0x101010:t=fill:enable='between(t,3.4,9.4)'[base];\
-[base][strip]overlay=x='180+$dx':y=103:enable='between(t,3.4,9.4)'" -c:v ffv1 "$out"
+[base][strip]overlay=x='100+$dx':y=103:enable='between(t,3.4,9.4)'" -c:v ffv1 "$out"
 }
 make_drag_video "$WORK/drag-smooth.mkv" "t"
 make_drag_video "$WORK/drag-lag.mkv" "(t-0.15)"
 make_drag_video "$WORK/drag-stall.mkv" "if(between(t,5.7,5.85),5.7,t)"
 make_drag_video "$WORK/drag-two-lights.mkv" "t" 24
+make_drag_video "$WORK/drag-window-behind.mkv" "t" 12 ",drawbox=x=104:y=107:w=12:h=12:color=0xff4040:t=fill"
 
 expect "clean recording" pass "" "$WORK/clean.mkv" "$WORK/events.json" "$WORK/good.log"
 expect "blank frame while folding" fail "blank or covered" "$WORK/blank.mkv" "$WORK/events.json" "$WORK/good.log"
@@ -89,6 +92,7 @@ expect "strip follows the drag" pass "" "$WORK/drag-smooth.mkv" "$WORK/drag-even
 expect "strip trails the drag" fail "trailed the pointer" "$WORK/drag-lag.mkv" "$WORK/drag-events.json" "$WORK/good.log"
 expect "strip stalls during the drag" fail "stopped while the pointer moved" "$WORK/drag-stall.mkv" "$WORK/drag-events.json" "$WORK/good.log"
 expect "two sets of traffic lights while dragged" fail "two sets of traffic lights" "$WORK/drag-two-lights.mkv" "$WORK/drag-events.json" "$WORK/good.log"
+expect "red button of a window behind the dragged strip" pass "" "$WORK/drag-window-behind.mkv" "$WORK/drag-events.json" "$WORK/good.log"
 
 if [ "$failures" -eq 0 ]; then
   echo "PASS: check_frames.py passes correct recordings and reports a blank frame, a misplaced window, and a strip that trails, stalls or shows two sets of traffic lights while dragged"
