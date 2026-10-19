@@ -434,7 +434,8 @@ extension AppDelegate {
             // 缩放按钮和直接设位置大小都没成：不做，不合成双击。
             wlog("titlebar-triple-click: zoom unavailable source=\(source) id=\(id)")
         case .minimize:
-            // 在这个应用程序的队列上做，排在展开时已经入队的“带到最前”之后（见 WindowRestorer.minimize）。
+            // 在窗口所属应用程序的队列上做，排在展开时已经排进队列的“带到最前”之后（见 WindowRestorer.minimize）；
+            // 读不到进程号时仍在主线程上直接做。
             var pid: pid_t = 0
             if AXUIElementGetPid(win, &pid) == .success {
                 windowRestorer.minimize(WindowHandle(ax: win), pid: pid)

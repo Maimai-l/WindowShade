@@ -1,4 +1,4 @@
-// 需求：F2、R5（docs/testing.md 第 3.1、3.6 节）。
+// 需求：F2、F5、S6、R5（docs/testing.md 第 3.1、3.2、3.6 节）。
 // 第 2 层组件测试：WindowRestorer 放回原窗口的顺序，以及对无响应的应用程序的调用不让调用方等待（Platform/WindowRestorer.swift）。
 
 import CoreGraphics
@@ -51,7 +51,7 @@ struct WindowRestorerTests {
             t.expect(control.calls.count == geometry.count * 2, "两扇窗口都放回了（实际 \(control.calls.count) 次调用）")
         }
 
-        t.section("A08", "三击标题栏最小化：排在已经入队的“带到最前”之后执行，不会被它拉回来（2026-10-19 CI 场景 A08，72a2e77）")
+        t.section("A08", "三击标题栏最小化：排在已经排进队列的“带到最前”之后执行，不会被它重新显示出来（2026-10-19 CI 场景 A08，72a2e77）")
         do {
             let control = FakeRestoreControl(delay: 0.05)
             let restorer = WindowRestorer(control: control)
