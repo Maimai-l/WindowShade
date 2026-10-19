@@ -71,8 +71,18 @@ enum TapHelper {
                              numer: timebase.numer, denom: timebase.denom) ?? 0
     }
 
+    /// 点击到钩子时已经排队超过 TapProtocol.lateEventAge，就记一行日志。有这一行，说明点击在钩子之前就晚了，
+    /// 可能是钩子进程没轮到运行，也可能是更早的环节慢了；没有这一行，说明晚在钩子之后（2026-10-19 CI 场景 A33-Safari）。
+    static func noteIfLate(_ type: CGEventType, _ event: CGEvent) {
+        let age = TapHelper.age(of: event)
+        guard TapProtocol.isLate(eventAge: age) else { return }
+        let clicks = event.getIntegerValueField(.mouseEventClickState)
+        say("late: a mouse \(type == .leftMouseDown ? "down" : "up") waited \(Int(age * 1000))ms before reaching the tap clicks=\(clicks)")
+    }
+
     static func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         let pass = Unmanaged.passUnretained(event)
+        if type == .leftMouseDown || type == .leftMouseUp { noteIfLate(type, event) }
         switch type {
         case .tapDisabledByTimeout:
             // 不该发生（每次最多等 deadline）；发生时立刻重新启用钩子，并记一行日志。
@@ -115,6 +125,8 @@ enum TapHelper {
             exit(64)
         }
         portName = arguments[2] as CFString
+        // 钩子在主线程上处理全系统的点击：按交互优先级运行，系统忙时优先调度它。
+        _ = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)
         _ = fcntl(STDOUT_FILENO, F_SETFL, fcntl(STDOUT_FILENO, F_GETFL) | O_NONBLOCK)
 
         // WindowShade 退出（包括崩溃、被强制结束）就跟着退出：钩子随进程一起撤掉。

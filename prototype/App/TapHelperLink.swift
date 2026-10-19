@@ -43,6 +43,7 @@ enum TapHelperLink {
         let task = Process()
         task.executableURL = url
         task.arguments = [String(getpid()), TapProtocol.portName(appPID: getpid())]
+        task.qualityOfService = .userInteractive
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = pipe
