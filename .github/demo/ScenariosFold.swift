@@ -104,8 +104,8 @@ func realAppRoundTrip(_ bundleID: String, launch: [String], size: CGSize?, barY:
     }
     if let size { place(window, origin: CGPoint(x: 160, y: 120), size: size) }
     else { place(window, origin: CGPoint(x: 160, y: 120), size: axFrame(window)?.size ?? CGSize(width: 600, height: 400)) }
-    // 激活应用程序不一定把它的窗口提到最前：这个场景的测试窗口（Probe 1）可能盖在标题栏上，双击落到它上面
-    // （bbfc619 的 CI 快速任务里 A01 因此没有收起）。和 Probe.bringToFront 一样，用辅助功能把窗口提到最前。
+    // 激活应用程序不一定把它的窗口带到最前面：测试窗口（Probe 1）可能盖在这个应用程序的标题栏上，双击就落在测试窗口上。
+    // bbfc619 的 CI quick 任务里，A01 因此没有收起。和 Probe.bringToFront 一样，用辅助功能把窗口带到最前面。
     if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
         AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
     }
