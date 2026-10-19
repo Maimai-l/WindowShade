@@ -24,6 +24,25 @@ struct FocusHandoffTests {
                                 frontmostPID: frontmost, selfPID: selfPID, overlayIDs: overlays, foldedIDs: folded)
         }
 
+        t.section("F4", "收起过程中用户已经按下了卷帘条：焦点留在卷帘条上，不交接（2026-10-19 CI 场景 A32，4dc0853）")
+        do {
+            let control = FakeFocusControl()
+            let sibling = FakeWindow(id: 2, pid: appPID, frame: frame)
+            control.appWindows[appPID] = [original, sibling]
+            control.onScreen = [onScreen(1, appPID), onScreen(2, appPID)]
+            let pressed = StripPressFlag()
+            pressed.set()
+            var withPress = request(frontmost: appPID)
+            withPress.stripPressed = pressed
+            let result = FocusHandoff(control: control).handOff(withPress)
+            t.expect(result == .keptOnStrip && result.appHideSafe, "结果为 keptOnStrip，隐藏应用程序安全")
+            t.expect(control.focused.isEmpty && control.activated.isEmpty, "没有把焦点交给同一应用程序的其他窗口")
+            let notPressed = StripPressFlag()
+            var withoutPress = request(frontmost: appPID)
+            withoutPress.stripPressed = notPressed
+            t.expect(FocusHandoff(control: FakeFocusControl()).handOff(withoutPress) != .keptOnStrip, "没按下卷帘条：照常交接")
+        }
+
         t.section("F4", "原窗口所属的应用程序不在前台：不交接")
         do {
             let control = FakeFocusControl()
