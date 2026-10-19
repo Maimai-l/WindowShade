@@ -20,6 +20,7 @@ private typealias SLSGetWindowAlphaFunction = @convention(c) (Int32, UInt32, Uns
 private typealias SLSSetWindowAlphaFunction = @convention(c) (Int32, UInt32, Float) -> Int32
 private typealias SLSSpaceSetCompatIDFunction = @convention(c) (Int32, UInt64, Int32) -> Int32
 private typealias SLSSetWindowListWorkspaceFunction = @convention(c) (Int32, UnsafePointer<UInt32>, Int32, Int32) -> Int32
+private typealias SLSSpaceGetTypeFunction = @convention(c) (Int32, UInt64) -> Int32
 
 final class PrivateSLSWindowMover: Sendable {
     static let shared = PrivateSLSWindowMover()
@@ -35,6 +36,7 @@ final class PrivateSLSWindowMover: Sendable {
     private let setWindowAlpha: SLSSetWindowAlphaFunction?
     private let spaceSetCompatID: SLSSpaceSetCompatIDFunction?
     private let setWindowListWorkspace: SLSSetWindowListWorkspaceFunction?
+    private let spaceGetType: SLSSpaceGetTypeFunction?
 
     private init() {
         let paths = [
@@ -62,6 +64,7 @@ final class PrivateSLSWindowMover: Sendable {
             setWindowAlpha = nil
             spaceSetCompatID = nil
             setWindowListWorkspace = nil
+            spaceGetType = nil
             return
         }
         mainConnectionID = unsafeBitCast(mainSymbol, to: SLSMainConnectionIDFunction.self)
@@ -107,6 +110,13 @@ final class PrivateSLSWindowMover: Sendable {
         spaceSetCompatID = dlsym(handle, "SLSSpaceSetCompatID").map { unsafeBitCast($0, to: SLSSpaceSetCompatIDFunction.self) }
         setWindowListWorkspace = dlsym(handle, "SLSSetWindowListWorkspace")
             .map { unsafeBitCast($0, to: SLSSetWindowListWorkspaceFunction.self) }
+        spaceGetType = dlsym(handle, "SLSSpaceGetType").map { unsafeBitCast($0, to: SLSSpaceGetTypeFunction.self) }
+    }
+
+    /// 这个桌面是不是全屏应用程序占的桌面（类型 4；普通桌面是 0）。查不到时返回 nil。
+    func spaceIsFullScreen(_ space: UInt64) -> Bool? {
+        guard let mainConnectionID, let spaceGetType else { return nil }
+        return spaceGetType(mainConnectionID(), space) == 4
     }
 
     var isAvailable: Bool {

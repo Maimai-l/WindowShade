@@ -12,9 +12,12 @@ enum StripSpaceAction: Equatable, Sendable {
 
 /// 依据：2026-10-18 用户的日志，按住卷帘条切换桌面时，系统把卷帘条带到了新桌面，
 /// WindowShade 又把它挪回了原窗口所在的桌面（`space: corrected overlay ... from=24 to=5`）。
-func stripSpaceAction(stripSpace: UInt64, windowSpace: UInt64, stripHeldByPointer: Bool) -> StripSpaceAction {
+/// 全屏应用程序的桌面上放不进别的窗口：卷帘条到了那里，原窗口不跟过去，卷帘条挪回。
+/// 依据：用户 macOS 15.2 的日志（869b8b0），卷帘条被带进全屏应用程序的桌面（编号 25 至 30），原窗口移不进去，屏幕来回切换。
+func stripSpaceAction(stripSpace: UInt64, windowSpace: UInt64, stripHeldByPointer: Bool,
+                      stripSpaceIsFullScreen: Bool = false) -> StripSpaceAction {
     guard stripSpace != windowSpace else { return .none }
-    return stripHeldByPointer ? .carry(to: stripSpace) : .moveBack
+    return stripHeldByPointer && !stripSpaceIsFullScreen ? .carry(to: stripSpace) : .moveBack
 }
 
 /// 按住卷帘条切到别的桌面时，要不要试着把原窗口移过去。
