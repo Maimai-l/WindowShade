@@ -18,7 +18,7 @@ final class FakeFocusControl: FocusControl, @unchecked Sendable {
     var regularApps: Set<pid_t> = []
     private(set) var activated: [pid_t] = []
     private(set) var focused: [CGWindowID?] = []
-    /// activate、focus 依次调用的记录，用来核对先后顺序。
+    /// 按调用顺序记下的每次 activate 和 focus，用来核对两者的先后。
     private(set) var events: [String] = []
     /// 前台应用程序的进程号。
     var frontmost: pid_t?

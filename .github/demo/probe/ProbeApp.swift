@@ -162,8 +162,8 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
             case "new-window": newWindowAction(nil)
             case "hide": NSApp.hide(nil)
             case "window-menu":
-                // 和用户的做法一样：应用程序先回到前台（菜单栏才是它的），再在“窗口”菜单里点这扇窗口，执行菜单项本身的动作
-                // （场景 B09、B18 在 macOS 14.5 上用）。
+                // 先让应用程序回到前台，菜单栏上才是它的菜单；再执行“窗口”菜单里这扇窗口那一项的动作，和用户点它一样。
+                // 场景 B09、B18 用辅助功能按不了这一项时（macOS 14.5）发这条命令。
                 NSApp.activate(ignoringOtherApps: true)
                 if let menu = NSApp.windowsMenu, let title = first?.title,
                    let index = menu.items.firstIndex(where: { $0.title == title }) {

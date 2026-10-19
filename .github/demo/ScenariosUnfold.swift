@@ -61,8 +61,9 @@ func findElement(_ root: AXUIElement, depth: Int = 0, maxDepth: Int = 8, _ match
     return nil
 }
 
-/// 在 ProbeApp 的“窗口”菜单里选“Probe 1”。辅助功能按不到时（用户的测试机，macOS 14.5：隐藏了的应用程序的菜单打不开），
-/// 让 ProbeApp 自己执行这个菜单项的动作，和用户点它一样。
+/// 在 ProbeApp 的“窗口”菜单里选“Probe 1”。用辅助功能按不了这一项时（用户的 macOS 14.5 本机运行，8e9a4f1：
+/// 已隐藏的应用程序的菜单打不开），让 ProbeApp 自己执行这个菜单项的动作，和用户点它一样。
+/// ProbeApp 那边做没做成不回报，这时总是返回 true；窗口有没有回来由调用方接着检查。
 func chooseProbeInWindowMenu(_ probe: Probe) async -> Bool {
     if await pressAppMenu(probe.pid, menu: "Window", item: "Probe 1") { return true }
     probe.send("window-menu")
@@ -74,19 +75,8 @@ func pressAppMenu(_ pid: pid_t, menu: String, item: String) async -> Bool {
     var bar: CFTypeRef?
     guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXMenuBarAttribute as CFString, &bar) == .success,
           let bar else { return false }
-    guard let menuItem = axChildren(bar as! AXUIElement).first(where: { axString($0, kAXTitleAttribute as String) == menu })
-    else { return false }
-    if let target = findElement(menuItem, { axString($0, kAXTitleAttribute as String) == item }) {
-        return AXUIElementPerformAction(target, kAXPressAction as CFString) == .success
-    }
-    // 用户的测试机（macOS 14.5，8e9a4f1）：菜单没打开时，辅助功能读不到“窗口”菜单里的窗口列表（场景 B09、B18）。
-    // 先打开菜单再找；找不到就关掉菜单。
-    AXUIElementPerformAction(menuItem, kAXPressAction as CFString)
-    await pause(0.4)
-    guard let target = findElement(menuItem, { axString($0, kAXTitleAttribute as String) == item }) else {
-        AXUIElementPerformAction(menuItem, kAXCancelAction as CFString)
-        return false
-    }
+    guard let menuItem = axChildren(bar as! AXUIElement).first(where: { axString($0, kAXTitleAttribute as String) == menu }),
+          let target = findElement(menuItem, { axString($0, kAXTitleAttribute as String) == item }) else { return false }
     return AXUIElementPerformAction(target, kAXPressAction as CFString) == .success
 }
 

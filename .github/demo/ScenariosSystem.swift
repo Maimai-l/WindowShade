@@ -453,8 +453,8 @@ func appWindow(_ bundleID: String, titlePrefix prefix: String) -> AXUIElement? {
 /// 这样排，是因为修复前 WindowShade 隐藏 ProbeApp 时访达还没到前台，系统按这个顺序激活了文本编辑，屏幕切到右边的桌面。
 /// 依据：用户的 macOS 14.5 本机运行（4f1a815），收起 ProbeApp 后系统激活了别的桌面上的 LocalSend；见 docs/testing.md 第 5 节。
 /// textEditHereToo 为 true 时（场景 E12-both）：这个桌面上 ProbeApp 下面还有一扇文本编辑的窗口，焦点交给文本编辑，
-/// 而文本编辑最近用过的窗口在右边的桌面上。激活文本编辑不能把屏幕切过去。
-/// 依据：用户的测试机（macOS 14.5，8e9a4f1）上 E11-trash、E12 失败，接手的应用程序在两个桌面上都有窗口。
+/// 而文本编辑最近用过的窗口在右边的桌面上。检查激活文本编辑后屏幕没有切过去。
+/// 依据：用户的 macOS 14.5 本机运行（8e9a4f1）里 E11-trash、E12 失败，接手的应用程序在两个桌面上都有窗口。
 func foldWithRecentAppOnOtherDesktop(_ probe: Probe, _ h: Harness, textEditHereToo: Bool = false) async {
     let id = textEditHereToo ? "E12-both" : "E12"
     let textEdit = "com.apple.TextEdit"
@@ -486,7 +486,7 @@ func foldWithRecentAppOnOtherDesktop(_ probe: Probe, _ h: Harness, textEditHereT
     }
     await pause(0.5)
     if textEditHereToo {
-        // 文本编辑的这扇窗口在访达窗口上面、ProbeApp 下面：收起 ProbeApp 后，焦点交给它。
+        // 文本编辑的这扇窗口在访达窗口上面、ProbeApp 下面：收起 ProbeApp 的窗口后，焦点交给它。
         run("/usr/bin/open", ["-a", "TextEdit", hereNote.path])
         guard await eventually(8, { appWindow(textEdit, titlePrefix: "windowshade-e12-here") != nil }) else {
             h.result.violations.append("\(id): setup: TextEdit did not open a note on the first desktop"); await cleanUp(); return
@@ -627,7 +627,7 @@ let systemScenarios: [Scenario] = [
     Scenario(id: "E12", title: "别的桌面上有最近用过的应用程序时，收起只有一扇窗口的应用程序：不切换桌面", options: []) { probe, h in
         await foldWithRecentAppOnOtherDesktop(probe, h)
     },
-    Scenario(id: "E12-both", title: "接手焦点的应用程序在两个桌面上都有窗口，最近用过的在别的桌面上：收起后不切换桌面", options: []) { probe, h in
+    Scenario(id: "E12-both", title: "接手焦点的应用程序在两个桌面上都有窗口、最近用过的那扇在别的桌面上时，收起只有一扇窗口的应用程序：不切换桌面", options: []) { probe, h in
         await foldWithRecentAppOnOtherDesktop(probe, h, textEditHereToo: true)
     },
     Scenario(id: "E05", title: "收起后切换深色、浅色外观", options: []) { probe, h in

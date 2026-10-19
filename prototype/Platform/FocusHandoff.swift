@@ -86,7 +86,7 @@ struct FocusHandoff: Sendable {
                   !request.foldedIDs.contains(cid), onScreenIDs.contains(cid) else { continue }
             // 截图时 WindowShade 为让原窗口画成非活跃态暂居前台：这时只设置焦点窗口，应用程序仍在后台，
             // 接手的窗口成不了当前窗口，键盘落到 WindowShade 上。所以还要把应用程序激活回来。
-            // 先设焦点窗口再激活，理由同下面交给别的应用程序时。
+            // 先设焦点窗口再激活，原因见下面交给别的应用程序的那一段。
             control.focus(candidate, pid: request.pid)
             if request.frontmostPID != request.pid { control.activate(pid: request.pid) }
             control.log("focus: handoff strategy=same-app heir=\(cid) id=\(request.id)")
@@ -106,8 +106,8 @@ struct FocusHandoff: Sendable {
                     + abs(frame.width - info.bounds.width) + abs(frame.height - info.bounds.height)
                 if distance <= 96, best == nil || distance < best!.distance { best = (heir, distance) }
             }
-            // 先把这个桌面上的窗口设成它的焦点窗口，再激活：接手的应用程序在别的桌面上也有窗口时，先激活会让系统
-            // 把那扇窗口带到前面，屏幕切过去（用户的测试机，macOS 14.5，8e9a4f1，场景 E11-trash、E12）。
+            // 先把接手的应用程序在这个桌面上的窗口设成它的焦点窗口，再激活它：它在别的桌面上也有窗口时，先激活会让系统
+            // 把别的桌面上的窗口带到前面，屏幕跟着切过去（用户的 macOS 14.5 本机运行，8e9a4f1，场景 E11-trash、E12）。
             if let heir = best?.window { control.focus(heir, pid: info.pid) }
             control.activate(pid: info.pid)
             var wait = ""

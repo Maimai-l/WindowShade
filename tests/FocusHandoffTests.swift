@@ -79,8 +79,8 @@ struct FocusHandoffTests {
             t.expect(result == .otherApp(pid: otherPID), "交给应用程序 \(otherPID)")
             t.expect(control.activated == [otherPID], "激活该应用程序")
             t.expect(control.focused == [30], "焦点给位置与屏幕上那扇窗一致的窗口 30")
-            // 用户的测试机（macOS 14.5，8e9a4f1，场景 E11-trash、E12）：接手的应用程序在别的桌面上也有窗口，
-            // 先激活它，系统把它在别的桌面上的窗口带到前面，屏幕切了过去。先把这个桌面上的窗口设成焦点窗口，再激活。
+            // 用户的 macOS 14.5 本机运行（8e9a4f1，场景 E11-trash、E12）：接手的应用程序在别的桌面上也有窗口时，
+            // 先激活它，系统会把那扇窗口带到前面，屏幕跟着切过去。所以要先设焦点窗口，再激活。
             t.expect(control.events == ["focus 30", "activate \(otherPID)"],
                      "先设焦点窗口，再激活应用程序（实际 \(control.events)）")
         }
