@@ -508,7 +508,7 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
     if profile.isQuickLook {
         barH = min(quickLookOriginalTitleBarHeight, logicalSize.height)
     } else if profile.standardTitleBarOnly {
-        // 看着像标准标题栏的窗口：截图里找到更深的下沿（自己画的顶栏）时裁到那里，找不到时照旧裁标准标题栏。
+        // 红绿灯在标准位置的窗口：截图里找到的下沿比标准标题栏深、又不深过 maxPixelBoundaryHeight（自己画的顶栏）时裁到那里，否则裁标准标题栏。
         barH = visualBarH.map { $0 > standardBarH + 1 && $0 <= maxPixelBoundaryHeight ? $0 : standardBarH } ?? standardBarH
     } else {
         barH = min(visualBarH ?? fallbackBarH, min(logicalSize.height, 300))

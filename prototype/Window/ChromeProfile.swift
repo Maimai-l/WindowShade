@@ -348,8 +348,8 @@ private func resolveWindowChromeProfileUncached(win: AXUIElement,
 
     // 其余窗口的卷帘条下沿在截图里找。下面几种不找：有原生工具栏的、配置表里只裁标准标题栏的、Adobe 的、快速查看的窗口，
     // 辅助功能读到的高度够用；配置表里有固定高度的应用程序（微信这类）和 WindowShade 自己的窗口，已经知道高度。
-    // 没有工具栏、红绿灯在标准位置的窗口也要找：网页或跨平台框架自己画的顶栏常常这样（网易云音乐、Texpile），
-    // 只看红绿灯会当成标准标题栏，切在 28 点。
+    // 没有原生工具栏、红绿灯在标准位置的窗口也找。网页或跨平台框架自己画的顶栏（网易云音乐、Texpile），红绿灯也在标准位置；
+    // 只按红绿灯裁，会裁到约 28 点，丢掉顶栏的下半截。
     let pixelBoundary = !hasToolbar && !usesStandardTitleBarOnly(pid: pid) && !preciseChrome && localChromeHeight == nil
         && adobeProfile.kind == .none && trafficLights.style != .quickLook
     var topControls: [ClosedRange<CGFloat>] = []
