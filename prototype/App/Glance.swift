@@ -419,7 +419,7 @@ final class GlanceController {
     /// 原窗口临时回到原处时，必须被卷帘条（标题栏）和面板（卡片 + 背景垫片）完全盖住。
     private func canUnhideUnderCover(state: ShadeState, strip: NSRect, card: NSRect,
                                      wanted: NSRect, panel: NSRect, realContent: NSRect) -> Bool {
-        // 窗口还在原来的桌面、要等展开时才移过来（pendingSpaceID）：不取消隐藏，免得窗口在原桌面上露出来。
+        // 窗口还在原来的桌面、要等展开时才移到卷帘条的桌面（pendingSpaceID）：不取消隐藏，免得窗口在原桌面上露出来。
         guard Self.unhideForLiveEnabled, state.hide == .hidden, state.pendingSpaceID == nil, FastCapture.isAvailable,
               !activatesOnUnhide.contains(state.bundleID) else { return false }
         let original = cocoaFrame(fromAXPosition: state.originalPosition, size: state.originalSize)

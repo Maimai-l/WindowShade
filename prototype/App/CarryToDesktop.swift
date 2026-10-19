@@ -17,7 +17,7 @@ extension AppDelegate {
             wlog("space: carry skipped id=\(id) hide=\(state.hide.rawValue); this kind of folded window could not be moved earlier in this run")
             return false
         case .moveWhenUnfolding:
-            // 现在不取消隐藏应用程序：卷帘条留在新桌面，窗口展开时再移（见 carryDecision 和 WindowRestorer.restore）。
+            // 切桌面时不取消隐藏应用程序：卷帘条留在新桌面，窗口展开时再移（见 carryDecision 和 WindowRestorer.restore）。
             recordCarry(id: id, state: state, toSpace: target, method: "when-unfolding")
             shaded[id]?.pendingSpaceID = target
             return true

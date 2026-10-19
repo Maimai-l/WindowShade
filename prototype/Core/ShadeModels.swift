@@ -74,7 +74,7 @@ struct ShadeState {
     let quickLookReopenURL: URL?
     let ignoreAppRevealUntil: Date
     var observer: AXObserver?    // 监听窗口被外部唤回（收起后下一轮 RunLoop 才注册）
-    /// 已隐藏的应用程序的窗口被带到了这个桌面，还没移过去：展开时取消隐藏后再移（需求 S6，见 App/CarryToDesktop.swift）。
+    /// 已隐藏的应用程序的卷帘条带到了这个桌面，窗口还没移过去：展开时取消隐藏后再移（需求 S6，见 App/CarryToDesktop.swift）。
     var pendingSpaceID: UInt64? = nil
 }
 

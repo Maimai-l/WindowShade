@@ -249,7 +249,7 @@ func carryStripToNextDesktop(_ probe: Probe, _ h: Harness) async {
 }
 
 /// S6-carry-sip：和 S6-carry 一样按住卷帘条切到右边的桌面，但让 WindowShade 当作系统完整性保护开着（用户的 Mac 开着，CI 的虚拟机关着）。
-/// 这时已隐藏的应用程序的窗口等展开时再移：按住切桌面时应用程序一直不显示，屏幕留在右边的桌面，卷帘条留在右边的桌面；
+/// 这时已隐藏的应用程序的窗口等展开时再移：按住切桌面时应用程序一直不显示，屏幕和卷帘条都留在右边的桌面；
 /// 展开后窗口在右边的桌面上，屏幕不切回原来的桌面。
 /// 依据：用户 macOS 15.2 的录像和日志（2026-10-18，869b8b0）：WindowShade 为了移窗口临时取消隐藏应用程序，窗口露了出来；
 /// 窗口没移过去，卷帘条挪回后又重新移，屏幕在几个桌面之间来回切换。
@@ -268,7 +268,7 @@ func carryStripWithSIPEnabled(_ probe: Probe, _ h: Harness) async {
     post(.leftMouseDown, at: grab)
     await pause(0.4)
     // 从切桌面到松开后 1.5 秒，每 0.1 秒看一次应用程序有没有显示出来（共 3 秒）：
-    // 修复之前 WindowShade 在按住期间就取消隐藏，只在松开后看会漏掉。
+    // ef0fc70 之前，WindowShade 在按住期间就取消隐藏，只在松开后看会漏掉。
     let pid = probe.pid
     let watcher = Task.detached { () -> Int in
         var count = 0
@@ -598,7 +598,7 @@ let systemScenarios: [Scenario] = [
     Scenario(id: "S6-carry", title: "按住卷帘条按 Control-右方向键：卷帘条留在右边的桌面，展开后窗口也在那里", options: []) { probe, h in
         await carryStripToNextDesktop(probe, h)
     },
-    Scenario(id: "S6-carry-sip", title: "系统完整性保护开着时按住卷帘条切桌面：应用程序不显示，屏幕不自己切换桌面，展开后窗口在新桌面",
+    Scenario(id: "S6-carry-sip", title: "系统完整性保护开着时按住卷帘条切桌面：应用程序不显示，屏幕不自己切换桌面，展开后窗口在右边的桌面",
              options: [], changesSettings: true) { probe, h in
         await carryStripWithSIPEnabled(probe, h)
     },

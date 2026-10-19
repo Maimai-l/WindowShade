@@ -19,7 +19,7 @@ protocol RestoreControl: Sendable {
     func frame(_ window: WindowHandle) -> CGRect?
     func skyLightMove(id: CGWindowID, to point: CGPoint) -> Bool
     func skyLightSetAlpha(id: CGWindowID, _ alpha: Float) -> Bool
-    /// 把别的应用程序的窗口移到 space 桌面，移过去了返回 true（需求 S6）。
+    /// 把别的应用程序的窗口移到参数 space 指的桌面；窗口已经在那个桌面上，或者移过去了，返回 true（需求 S6）。
     func moveToSpace(id: CGWindowID, space: UInt64) -> Bool
     func isFrontmost(pid: pid_t) -> Bool
     func activate(pid: pid_t)
@@ -38,7 +38,7 @@ struct RestoreRequest: Sendable {
     let size: CGSize
     /// 用 SkyLight 设成透明前的透明度（hide 为 privateAlpha 时用）。
     let alpha: Float?
-    /// 取消隐藏后先把窗口移到这个桌面，再写回位置（hide 为 hidden、卷帘条被带到别的桌面时用）。
+    /// 取消隐藏后先把窗口移到这个桌面，再写回大小和位置（hide 为 hidden、卷帘条被带到别的桌面时用）。
     var moveToSpace: UInt64? = nil
 }
 

@@ -133,7 +133,7 @@ struct DomainTests {
         t.expect(carryDecision(hide: .minimized, systemIntegrityEnabled: false, failedBefore: [.minimized]) == .skipFailedBefore,
                  "这次运行里同一种收起方式的窗口试过一次没移过去：不再试，免得每次切到别的桌面都再试一次")
         t.expect(carryDecision(hide: .hidden, systemIntegrityEnabled: true, failedBefore: []) == .moveWhenUnfolding,
-                 "系统完整性保护开着时，已隐藏的应用程序的窗口等展开时再移：现在移要先取消隐藏应用程序，窗口会露出来")
+                 "系统完整性保护开着时，已隐藏的应用程序的窗口等展开时再移：切桌面时移要先取消隐藏应用程序，窗口会露出来")
         t.expect(carryDecision(hide: .hidden, systemIntegrityEnabled: false, failedBefore: []) == .attempt,
                  "系统完整性保护关着时，已隐藏的应用程序的窗口照样跟过去")
         t.expect(carryDecision(hide: .privateAlpha, systemIntegrityEnabled: false, failedBefore: []) == .skipUnsupported,

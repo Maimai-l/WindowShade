@@ -32,13 +32,13 @@ struct WindowRestorerTests {
             t.expect(control.calls == ["unhide"] + geometry, "先取消隐藏（实际 \(control.calls)）")
         }
 
-        t.section("S6", "卷帘条被带到别的桌面、窗口还没移过去的隐藏应用程序：先取消隐藏，再移到卷帘条的桌面，最后写回")
+        t.section("S6", "已隐藏的应用程序的卷帘条带到了别的桌面、窗口还没移过去：先取消隐藏，再把窗口移到卷帘条的桌面，最后写回")
         do {
             let control = FakeRestoreControl()
             var carried = request(.hidden)
             carried.moveToSpace = 25
             _ = WindowRestorer(control: control).restore(carried)
-            t.expect(control.calls == ["unhide", "moveToSpace(25)"] + geometry, "先取消隐藏、再移桌面（实际 \(control.calls)）")
+            t.expect(control.calls == ["unhide", "moveToSpace(25)"] + geometry, "先取消隐藏、再把窗口移到卷帘条的桌面（实际 \(control.calls)）")
         }
 
         t.section("F2", "最小化的窗口：先找回窗口、解除最小化，再写回")
