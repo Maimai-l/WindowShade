@@ -10,8 +10,20 @@ extension AppDelegate {
             wlog("space: carry not supported id=\(id) hide=\(state.hide.rawValue); moving the strip back")
             return false
         }
+        // 这台 Mac 上移过一次没移过去：不再试，免得每次切桌面都重来一遍（用户 macOS 15.2 日志，869b8b0：
+        // 按住卷帘条时移了又挪回、挪回又移，4 秒里试了 5 次，应用程序被反复显示、隐藏）。
+        if carryFailedThisRun || PrivateSLSMemo.isIneffective("carry") {
+            wlog("space: carry skipped id=\(id); moving another app's window to a desktop did not work on this Mac")
+            return false
+        }
         let mover = PrivateSLSWindowMover.shared
         let windowID = state.sourceWindowID
+        // 系统完整性保护开着时，设透明不起作用：临时取消隐藏应用程序时窗口会露出来，系统还会切到窗口所在的桌面
+        // （用户 macOS 15.2 录像，869b8b0）。这时不取消隐藏，卷帘条挪回原桌面。
+        if state.hide == .hidden, SystemIntegrity.isEnabled || PrivateSLSMemo.isIneffective("alpha") {
+            wlog("space: carry not possible id=\(id) hide=hidden: the app would have to be shown to move its window")
+            return false
+        }
         if state.hide == .hidden {
             // 应用程序隐藏后，查不到它的窗口在哪张桌面上，移了也核对不了（CI 场景 S6-carry，30acfcc）：
             // 先把窗口设成透明，再在后台临时取消隐藏应用程序，等查到窗口在哪张桌面后移过去、核对，
@@ -47,6 +59,7 @@ extension AppDelegate {
         guard let method = mover.moveOtherAppWindow(id: windowID, toSpace: target) else {
             wlog("space: carry failed id=\(id) window=\(windowID) to=\(target) hide=\(state.hide.rawValue) "
                  + "on=\(mover.windowSpace(id: windowID).map(String.init) ?? "-"); moving the strip back")
+            rememberCarryFailed()
             return false
         }
         recordCarry(id: id, state: state, toSpace: target, method: method)
@@ -60,7 +73,9 @@ extension AppDelegate {
     private func finishCarriedHide(id: CGWindowID, pid: pid_t, windowID: CGWindowID, moved: Bool,
                                    original: UInt64?, attempt: Int) {
         let restorer = windowRestorer
-        if let app = runningApp(pid: pid), !app.isTerminated, !app.isHidden, attempt < 4 {
+        // 用户在这期间展开了窗口：不再隐藏应用程序（用户 macOS 15.2 日志，869b8b0：展开后又被隐藏了 3 次）。
+        let stillFolded = shaded[id] != nil
+        if stillFolded, let app = runningApp(pid: pid), !app.isTerminated, !app.isHidden, attempt < 4 {
             wlog("space: app still shown after carrying id=\(id) attempt=\(attempt); hiding it again")
             restorer.run(pid: pid) { _ = setAXAppHidden(pid: pid, true) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
@@ -73,7 +88,15 @@ extension AppDelegate {
         }
         restorer.run(pid: pid) { _ = PrivateSLSWindowMover.shared.setAlpha(id: windowID, alpha: 1) }
         carryRevealHolds.remove(id)
-        if !moved, let original { undoCarry(id: id, backTo: original) }
+        guard !moved else { return }
+        rememberCarryFailed()
+        if stillFolded, let original { undoCarry(id: id, backTo: original) }
+    }
+
+    /// 本次运行内马上生效；同时按系统版本记进偏好，下次启动也不再试。
+    private func rememberCarryFailed() {
+        carryFailedThisRun = true
+        PrivateSLSMemo.markIneffective("carry")
     }
 
     private func recordCarry(id: CGWindowID, state: ShadeState, toSpace target: UInt64, method: String) {

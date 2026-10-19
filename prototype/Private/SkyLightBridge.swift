@@ -220,3 +220,18 @@ final class PrivateSLSWindowMover: Sendable {
         return setWindowAlpha(mainConnectionID(), UInt32(id), alpha) == 0
     }
 }
+
+@_silgen_name("csr_get_active_config")
+private func csr_get_active_config(_ config: UnsafeMutablePointer<UInt32>) -> Int32
+
+/// 系统完整性保护（SIP）是否开着。开着时，跨进程改别的应用程序窗口的透明度、位置不起作用。
+/// CI 的 macOS 虚拟机关着 SIP（record.sh 打出的 csrutil status），用户的 Mac 一般开着；
+/// 测试可以用偏好 WindowShadeAssumeSIPEnabled 让 WindowShade 当作开着（CI 场景 S6-carry-sip）。
+enum SystemIntegrity {
+    static var isEnabled: Bool {
+        if UserDefaults.standard.bool(forKey: "WindowShadeAssumeSIPEnabled") { return true }
+        var config: UInt32 = 0
+        guard csr_get_active_config(&config) == 0 else { return true }
+        return config == 0
+    }
+}
