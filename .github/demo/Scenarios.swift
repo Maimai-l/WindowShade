@@ -92,10 +92,13 @@ func windowShadePID() -> pid_t? {
 }
 
 /// WindowShade 的鼠标钩子进程（docs/design.md 第 5.9 节）；没有时 WindowShade 用的是自己的钩子。
-func tapHelperPID() -> pid_t? {
+func tapHelperPID() -> pid_t? { processID(named: "WindowShadeTapHelper") }
+
+/// 用 pgrep -x 按进程名查进程号，名字必须完全相同；有几个同名进程时返回第一个，没有时返回 nil。
+func processID(named name: String) -> pid_t? {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-    process.arguments = ["-x", "WindowShadeTapHelper"]
+    process.arguments = ["-x", name]
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = FileHandle.nullDevice
@@ -356,7 +359,11 @@ final class Harness {
         let excused = min(excusedStallLines, lines.count)
         result.violations += Self.logViolations(lines.prefix(excused).filter { !$0.contains("main-thread stall") })
         result.violations += Self.logViolations(Array(lines.dropFirst(excused)))
-        if windowShadePID() == nil { result.violations.append("I9: WindowShade is not running") }
+        // 按 bundle 标识（NSRunningApplication）有时查不到正在运行的 WindowShade：CI 任务 scenarios-3（11e953c）的 C22
+        // 报它不在运行，日志却一直在写，也没有重启过。按进程名查（pgrep）不经过这份列表，两种都查不到才算 I9 违反。
+        if windowShadePID() == nil && processID(named: "WindowShade") == nil {
+            result.violations.append("I9: WindowShade is not running")
+        }
         result.notes["probeLatencies"] = latencies
         result.notes["probeWorstLatency"] = latencies.max() ?? 0
         return result
