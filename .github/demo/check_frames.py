@@ -323,24 +323,31 @@ def strip_red(frames_patches, moves):
     The strip's red button moves with the strip; the red button of a window behind the strip stays where it
     is. Dragging the strip uncovers what was behind it: on the CI recording of 2026-10-19 (a5e17ba) a
     TextEdit window under the Finder strip showed its red button until TextEdit redrew the window as
-    inactive. So in each frame the strip's red button is taken as the patch nearest to its expected
-    position: where it was in the last frame with a red patch, moved as far as the pointer has moved since.
-    Its old position alone is not enough: on that recording the strip moved 10 points between two frames,
-    and the uncovered red button was 9 points from the strip's old position. In the first frame with a red
-    patch it is the patch furthest right, because the drag starts to the right, away from what it uncovers.
+    inactive. In each frame the strip's red button is taken as follows. Patches behind the strip's red
+    button of the frame before, against the way the pointer moved, are left out: the strip does not move
+    against the pointer. Of the rest, the one nearest to the expected position is taken: where the red
+    button was in the first frame with a red patch, moved as far as the pointer has moved since. Neither
+    rule is enough alone. The strip trails the pointer and then jumps to catch up (22 points in one frame on
+    the CI recording of a5e17ba, 44 points when the system takes over the drag on the CI recording of
+    a0a3612), and when the drag turns back, an uncovered red button can lie ahead of the strip. In the first
+    frame with a red patch it is the patch furthest right, because the drag starts to the right, away from
+    what it uncovers.
     """
-    track, last, last_move = [], None, None
+    track, last, last_move, first, first_move = [], None, None, None, None
     for patches, move in zip(frames_patches, moves):
-        if patches:
-            if last is None:
-                last = max(patches, key=lambda p: p[3])[3]
-            else:
-                expected = last + move - last_move
-                last = min(patches, key=lambda p: abs(p[3] - expected))[3]
-            last_move = move
-            track.append(last)
-        else:
+        if not patches:
             track.append(None)
+            continue
+        if first is None:
+            last = max(patches, key=lambda p: p[3])[3]
+            first, first_move = last, move
+        else:
+            step = move - last_move
+            ahead = [p for p in patches if (step <= 0.5 or p[3] >= last - 2) and (step >= -0.5 or p[3] <= last + 2)]
+            expected = first + move - first_move
+            last = min(ahead or patches, key=lambda p: abs(p[3] - expected))[3]
+        last_move = move
+        track.append(last)
     return track
 
 
