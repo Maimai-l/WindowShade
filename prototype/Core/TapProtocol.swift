@@ -39,6 +39,10 @@ enum TapProtocol {
     }
     static let minimumWait: TimeInterval = 0.05
 
+    /// 点击排队超过这么久才到钩子，钩子进程记一行日志。
+    static let lateEventAge: TimeInterval = 0.25
+    static func isLate(eventAge: TimeInterval) -> Bool { eventAge > lateEventAge }
+
     /// 事件从产生到现在过了多久（秒）。CGEvent 的时间戳在有的系统上是纳秒，在有的系统上是 mach 时钟的计数，
     /// 两种都换算一次，先看按计数换算的结果，不在 0 到 10 秒之间再看按纳秒换算的；都不在就返回 nil，调用方按刚产生处理。
     static func eventAge(timestamp: UInt64, nowTicks: UInt64, numer: UInt32, denom: UInt32) -> TimeInterval? {

@@ -75,6 +75,11 @@ struct TapProtocolTests {
         t.expect(intel.map { abs($0 - 0.1) < 1e-6 } ?? false, "计数就是纳秒的机器：0.1 秒")
         t.expect(TapProtocol.eventAge(timestamp: 0, nowTicks: now, numer: 125, denom: 3) == nil, "换算结果不在 0 到 10 秒之间：返回 nil")
 
+        t.section("T8", "点击排队超过 0.25 秒才到钩子时记日志（场景 A33-Safari）")
+        t.expect(!TapProtocol.isLate(eventAge: 0.1), "排队 0.1 秒：不记")
+        t.expect(TapProtocol.isLate(eventAge: 0.3), "排队 0.3 秒：记")
+        t.expect(TapProtocol.isLate(eventAge: 1.18), "排队 1.18 秒：记")
+
         t.section("T5", "两个 WindowShade 各用各的端口")
         t.expect(TapProtocol.portName(appPID: 100) != TapProtocol.portName(appPID: 101), "端口名带进程号")
         t.finish()
