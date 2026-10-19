@@ -157,8 +157,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                 })
             }
         }
-        // CI 日志（190172e）：卷帘条成为当前窗口时，标题栏把按钮挪回默认位置，不一定发位置变化的通知。
-        // 所以每次切换灰点和系统按钮时都把按钮放回排好的位置，等这一轮布局做完再放一次。
+        // 卷帘条成为当前窗口时，标题栏会把按钮挪回默认位置，不一定发位置变化的通知（CI 日志 190172e）。
+        // 这次重新布局要到画下一帧时才做，晚于放回，会露出截图里原窗口的红绿灯（CI 录像 be8f9b1，macOS 26 访达）。
+        // 所以先让标题栏所在的窗口边框视图马上做完布局，再把按钮放回排好的位置；等这一轮布局做完再放一次。
+        contentView?.superview?.layoutSubtreeIfNeeded()
         putBackAlignedButtons()
         DispatchQueue.main.async { [weak self] in self?.putBackAlignedButtons() }
         let showSystem = (isKeyWindow && NSApp.isActive) || pointerOverLights
