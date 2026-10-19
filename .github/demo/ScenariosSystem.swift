@@ -289,7 +289,7 @@ func carryStripWithSIPEnabled(_ probe: Probe, _ h: Harness) async {
     await unfold(folded, probe, h)
 }
 
-/// S6-carry-finder-sip：系统完整性保护当作开着，收起一扇访达窗口（访达不隐藏整个应用程序，窗口移到屏幕外），
+/// S6-carry-finder-sip：让 WindowShade 当作系统完整性保护开着，收起一扇访达窗口（访达不隐藏整个应用程序，窗口移到屏幕外），
 /// 按住卷帘条切到右边的桌面：卷帘条留在右边的桌面，展开后窗口在右边的桌面，屏幕不切回原来的桌面。
 /// 依据：用户 macOS 15.2 的日志（869b8b0），移到屏幕外的访达窗口跟过去了 4 次；系统完整性保护开着时这种窗口照样要跟过去。
 func carryFinderStripWithSIPEnabled(_ h: Harness) async {

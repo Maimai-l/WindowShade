@@ -127,15 +127,15 @@ struct DomainTests {
         t.expect([HideMethod.none, .privateAlpha, .ownWindowOrderedOut, .quickLookClosed].allSatisfy { !canCarry($0) },
                  "没移开的、设成透明的、WindowShade 自己的窗口、已关掉的快速查看窗口：不跟过去")
         // 用户 macOS 15.2 的日志（869b8b0）：同一次运行里，移到屏幕外的访达窗口跟过去了 4 次，
-        // 隐藏了应用程序的“系统设置”窗口一次也没移过去。一种收起方式移不过去，不能连别的方式一起不试。
+        // 已隐藏的“系统设置”的窗口一次也没跟过去。一种收起方式的窗口移不过去，别的收起方式照样要试。
         t.expect(carryDecision(hide: .offscreen, systemIntegrityEnabled: true, failedBefore: [.minimized]) == .attempt,
                  "最小化的窗口移不过去之后，移到屏幕外的窗口照样试")
         t.expect(carryDecision(hide: .minimized, systemIntegrityEnabled: false, failedBefore: [.minimized]) == .skipFailedBefore,
-                 "同一种收起方式这次运行里移不过去过：不再试，免得每次切桌面都再移一次")
+                 "这次运行里同一种收起方式的窗口试过一次没移过去：不再试，免得每次切到别的桌面都再试一次")
         t.expect(carryDecision(hide: .hidden, systemIntegrityEnabled: true, failedBefore: []) == .skipNeedsUnhide,
-                 "系统完整性保护开着时，隐藏了应用程序的窗口不移：要先取消隐藏，窗口会露出来")
+                 "系统完整性保护开着时，已隐藏的应用程序的窗口不跟过去：要先取消隐藏应用程序，窗口会露出来")
         t.expect(carryDecision(hide: .hidden, systemIntegrityEnabled: false, failedBefore: []) == .attempt,
-                 "系统完整性保护关着时，隐藏了应用程序的窗口照样移")
+                 "系统完整性保护关着时，已隐藏的应用程序的窗口照样跟过去")
         t.expect(carryDecision(hide: .privateAlpha, systemIntegrityEnabled: false, failedBefore: []) == .skipUnsupported,
                  "设成透明的窗口不跟过去")
 

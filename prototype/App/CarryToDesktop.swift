@@ -3,7 +3,7 @@
 import Cocoa
 
 extension AppDelegate {
-    /// 卷帘条留在 target 桌面，原窗口用私有接口移过去，收起方式不变（见 Domain/DesktopCarry.swift 的 canCarry）。
+    /// 卷帘条留在 target 桌面，原窗口用私有接口移过去，收起方式不变（见 Domain/DesktopCarry.swift 的 carryDecision）。
     /// 返回 false 表示原窗口跟不过去，由调用方把卷帘条挪回原桌面；已隐藏的应用程序要移时先返回 true，移不过去时稍后由 undoCarry 挪回。
     func carryFoldedWindow(id: CGWindowID, state: ShadeState, toSpace target: UInt64) -> Bool {
         switch carryDecision(hide: state.hide, systemIntegrityEnabled: SystemIntegrity.isEnabled,
@@ -91,7 +91,7 @@ extension AppDelegate {
         if stillFolded, let original { undoCarry(id: id, backTo: original) }
     }
 
-    /// 记下这种收起方式的窗口没移过去：这次运行里不再试。不记进偏好，也不连别的收起方式一起不试（见 carryDecision）。
+    /// 记下这种收起方式的窗口没移过去：这次运行里不再试，别的收起方式照样试；不记进偏好（见 carryDecision）。
     private func rememberCarryFailed(_ hide: HideMethod) {
         carryFailedHideMethods.insert(hide)
     }
