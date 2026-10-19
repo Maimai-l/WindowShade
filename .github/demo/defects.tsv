@@ -20,6 +20,7 @@ triple-click-minimize-back	e1cc7bd	A08
 close-shows-window	92dfaf6	C06	^C06: the (window showed|app was unhidden)
 lone-window-minimized	e98ed67	B06-alone	^B06-alone: the window was minimized
 carried-strip-moved-back	a45bc7f	S6-carry	^S6-carry: the strip did not stay
+carry-unhides-with-sip	ef0fc70	S6-carry-sip	^S6-carry-sip: the app was shown
 #
 # 下面几条的场景在修复之前的版本上跑 3 次都通过或都没有报出应当报出的问题，说明不能稳定复现这些缺陷，暂不列进本表；
 # docs/testing.md 第 5 节对应各行的状态写“没有能复现它的测试”。上面新列进的缺陷，在修复之前的版本上跑出结果之前，状态也写“没有能复现它的测试”。补上能稳定复现的场景后，去掉行首的 # 和行尾的说明，移回上面。
