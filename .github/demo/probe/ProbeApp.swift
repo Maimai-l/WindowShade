@@ -161,6 +161,12 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
             case "close": first?.close()
             case "new-window": newWindowAction(nil)
             case "hide": NSApp.hide(nil)
+            case "window-menu":
+                // 和在“窗口”菜单里点这扇窗口一样：执行菜单项本身的动作（场景 B09、B18 在 macOS 14.5 上用）。
+                if let menu = NSApp.windowsMenu, let title = first?.title,
+                   let index = menu.items.firstIndex(where: { $0.title == title }) {
+                    menu.performActionForItem(at: index)
+                }
             case "minimize": first?.miniaturize(nil)
             case "alert":
                 DispatchQueue.main.async { [weak self] in

@@ -118,6 +118,8 @@ func stripFrames() -> [CGRect] {
               let bounds = info[kCGWindowBounds as String] as? NSDictionary,
               let rect = CGRect(dictionaryRepresentation: bounds),
               rect.height <= 60, rect.width > 100,
+              // 菜单栏上的 WindowShade 图标（层级 25）不算：显示提示时它会变宽（用户的测试机，B03，172022a）。
+              ((info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0) < 24,
               // 还没显示出来的卷帘条（等“已藏好”确认时是透明的）不算：点它会穿过去（2026-10-08 A05）。
               ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0.05 else { return nil }
         return rect
