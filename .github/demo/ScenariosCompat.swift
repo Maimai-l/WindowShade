@@ -117,6 +117,9 @@ func compatStripWindows() -> [(id: Int, bounds: CGRect)] {
 }
 
 let compatScenarios: [Scenario] = [
+    Scenario(id: "COMPAT-texpile", title: "Texpile：记下窗口顶部，双击顶部看结果", options: [], group: "compat") { _, h in
+        await compatDump("texpile", appPath: "/Applications/Texpile.app", h)
+    },
     Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，双击顶部看结果", options: [], group: "compat") { _, h in
         await compatDump("netease", appPath: "/Applications/NeteaseMusic.app", h)
     },

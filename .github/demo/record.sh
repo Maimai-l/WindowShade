@@ -328,7 +328,15 @@ if [ -n "$ONLY" ]; then
     export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
     [[ ",$ONLY," == *",COMPAT-netease,"* ]] && { brew install --cask neteasemusic || true; }
     [[ ",$ONLY," == *",COMPAT-quickrecorder,"* ]] && { brew install --cask lihaoyun6/tap/quickrecorder || true; }
-    for app in /Applications/NeteaseMusic.app /Applications/QuickRecorder.app; do
+    if [[ ",$ONLY," == *",COMPAT-texpile,"* ]]; then
+      # Texpile 不在 Homebrew 里：按官网 latest.json 写的文件名下载 DMG，拷进“应用程序”。
+      dmg_path=$(curl -fsSL https://dl.texpile.com/latest.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["mac"])') \
+        && curl -fsSL -o "$RUNNER_TEMP/texpile.dmg" "https://dl.texpile.com/$dmg_path" \
+        && hdiutil attach -nobrowse -quiet -mountpoint /Volumes/texpile "$RUNNER_TEMP/texpile.dmg" \
+        && cp -R /Volumes/texpile/Texpile.app /Applications/ \
+        && hdiutil detach -quiet /Volumes/texpile || echo "Texpile could not be installed"
+    fi
+    for app in /Applications/NeteaseMusic.app /Applications/QuickRecorder.app /Applications/Texpile.app; do
       [ -d "$app" ] || continue
       xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
       id=$(defaults read "$app/Contents/Info" CFBundleIdentifier 2>/dev/null) || continue
