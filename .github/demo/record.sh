@@ -326,7 +326,16 @@ if [ -n "$ONLY" ]; then
   if [ "$LOCAL" != "1" ] && [[ ",$ONLY," == *",COMPAT-"* ]]; then
     echo "==> install apps for the COMPAT scenarios"
     export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
-    [[ ",$ONLY," == *",COMPAT-netease,"* ]] && { brew install --cask neteasemusic || true; }
+    if [[ ",$ONLY," == *",COMPAT-netease,"* ]]; then
+      # 网易云音乐的 DMG 带许可协议，Homebrew 挂载时没人点同意，挂载失败（bbfc619 的 CI 快速任务）。
+      # 从 Homebrew 的公开数据里读出下载地址，自己下载，挂载时自动回答同意（用进程替换送 yes：管道里的 yes 会被
+      # 中断，在 pipefail 下整条命令算失败）。
+      netease_url=$(curl -fsSL https://formulae.brew.sh/api/cask/neteasemusic.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])') \
+        && curl -fsSL -o "$RUNNER_TEMP/netease.dmg" "$netease_url" \
+        && hdiutil attach -nobrowse -noverify -mountpoint /Volumes/netease "$RUNNER_TEMP/netease.dmg" >/dev/null < <(yes) \
+        && cp -R /Volumes/netease/NeteaseMusic.app /Applications/ \
+        && hdiutil detach -quiet /Volumes/netease || echo "NetEase Cloud Music could not be installed"
+    fi
     [[ ",$ONLY," == *",COMPAT-quickrecorder,"* ]] && { brew install --cask lihaoyun6/tap/quickrecorder || true; }
     if [[ ",$ONLY," == *",COMPAT-texpile,"* ]]; then
       # Texpile 不在 Homebrew 里：从 dl.texpile.com/latest.json 读出 DMG 的路径，下载后复制到“应用程序”。
