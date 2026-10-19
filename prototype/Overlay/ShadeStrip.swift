@@ -575,15 +575,22 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     /// 双击时 AppKit 会把第二次按下再送一遍，那时鼠标键早已松开，这一份事件带的指针位置也不对（b7a43f8 的 CI 场景 A26）。
     static func start(_ window: NSWindow, with event: NSEvent, ended: @escaping (_ moved: Bool) -> Void) -> Bool {
         guard NSEvent.pressedMouseButtons & 1 != 0 else { return false }
-        let drag = SystemStripDrag(window: window, ended: ended)
-        let started = CFAbsoluteTimeGetCurrent()
         // 系统拖动时，按交给它以后指针移过的距离移动卷帘条。主线程处理到这次按下时，指针可能已经移开了一段，先把卷帘条挪过这一段；
-        // 不然整段拖动都落后这么多（a0a3612 本机录像：拖动中落后 37 点）。超过 maxCatchUp 的不补，当作位置读错了。
-        var caughtUp = CGPoint.zero
+        // 不然整段拖动都落后这么多（a0a3612 本机录像：拖动中落后 37 点）。
+        // 指针离这次按下的位置超过 maxCatchUp 时，这份事件不是刚发生的按下，也不交给系统：AppKit 重送的按下事件就是这样，
+        // 交给系统后，系统照它拖动，把卷帘条挪开了 414 点（4dc0853 的 CI 场景 A29）。
         let pressedAt = window.convertPoint(toScreen: event.locationInWindow)
         let now = NSEvent.mouseLocation
         let delta = CGPoint(x: now.x - pressedAt.x, y: now.y - pressedAt.y)
-        if hypot(delta.x, delta.y) > 0.5, hypot(delta.x, delta.y) <= maxCatchUp {
+        guard hypot(delta.x, delta.y) <= maxCatchUp else {
+            wlog("strip: press too far from the pointer for a system drag window=\(window.windowNumber) "
+                 + "pointerMoved=(\(Int(delta.x)),\(Int(delta.y)))")
+            return false
+        }
+        let drag = SystemStripDrag(window: window, ended: ended)
+        let started = CFAbsoluteTimeGetCurrent()
+        var caughtUp = CGPoint.zero
+        if hypot(delta.x, delta.y) > 0.5 {
             let origin = window.frame.origin
             window.setFrameOrigin(NSPoint(x: origin.x + delta.x, y: origin.y + delta.y))
             caughtUp = delta
@@ -591,7 +598,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         window.isMovable = true
         window.performDrag(with: event)
         wlog("strip: system drag window=\(window.windowNumber) returnedAfter=\(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms "
-             + "caughtUp=(\(Int(caughtUp.x)),\(Int(caughtUp.y))) pointerMovedBeforeDrag=(\(Int(delta.x)),\(Int(delta.y)))")
+             + "caughtUp=(\(Int(caughtUp.x)),\(Int(caughtUp.y)))")
         running.append(drag)
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak drag] _ in
             MainActor.assumeIsolated { drag?.poll() }
