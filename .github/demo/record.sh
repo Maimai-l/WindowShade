@@ -242,7 +242,7 @@ open /Applications
 sleep 3
 record "$OUT/driver-finder.log" "$OUT/demo-finder.mp4" com.apple.finder 900 500 8
 RECORDING_LOG_END=$(wc -l < ~/Library/Logs/WindowShade/windowshade.log 2>/dev/null || echo 0)
-# 马上取出这一段：日志写到一定大小会换新文件，跑完全部场景再按行号取就取不到了
+# 马上取出两段录像期间的日志：日志写到一定大小会换新文件，跑完全部场景再按行号取就取不到了
 # （用户的 macOS 14.5 本机运行，5239473：取出的这一段是空的，逐帧检查报找不到展开记录）。
 sed -n "$(( RECORDING_LOG_START + 1 )),${RECORDING_LOG_END}p" ~/Library/Logs/WindowShade/windowshade.log \
   > "$OUT/windowshade-recordings.log" 2>/dev/null || true

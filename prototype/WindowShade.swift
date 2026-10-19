@@ -685,7 +685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
 
-    /// 有窗口收起着时先展开全部，等各应用程序队列上排着的放回做完再退出，最多等 2 秒（无响应的应用程序不让退出卡住）。
+    /// 有窗口收起着时先展开全部，等各应用程序队列上排着的放回做完再退出，最多等 2 秒（应用程序没有响应时也能退出）。
     /// 不在主线程上等：放回的一部分要回到主线程做，主线程等着，就只能等满 2 秒
     /// （用户的 macOS 14.5 本机运行，8e7e5c1，场景 L01：退出时主线程停了 2026 毫秒）。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

@@ -36,7 +36,7 @@ carry-hidden-when-unfolding	5b02166	S6-carry-sip	^S6-carry-sip: the strip did no
 # quicklook-double-click-lost	5e7a4bd	A32	^(A32: Quick Look did not reopen|I1: a strip is still on screen)	——A32 在 fa0bcfe、54f1aa1 的检查里第 1 次就报出，9494581 的检查里跑 3 次都没有报出；双击要正好落在收起完成之前才会复现
 # fold-start-double-click-behind	7babb99	A36		——A36 在 9494581 的一次场景运行里失败过，fe2a604 的检查里跑 3 次都通过
 # hide-before-heir-in-front	2ce8ca7	E12	^E12: (folding|TextEdit)	——E12 在 2c1c001 的检查里跑 3 次都通过；CI 上交接焦点时，接手的应用程序已经在前台，没有出现推测的情况：接手的应用程序还没到前台，原应用程序就被隐藏
-# heir-app-on-two-desktops	7d6de7a	E12-both	^E12-both: folding the only Probe window switched the desktop	——CI（macOS 26）上修复之前也通过（5239473 的检查），激活应用程序时系统没有切桌面；用户的 macOS 14.5 本机运行里，8e9a4f1 的 E11-trash、E12 失败，7d6de7a 上通过
+# heir-app-on-two-desktops	7d6de7a	E12-both	^E12-both: folding the only Probe window switched the desktop	——E12-both 在 5239473 的检查里，修复之前的版本上也通过：CI 是 macOS 26，激活应用程序时系统没有切桌面；用户的 macOS 14.5 本机运行里，E11-trash、E12 在 8e9a4f1 上失败，在 7d6de7a 上通过
 #
 # 下面这条缺陷的场景 C15 分不出它：C15 在修复之前的版本上和当前代码上都有超过 500 毫秒的停顿，停顿采样都落在第一次建设置表单
 # （SwiftUI 排版、画符号），没有落在查询登录项上（1b5c572）。这个缺陷由静态检查 tests/run-input-safety-lint.sh 第 7 条防止再次出现，
