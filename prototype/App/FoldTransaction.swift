@@ -390,12 +390,13 @@ extension AppDelegate {
                                   noFocusHeir: noFocusHeir)
         // 窗口藏好之后，键盘输入不能再发给它：交出焦点和移开窗口放在同一个后台任务里，主线程不等。
         // 收起过程中用户按过卷帘条时，不交出焦点，焦点留在卷帘条上（见 StripPressFlag）。
-        var focusRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
-        if focusRequest != nil, let id {
+        var draftRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
+        if draftRequest != nil, let id {
             let pressed = StripPressFlag()
             stripPressFlags[id] = pressed
-            focusRequest?.stripPressed = pressed
+            draftRequest?.stripPressed = pressed
         }
+        let focusRequest = draftRequest
         let done: (HideMethod, FoldVerifier.Observation) -> Void = { [weak self] hide, observation in
             if let id { self?.stripPressFlags[id] = nil }
             completion(hide, observation)

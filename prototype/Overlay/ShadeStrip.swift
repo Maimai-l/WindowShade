@@ -571,14 +571,14 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         self.ended = ended
     }
 
-    /// 交给系统拖动。鼠标键已经松开时不交（返回 false），由调用方照原来的方式处理单击、双击：
+    /// 交给系统拖动。鼠标键已经松开，或指针离按下的位置超过 maxCatchUp 时不交（返回 false），由调用方照原来的方式处理单击、双击：
     /// 双击时 AppKit 会把第二次按下再送一遍，那时鼠标键早已松开，这一份事件带的指针位置也不对（b7a43f8 的 CI 场景 A26）。
     static func start(_ window: NSWindow, with event: NSEvent, ended: @escaping (_ moved: Bool) -> Void) -> Bool {
         guard NSEvent.pressedMouseButtons & 1 != 0 else { return false }
         // 系统拖动时，按交给它以后指针移过的距离移动卷帘条。主线程处理到这次按下时，指针可能已经移开了一段，先把卷帘条挪过这一段；
         // 不然整段拖动都落后这么多（a0a3612 本机录像：拖动中落后 37 点）。
-        // 指针离这次按下的位置超过 maxCatchUp 时，这份事件不是刚发生的按下，也不交给系统：AppKit 重送的按下事件就是这样，
-        // 交给系统后，系统照它拖动，把卷帘条挪开了 414 点（4dc0853 的 CI 场景 A29）。
+        // 指针离这次按下的位置超过 maxCatchUp 时也不交给系统，照鼠标键已经松开处理。AppKit 重送的按下事件就会这样：
+        // 交给系统后，系统照指针现在的位置拖动，把卷帘条挪开了 414 点（4dc0853 的 CI 场景 A29）。
         let pressedAt = window.convertPoint(toScreen: event.locationInWindow)
         let now = NSEvent.mouseLocation
         let delta = CGPoint(x: now.x - pressedAt.x, y: now.y - pressedAt.y)
