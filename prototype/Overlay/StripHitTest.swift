@@ -26,9 +26,12 @@ enum StripDoubleClickRoute: Equatable {
     case handleHere
 }
 
-func stripDoubleClickRoute(onShownStrip: Bool, foldFinished: Bool) -> StripDoubleClickRoute {
+/// coveredByFoldedWindow：点上最上层的窗口是刚收起的原窗口（快速查看窗口关闭时的过渡还没放完）。这时收起已经做完，
+/// 放行的点击也会落到它上面，卷帘条收不到第二下（依据：e236cf7 上 CI 场景 A32，关闭快速查看 90 毫秒后的点击丢了）。
+func stripDoubleClickRoute(onShownStrip: Bool, foldFinished: Bool,
+                           coveredByFoldedWindow: Bool = false) -> StripDoubleClickRoute {
     guard onShownStrip else { return .notOnStrip }
-    return foldFinished ? .leaveToStrip : .handleHere
+    return foldFinished && !coveredByFoldedWindow ? .leaveToStrip : .handleHere
 }
 
 /// 返回原标题栏包含 point 的那扇窗口，只看 inFlight 里收起还没做完的窗口。bands 是各窗口原标题栏所在的区域，

@@ -179,7 +179,12 @@ extension AppDelegate {
                               separateSpaces: NSScreen.screensHaveSeparateSpaces)
         })
         let foldFinished = strip.map { strip in shaded.values.contains { $0.overlay === strip } } ?? false
-        switch stripDoubleClickRoute(onShownStrip: strip != nil, foldFinished: foldFinished) {
+        // 点上最上层的窗口是不是刚收起的原窗口（快速查看窗口关闭时还在放过渡）：是的话点击到不了卷帘条，见 stripDoubleClickRoute。
+        let topWindow = strip == nil ? 0 : NSWindow.windowNumber(at: cocoaPoint, belowWindowWithWindowNumber: 0)
+        let coveredByFoldedWindow = topWindow > 0 && topWindow != strip?.windowNumber
+            && shaded[CGWindowID(topWindow)] != nil
+        switch stripDoubleClickRoute(onShownStrip: strip != nil, foldFinished: foldFinished,
+                                     coveredByFoldedWindow: coveredByFoldedWindow) {
         case .notOnStrip:
             break
         case .leaveToStrip:
@@ -190,7 +195,8 @@ extension AppDelegate {
                 wlog("titlebar-double-click: on a strip still folding without a double-click action; the strip handles it")
                 return false
             }
-            wlog("titlebar-double-click: on a strip still folding; handing the double click to it at=(\(Int(point.x)),\(Int(point.y)))")
+            wlog("titlebar-double-click: on a strip \(coveredByFoldedWindow ? "under its closing window" : "still folding"); "
+                 + "handing the double click to it at=(\(Int(point.x)),\(Int(point.y)))")
             DispatchQueue.main.async { [weak self, weak strip] in
                 self?.stripDoubleClickAction(strip)?()
             }
