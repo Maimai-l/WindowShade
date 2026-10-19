@@ -9,6 +9,8 @@
 //   --slow-close=秒      关窗口前主线程停这么久（按下关闭的辅助功能请求会超时，但窗口照样关掉）
 //   --no-buttons         窗口没有关闭、最小化、缩放按钮
 //   --borderless         窗口没有标题栏（像录屏工具的浮动面板）
+//   --top-bar=高         窗口顶部是自己画的一条这么高的红色顶栏，中间有一个画出来的白色搜索框，红绿灯浮在上面；
+//                        辅助功能读不到顶栏和搜索框（像网页、跨平台框架画的顶栏）
 //   --title-churn        每 0.1 秒改一次第一扇窗口的标题
 // 运行中接受分布式通知 com.windowshade.probe.command，内容是命令：
 //   freeze:秒   主线程停这么久          quit / crash      正常退出 / 立即崩溃
@@ -29,6 +31,23 @@ final class ProbeWindow: NSWindow {
         guard !pinned else { return }
         super.setFrameOrigin(point)
     }
+}
+
+/// 自己画的顶栏：红色底，中间一个白色圆角框。只是画出来的，辅助功能里没有它。
+final class PaintedTopBar: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        autoresizingMask = [.width, .minYMargin]
+    }
+    required init?(coder: NSCoder) { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(srgbRed: 0.85, green: 0.2, blue: 0.2, alpha: 1).setFill()
+        bounds.fill()
+        NSColor.white.setFill()
+        NSBezierPath(roundedRect: NSRect(x: bounds.midX - 120, y: bounds.midY - 15, width: 240, height: 30),
+                     xRadius: 15, yRadius: 15).fill()
+    }
+    override func isAccessibilityElement() -> Bool { false }
 }
 
 final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate {
@@ -114,6 +133,8 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         var style: NSWindow.StyleMask = [.titled, .resizable]
         if options["no-buttons"] == nil { style.formUnion([.closable, .miniaturizable]) }
         if options["borderless"] != nil { style = [.borderless] }
+        let topBar = options["top-bar"].flatMap(Double.init).map { CGFloat($0) }
+        if topBar != nil { style.insert(.fullSizeContentView) }
         let offset = CGFloat((index - 1) * 50)
         let width = CGFloat(size.first ?? 640)
         let height = CGFloat(size.last ?? 420)
@@ -128,7 +149,17 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         text.string = "Probe window \(index)"
         text.autoresizingMask = [.width, .height]
         text.delegate = self
-        window.contentView = text
+        if let topBar {
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+            text.frame = NSRect(x: 0, y: 0, width: width, height: height - topBar)
+            container.addSubview(text)
+            container.addSubview(PaintedTopBar(frame: NSRect(x: 0, y: height - topBar, width: width, height: topBar)))
+            window.contentView = container
+        } else {
+            window.contentView = text
+        }
         window.makeKeyAndOrderFront(nil)
         windows.append(window)
         return window

@@ -452,6 +452,24 @@ func quickWindowPreviewCGImage(id: CGWindowID,
     return downsampleCGImage(raw, maxPixelSize: maxPixelSize) ?? raw
 }
 
+/// 在截图里找到的下沿比这更深时，顶部区域太高，不当卷帘条用。
+let maxPixelBoundaryHeight: CGFloat = 96
+
+/// 截图顶部 points 点高的一块，按 RGBA 读出来。
+func topPixels(of image: CGImage, points: CGFloat, scale: CGFloat) -> RGBAPixels? {
+    let w = image.width, h = min(image.height, Int(ceil(points * scale)))
+    guard w > 0, h > 0, let top = image.cropping(to: CGRect(x: 0, y: 0, width: w, height: h)) else { return nil }
+    var data = [UInt8](repeating: 0, count: w * h * 4)
+    let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
+        guard let ctx = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        ctx.draw(top, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return true
+    }
+    return drawn ? RGBAPixels(data: data, width: w, height: h, bytesPerRow: w * 4) : nil
+}
+
 // 截图后的标题栏条制备结果：像素分析全部在后台完成，主线程只消费这些值。
 struct NativeStripPreparation {
     let barH: CGFloat
@@ -473,9 +491,15 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
     let minimumBarH = profile.standardCropHeight
     let standardBarH = profile.standardCropHeight
     let fixedBarH = fixedNonstandardChromeHeight(pid: pid)
-    let visualBarH = fixedBarH == nil && profile.preciseChrome
-        ? preciseVisualChromeHeight(of: full, scale: scale, minimum: minimumBarH)
-        : nil
+    let visualBarH: CGFloat?
+    if fixedBarH == nil && profile.preciseChrome {
+        visualBarH = preciseVisualChromeHeight(of: full, scale: scale, minimum: minimumBarH)
+    } else if fixedBarH == nil && profile.pixelBoundary, let top = topPixels(of: full, points: 140, scale: scale) {
+        visualBarH = ChromeBand.bottom(of: top, scale: scale, floor: max(12, profile.trafficLightHeight ?? 0),
+                                       controls: profile.topControls)
+    } else {
+        visualBarH = nil
+    }
     let fallbackBarH = fixedBarH
         ?? (profile.preciseChrome
             ? (fallbackControlPaddedChromeHeight(pid: pid, minimum: minimumBarH) ?? profile.axBarHeight)
@@ -489,14 +513,17 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
         barH = min(visualBarH ?? fallbackBarH, min(logicalSize.height, 300))
     }
     let cropHeight = max(1, Int(ceil(barH * scale)))
-    let boundary = fixedBarH == nil ? profile.boundaryName : "fixed"
+    let boundary = fixedBarH != nil ? "fixed" : profile.pixelBoundary && visualBarH == nil ? "AX" : profile.boundaryName
     guard let rawStrip = full.cropping(to: CGRect(x: 0, y: 0, width: full.width, height: cropHeight)) else {
         return NativeStripPreparation(barH: barH, boundary: boundary, strip: nil,
                                       brokenHealth: (false, ""), scale: scale,
                                       fixedBarH: fixedBarH, visualBarH: visualBarH,
                                       fallbackBarH: fallbackBarH, standardBarH: standardBarH)
     }
-    let health = nativeTitleStripLooksBroken(rawStrip, logicalHeight: barH)
+    // 截图里找不到下沿、或顶部区域太高的窗口，不按辅助功能读到的高度硬切（可能切过顶栏），改用简化标题栏。
+    let boundaryUnknown = fixedBarH == nil && profile.pixelBoundary && !profile.isQuickLook && !profile.standardTitleBarOnly
+        && (visualBarH.map { $0 > maxPixelBoundaryHeight } ?? true)
+    let health = boundaryUnknown ? (true, "top-edge-not-found") : nativeTitleStripLooksBroken(rawStrip, logicalHeight: barH)
     let strip = health.0 ? rawStrip : (mirrorRoundCorners(rawStrip) ?? rawStrip)
     return NativeStripPreparation(barH: barH, boundary: boundary, strip: strip,
                                   brokenHealth: health, scale: scale,

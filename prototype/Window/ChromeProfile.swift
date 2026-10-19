@@ -346,6 +346,17 @@ private func resolveWindowChromeProfileUncached(win: AXUIElement,
         ? standardCropH
         : titlebarHitHeight(of: win, id: id, winTop: pos.y, winSize: size, pid: pid))
 
+    // 有原生工具栏、只要标准标题栏、Adobe、快速查看、自绘标题栏有固定高度的、WindowShade 自己的窗口，辅助功能读到的高度是准的。
+    let pixelBoundary = !hasToolbar && !standardTitleBarOnly && !preciseChrome && localChromeHeight == nil
+        && adobeProfile.kind == .none && trafficLights.style != .quickLook
+    var topControls: [ClosedRange<CGFloat>] = []
+    if pixelBoundary {
+        var samples: [TopChromeControlSample] = []
+        var budget = axTraversalNodeBudget
+        collectTopChromeControlSamples(win, winTop: pos.y, winSize: size, ignoredFrames: standardTrafficButtonFrames(of: win),
+                                       scanLimit: 140, nodeBudget: &budget, into: &samples)
+        topControls = samples.map { $0.minTop...max($0.minTop, $0.maxBottom) }
+    }
     return WindowChromeProfile(hasToolbar: hasToolbar,
                                trafficLightHeight: trafficH,
                                adobeProfile: adobeProfile,
@@ -356,5 +367,7 @@ private func resolveWindowChromeProfileUncached(win: AXUIElement,
                                hasContentBelowTitleBar: hasContentBelowTitleBar,
                                standardCropHeight: standardCropH,
                                axBarHeight: axBarH,
-                               hitBarHeight: hitBarH)
+                               hitBarHeight: hitBarH,
+                               pixelBoundary: pixelBoundary,
+                               topControls: topControls)
 }
