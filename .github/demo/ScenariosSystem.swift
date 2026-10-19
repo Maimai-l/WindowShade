@@ -248,7 +248,7 @@ func carryStripToNextDesktop(_ probe: Probe, _ h: Harness) async {
     await returnToDesktop(home)
 }
 
-/// 桌面编号到类型：0 是普通桌面，4 是全屏应用程序占的桌面。
+/// 每个桌面的类型，按桌面编号查：0 是普通桌面，4 是全屏应用程序的桌面，读不到记 -1。
 func spaceTypes() -> [UInt64: Int] {
     guard let cid = skyLightConnection(), let symbol = skyLightSymbol("SLSCopyManagedDisplaySpaces") else { return [:] }
     typealias Copy = @convention(c) (Int32) -> Unmanaged<CFArray>?
@@ -260,12 +260,12 @@ func spaceTypes() -> [UInt64: Int] {
     return types
 }
 
-/// S6-carry-fullscreen：原桌面右边紧挨着一个全屏应用程序的桌面时，按住卷帘条按 Control-右方向键。
-/// 拖着普通窗口按 Control-右方向键时，系统跳过全屏应用程序的桌面，直接到下一个普通桌面；拖着卷帘条也要这样：
+/// S6-carry-fullscreen：原桌面右边紧挨着全屏应用程序的桌面时，按住卷帘条按 Control-右方向键。
+/// 按住普通窗口按 Control-右方向键时，系统跳过全屏应用程序的桌面，直接到下一个普通桌面；按住卷帘条也要这样：
 /// 屏幕不停在全屏应用程序的桌面上，卷帘条和原窗口都到下一个普通桌面。
-/// 先拿没收起的测试窗口试一次：系统对普通窗口也不跳过时（例如虚拟机上），记为跳过，不算失败。
-/// 依据：用户 macOS 15.2 的录像和日志（2026-10-18，869b8b0）：卷帘条被带进全屏应用程序的桌面（编号 25 至 30），
-/// 原窗口移不进去，卷帘条被挪回，屏幕来回切换。用户 2026-10-19 指出拖普通窗口时系统会跳过全屏应用程序的桌面。
+/// 先用没收起的测试窗口试一次：系统对普通窗口也不跳过全屏应用程序的桌面时（例如虚拟机上），这个场景记为没有运行，不算失败。
+/// 依据：用户 macOS 15.2 的录像和日志（869b8b0）里，WindowShade 把卷帘条带进了全屏应用程序的桌面（编号 25 至 30），
+/// 原窗口移不进去，又把卷帘条挪回原桌面，屏幕在几个桌面之间来回切换。用户 2026-10-19 指出，按住普通窗口时系统会跳过全屏应用程序的桌面。
 func carryStripPastFullScreenDesktop(_ probe: Probe, _ h: Harness) async {
     let id = "S6-carry-fullscreen"
     guard await ensureTwoDesktops(), let home = activeSpaceID() else {
@@ -313,7 +313,7 @@ func carryStripPastFullScreenDesktop(_ probe: Probe, _ h: Harness) async {
     let next = row[at + 2]
     h.result.notes["desktops"] = "home=\(home) fullScreen=\(row[at + 1]) next=\(next)"
 
-    // 先拿没收起的测试窗口：按住标题栏按 Control-右方向键，看系统是否跳过全屏应用程序的桌面；再按 Control-左方向键带回来。
+    // 先用没收起的测试窗口试：按住标题栏按 Control-右方向键，看系统是否跳过全屏应用程序的桌面；再按 Control-左方向键带回来。
     NSRunningApplication(processIdentifier: probe.pid)?.activate()
     await pause(0.5)
     guard let frame = probe.window().flatMap(axFrame) else {
@@ -730,7 +730,7 @@ let systemScenarios: [Scenario] = [
     Scenario(id: "S6-carry", title: "按住卷帘条按 Control-右方向键：卷帘条留在右边的桌面，展开后窗口也在那里", options: []) { probe, h in
         await carryStripToNextDesktop(probe, h)
     },
-    Scenario(id: "S6-carry-fullscreen", title: "右边紧挨着全屏应用程序的桌面时按住卷帘条按 Control-右方向键：和拖普通窗口一样跳过它，卷帘条和窗口到下一个桌面",
+    Scenario(id: "S6-carry-fullscreen", title: "右边紧挨着全屏应用程序的桌面时按住卷帘条按 Control-右方向键：和按住普通窗口一样，屏幕跳过那个桌面，卷帘条和窗口到下一个普通桌面",
              options: []) { probe, h in
         await carryStripPastFullScreenDesktop(probe, h)
     },

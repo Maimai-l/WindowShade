@@ -141,12 +141,13 @@ extension AppDelegate {
         let mover = PrivateSLSWindowMover.shared
         let overlaySpaceID = mover.windowSpace(id: overlayID)
         let held = (overlay as? NativeProxyOverlayWindow)?.isHeldByPointer == true && NSEvent.pressedMouseButtons & 1 != 0
-        // 按住卷帘条切到了别的桌面，卷帘条却还在原来的桌面：卷帘条的 isMovable 为 false，系统不会把它带过去，
-        // 所以由这里把它移到当前桌面，再让原窗口跟过去（需求 S6；CI 场景 S6-carry 里见过卷帘条留在原来的桌面）。
+        // 当前桌面是全屏应用程序的桌面：只记日志，不带过去（由 stripSpaceAction 判断）。
         if held, let displayID = state.sourceDisplayID, let active = mover.currentSpace(displayID: displayID),
            active != sourceSpaceID, mover.spaceIsFullScreen(active) == true {
             wlog("space: held strip id=\(overlayID) source=\(id) is over a full-screen app's desktop \(active); not carrying reason=\(reason)")
         }
+        // 按住卷帘条切到了别的桌面，卷帘条却还在原来的桌面（例如偏好 WindowShadeStripDragByHand 为 true 时，卷帘条的 isMovable 为 false，
+        // 系统不带它走）：由这里把它移到当前桌面，再让原窗口跟过去（需求 S6；CI 场景 S6-carry 里见过卷帘条留在原来的桌面）。
         if held, canCarry(state.hide),
            let displayID = state.sourceDisplayID,
            let active = mover.currentSpace(displayID: displayID), active != sourceSpaceID, overlaySpaceID != active,
@@ -194,7 +195,7 @@ extension AppDelegate {
             return active
         }
 
-        // 按住卷帘条切到了别的桌面，卷帘条已经在当前桌面：原窗口跟过去（需求 S6）；原窗口跟不过去时（这种收起方式不跟，或私有接口没能移过去），照常把卷帘条挪回。
+        // 按住卷帘条切到了别的桌面，卷帘条已经在当前桌面：原窗口跟过去（需求 S6）；原窗口跟不过去时（这种收起方式不跟、私有接口没能移过去，或当前桌面是全屏应用程序的桌面），照常把卷帘条挪回。
         if let overlaySpaceID,
            case .carry(let target) = stripSpaceAction(stripSpace: overlaySpaceID, windowSpace: sourceSpaceID, stripHeldByPointer: held,
                                                       stripSpaceIsFullScreen: mover.spaceIsFullScreen(overlaySpaceID) == true),

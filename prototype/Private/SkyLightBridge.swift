@@ -113,7 +113,7 @@ final class PrivateSLSWindowMover: Sendable {
         spaceGetType = dlsym(handle, "SLSSpaceGetType").map { unsafeBitCast($0, to: SLSSpaceGetTypeFunction.self) }
     }
 
-    /// 这个桌面是不是全屏应用程序占的桌面（类型 4；普通桌面是 0）。查不到时返回 nil。
+    /// 这个桌面是不是全屏应用程序的桌面（类型 4；普通桌面是 0）。私有接口不可用时返回 nil。
     func spaceIsFullScreen(_ space: UInt64) -> Bool? {
         guard let mainConnectionID, let spaceGetType else { return nil }
         return spaceGetType(mainConnectionID(), space) == 4

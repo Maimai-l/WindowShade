@@ -94,7 +94,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     private var pressedButton: NSWindow.ButtonType?
     /// 鼠标左键正按在卷帘条上（从按下到松开）。这时卷帘条到了别的桌面，就当作用户把它带了过去（需求 S6）。
     private(set) var isHeldByPointer = false
-    /// 这次按下交给了系统拖动：之后的松开事件（如果还发过来）不再按单击处理，单击由 SystemStripDrag 结束时判断。
+    /// 这次按下交给了系统拖动：之后发过来的拖动和松开事件都不再处理，单击由 SystemStripDrag 结束时判断。
     private var ignoreNextMouseUp = false
     private var buttonPressPoint: NSPoint = .zero
     /// 按在按钮上以后，指针移动超过这个距离（单位：点）就算拖动卷帘条，不再算点按钮。
@@ -426,7 +426,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             wlog("strip: mouse up after a system drag window=\(windowNumber)")
             return
         }
-        // 系统在拖：拖动事件如果还发过来，不交给内容视图，免得它再自己移一次卷帘条。
+        // 系统拖动期间，拖动事件如果还发过来，不交给内容视图，免得它再自己移一次卷帘条。
         if event.type == .leftMouseDragged, ignoreNextMouseUp { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             // 卷帘条上的按下、松开都记一行（不常发生）：点了没反应时，看得出点击到没到卷帘条、落在哪里
@@ -546,7 +546,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
 }
 
 /// 拖卷帘条交给系统（NSWindow.performDrag）：拖着卷帘条按 Control-左右方向键时，系统像拖普通窗口一样带着它切桌面，
-/// 跳过全屏应用程序的桌面（用户 2026-10-19 指出；WindowShade 自己逐帧移动时，系统不知道在拖窗口，会停在全屏应用程序的桌面上）。
+/// 跳过全屏应用程序的桌面。WindowShade 自己逐帧移动时，系统不知道在拖窗口，会停在全屏应用程序的桌面上（用户 2026-10-19 指出）。
 /// 偏好 WindowShadeStripDragByHand 为 true 时，照旧由 WindowShade 自己逐帧移动（stripOrigin）。
 /// 松开时调用 ended：卷帘条动过是拖动，没动过是单击。系统拖动时，松开事件可能不再发给卷帘条，所以按鼠标键的状态判断松开。
 @MainActor final class SystemStripDrag {

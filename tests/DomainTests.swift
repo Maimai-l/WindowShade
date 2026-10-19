@@ -123,7 +123,7 @@ struct DomainTests {
         t.expect(stripSpaceAction(stripSpace: 24, windowSpace: 5, stripHeldByPointer: false) == .moveBack,
                  "没按住时到了别的桌面：挪回原窗口所在的桌面")
         t.expect(stripSpaceAction(stripSpace: 25, windowSpace: 5, stripHeldByPointer: true, stripSpaceIsFullScreen: true) == .moveBack,
-                 "按住卷帘条时到了全屏应用程序的桌面：窗口放不进去，原窗口不跟过去，卷帘条挪回（用户 macOS 15.2 的日志，869b8b0）")
+                 "按住卷帘条时到了全屏应用程序的桌面：那里放不进别的窗口，原窗口不跟过去，卷帘条挪回（用户 macOS 15.2 的日志，869b8b0）")
         t.expect([HideMethod.hidden, .offscreen, .privateOffscreen, .minimized].allSatisfy { canCarry($0) },
                  "隐藏了整个应用程序、移到屏幕外、最小化的窗口：跟过去")
         t.expect([HideMethod.none, .privateAlpha, .ownWindowOrderedOut, .quickLookClosed].allSatisfy { !canCarry($0) },
