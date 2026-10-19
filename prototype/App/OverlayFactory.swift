@@ -80,6 +80,7 @@ extension AppDelegate {
                                       windowTitle: shaded[id]?.title ?? "")
             iv.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
             iv.onClick = { [weak self] in self?.stripClicked(id) }
+            overlay.onPress = { [weak self] in self?.stripPressed(id) }
             iv.onMoveEnded = { [weak self] frame in
                 self?.noteUserMovedOverlay(id: id, frame: frame)
             }
@@ -108,6 +109,7 @@ extension AppDelegate {
                                   windowTitle: shaded[id]?.title ?? "")
         iv.onDoubleClick = { [weak self] in self?.unshadeFromStrip(id) }
         iv.onClick = { [weak self] in self?.stripClicked(id) }
+        iv.onPress = { [weak self] in self?.stripPressed(id) }
         iv.onMoveEnded = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
         }
@@ -217,6 +219,7 @@ extension AppDelegate {
 
         overlay.onAction = { [weak self] action in self?.handleTrafficLight(action, id) }
         overlay.onClick = { [weak self] in self?.stripClicked(id) }
+        overlay.onPress = { [weak self] in self?.stripPressed(id) }
         overlay.onFrameMoved = { [weak self] frame in
             self?.noteUserMovedOverlay(id: id, frame: frame)
         }

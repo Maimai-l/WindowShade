@@ -113,7 +113,7 @@ private final class GlanceSession {
     var unhideAt: TimeInterval?
     var unhiddenAt: TimeInterval?
     var frontmostBeforeUnhide: pid_t?
-    /// 画面打开后用户单击了卷帘条：键盘要落在卷帘条上，不再取消隐藏原应用程序。
+    /// 画面打开后用户按下或单击了卷帘条：不再取消隐藏原应用程序；单击时键盘还要落在卷帘条上。
     var stripClicked = false
     var rehiddenAt: TimeInterval?
     /// 卡片在屏幕上的位置：“指针在画面上”只看卡片，不算投影边距。
@@ -250,6 +250,18 @@ final class GlanceController {
         guard Self.isEnabled, stripFrame(id) != nil else { return }
         sessions[id]?.stripClicked = true
         apply(intent.clicked(id, at: clock()))
+    }
+
+    /// 按下卷帘条（可能要拖动，或者按住切桌面）时，马上把应用程序藏回去（看一眼为了显示实时画面临时取消隐藏过它）；
+    /// 画面停在最后一帧，照常留着。不然按住切桌面时应用程序还显示着，原窗口可能露出来，屏幕还可能切到窗口所在的桌面
+    /// （2026-10-19 CI 场景 S6-carry-sip：按下后 585 毫秒，指针离开卷帘条才藏回去）。
+    func stripPressed(_ id: CGWindowID) {
+        guard let session = sessions[id] else { return }
+        session.stripClicked = true
+        guard session.viaUnhide, session.unhideAt != nil, session.stage != .expanding,
+              session.rehiddenAt == nil, session.frontmostBeforeUnhide != nil else { return }
+        wlog("glance: strip pressed; hiding the app again id=\(id)")
+        _ = rehide(session)
     }
 
     /// 切换应用程序、换桌面、关掉设置：收回正在看的那一个。

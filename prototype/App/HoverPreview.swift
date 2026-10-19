@@ -172,4 +172,10 @@ extension AppDelegate {
         guard GlanceController.isEnabled else { return }
         MainActor.assumeIsolated { glance.stripClicked(id) }
     }
+
+    /// 按下卷帘条：看一眼临时取消隐藏过应用程序时，马上把它藏回去（GlanceController.stripPressed）。
+    func stripPressed(_ id: CGWindowID) {
+        guard GlanceController.isEnabled else { return }
+        MainActor.assumeIsolated { glance.stripPressed(id) }
+    }
 }

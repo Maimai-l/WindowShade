@@ -71,6 +71,8 @@ final class ShadedAccessibilityActionTarget: NSObject {
 final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     var onDoubleClick: (() -> Void)?
     var onClick: (() -> Void)?
+    /// 在卷帘条上按下、不在红绿灯上时调用，不等松开。
+    var onPress: (() -> Void)?
     var onAction: ((TrafficAction) -> Void)?
     var onResize: ((NSWindow) -> Void)?
     var onFrameMoved: ((NSRect) -> Void)?
@@ -208,6 +210,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         inactiveLights.buttons = []
         onDoubleClick = nil
         onClick = nil
+        onPress = nil
         onAction = nil
         onResize = nil
         onFrameMoved = nil
@@ -443,6 +446,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             pressSize = frame.size
             pressOnResizeEdge = styleMask.contains(.resizable)
                 && (pressPoint.x < Self.resizeEdge || pressPoint.x > frame.width - Self.resizeEdge)
+            onPress?()
         }
         if event.type == .leftMouseUp, let type = pressedButton {
             pressedButton = nil
@@ -674,6 +678,8 @@ final class NativeProxyTitleContentView: NSView {
 final class TitleStripView: NSImageView {
     var onDoubleClick: (() -> Void)?
     var onClick: (() -> Void)?
+    /// 按下时就调用，不等松开。放在 NativeProxyOverlayWindow 里时不设这一项，按下由窗口的 onPress 处理。
+    var onPress: (() -> Void)?
     var onMoveEnded: ((NSRect) -> Void)?
     private var dragOffset = CGPoint.zero
     private var didDrag = false
@@ -714,6 +720,7 @@ final class TitleStripView: NSImageView {
         // 抓点取自按下事件本身：事件处理晚了时，NSEvent.mouseLocation 已经是移动之后的位置。
         dragOffset = event.locationInWindow
         didDrag = false
+        onPress?()
     }
     override func mouseDragged(with event: NSEvent) {
         guard let window = window else { return }
