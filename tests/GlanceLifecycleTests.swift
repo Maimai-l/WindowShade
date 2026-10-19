@@ -82,9 +82,8 @@ extension GlanceController {
         controller.takeOverUnhiddenSessions(for: active.pid) { restored.append($0) }
         precondition(restored == [id], "User takeover restores exactly once")
 
-        // 按下卷帘条时，看一眼为了显示画面临时取消隐藏的应用程序要马上藏回去，画面留着。
-        // 按住卷帘条切桌面时，应用程序不能还显示着（2026-10-19 CI 场景 S6-carry-sip，56ae7e5：
-        // 按下后 585 毫秒才藏回去）。
+        // 按下卷帘条时，看一眼临时取消隐藏过的应用程序要马上藏回去，画面留着。
+        // 按住卷帘条切桌面时，应用程序必须已经隐藏（CI 场景 S6-carry-sip，56ae7e5：按下后 585 毫秒才藏回去）。
         let pressed = install()
         pressed.stage = .shown
         pressed.frontmostBeforeUnhide = 999
@@ -96,7 +95,7 @@ extension GlanceController {
                      "Pressing the strip keeps the glance picture")
         precondition(pressed.stripClicked, "After a press the glance does not reveal the app again")
         controller.finish(pressed, reason: "test-cleanup")
-        // 没有取消隐藏过的看一眼：按下不做隐藏。
+        // 只用截图、没有取消隐藏过应用程序的看一眼：按下时不隐藏。
         let snapshotOnly = install()
         snapshotOnly.stage = .shown
         controller.stripPressed(id)
