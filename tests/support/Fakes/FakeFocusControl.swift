@@ -18,6 +18,8 @@ final class FakeFocusControl: FocusControl, @unchecked Sendable {
     var regularApps: Set<pid_t> = []
     private(set) var activated: [pid_t] = []
     private(set) var focused: [CGWindowID?] = []
+    /// activate、focus 依次调用的记录，用来核对先后顺序。
+    private(set) var events: [String] = []
     /// 前台应用程序的进程号。
     var frontmost: pid_t?
     /// activate 之后再调用几次 pause() 才换到前台，模拟系统过一会儿才切换前台应用程序；0 表示立即换，nil 表示一直不换。
@@ -37,6 +39,7 @@ final class FakeFocusControl: FocusControl, @unchecked Sendable {
     func appName(pid: pid_t) -> String { "app\(pid)" }
     func activate(pid: pid_t) {
         activated.append(pid)
+        events.append("activate \(pid)")
         guard let delay = activationDelay else { return }
         if delay == 0 { frontmost = pid } else { pendingActivation = (pid, delay) }
     }
@@ -47,6 +50,9 @@ final class FakeFocusControl: FocusControl, @unchecked Sendable {
         if pending.remaining <= 1 { frontmost = pending.pid; pendingActivation = nil }
         else { pendingActivation = (pending.pid, pending.remaining - 1) }
     }
-    func focus(_ window: WindowHandle, pid: pid_t) { focused.append(fake(window).id) }
+    func focus(_ window: WindowHandle, pid: pid_t) {
+        focused.append(fake(window).id)
+        events.append("focus \(fake(window).id.map { String($0) } ?? "-")")
+    }
     func log(_ message: String) {}
 }

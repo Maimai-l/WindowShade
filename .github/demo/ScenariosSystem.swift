@@ -452,7 +452,11 @@ func appWindow(_ bundleID: String, titlePrefix prefix: String) -> AXUIElement? {
 /// 最近用过的文本编辑窗口在右边的桌面上。最近使用顺序要排成 ProbeApp、文本编辑、访达：
 /// 这样排，是因为修复前 WindowShade 隐藏 ProbeApp 时访达还没到前台，系统按这个顺序激活了文本编辑，屏幕切到右边的桌面。
 /// 依据：用户的 macOS 14.5 本机运行（4f1a815），收起 ProbeApp 后系统激活了别的桌面上的 LocalSend；见 docs/testing.md 第 5 节。
-func foldWithRecentAppOnOtherDesktop(_ probe: Probe, _ h: Harness) async {
+/// textEditHereToo 为 true 时（场景 E12-both）：这个桌面上 ProbeApp 下面还有一扇文本编辑的窗口，焦点交给文本编辑，
+/// 而文本编辑最近用过的窗口在右边的桌面上。激活文本编辑不能把屏幕切过去。
+/// 依据：用户的测试机（macOS 14.5，8e9a4f1）上 E11-trash、E12 失败，接手的应用程序在两个桌面上都有窗口。
+func foldWithRecentAppOnOtherDesktop(_ probe: Probe, _ h: Harness, textEditHereToo: Bool = false) async {
+    let id = textEditHereToo ? "E12-both" : "E12"
     let textEdit = "com.apple.TextEdit"
     guard await ensureTwoDesktops(), let home = activeSpaceID() else {
         h.result.notes["skipped"] = "this Mac has only one desktop and adding one failed"; return
@@ -460,16 +464,20 @@ func foldWithRecentAppOnOtherDesktop(_ probe: Probe, _ h: Harness) async {
     let textEditWasRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: textEdit).isEmpty
     let base = FileManager.default.temporaryDirectory
     let folder = base.appendingPathComponent("windowshade-e12"), note = base.appendingPathComponent("windowshade-e12-note.txt")
+    let hereNote = base.appendingPathComponent("windowshade-e12-here.txt")
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try? "E12".write(to: note, atomically: true, encoding: .utf8)
+    try? "E12 here".write(to: hereNote, atomically: true, encoding: .utf8)
     func cleanUp() async {
         if let window = appWindow(textEdit, titlePrefix: "windowshade-e12-note") { closeWindow(window) }
+        if let window = appWindow(textEdit, titlePrefix: "windowshade-e12-here") { closeWindow(window) }
         if !textEditWasRunning {
             NSRunningApplication.runningApplications(withBundleIdentifier: textEdit).forEach { _ = $0.terminate() }
         }
         if let window = finderWindow(titled: folder.lastPathComponent) { closeWindow(window) }
         await returnToDesktop(home)
         try? FileManager.default.removeItem(at: note)
+        try? FileManager.default.removeItem(at: hereNote)
     }
     // 1. 在这个桌面上打开一扇访达窗口，再让 ProbeApp 到前台、窗口在最上面。
     run("/usr/bin/open", [folder.path])
@@ -477,6 +485,14 @@ func foldWithRecentAppOnOtherDesktop(_ probe: Probe, _ h: Harness) async {
         h.result.notes["skipped"] = "no Finder window opened"; await cleanUp(); return
     }
     await pause(0.5)
+    if textEditHereToo {
+        // 文本编辑的这扇窗口在访达窗口上面、ProbeApp 下面：收起 ProbeApp 后，焦点交给它。
+        run("/usr/bin/open", ["-a", "TextEdit", hereNote.path])
+        guard await eventually(8, { appWindow(textEdit, titlePrefix: "windowshade-e12-here") != nil }) else {
+            h.result.violations.append("\(id): setup: TextEdit did not open a note on the first desktop"); await cleanUp(); return
+        }
+        await pause(0.5)
+    }
     guard let window = probe.window() else {
         h.result.violations.append("setup: no Probe window"); await cleanUp(); return
     }
@@ -494,13 +510,13 @@ func foldWithRecentAppOnOtherDesktop(_ probe: Probe, _ h: Harness) async {
             && NSWorkspace.shared.frontmostApplication?.bundleIdentifier == textEdit
     }
     guard textEditInFront else {
-        h.result.violations.append("E12: setup: TextEdit did not open the note on the second desktop"); await cleanUp(); return
+        h.result.violations.append("\(id): setup: TextEdit did not open the note on the second desktop"); await cleanUp(); return
     }
     await pause(0.5)
     // 3. 回到这个桌面：系统激活这个桌面最上面那扇窗口的应用程序，也就是 ProbeApp。
     await switchDesktop(right: false)
     guard activeSpaceID() == home else {
-        h.result.violations.append("E12: setup: Control-Left Arrow did not return to the first desktop"); await cleanUp(); return
+        h.result.violations.append("\(id): setup: Control-Left Arrow did not return to the first desktop"); await cleanUp(); return
     }
     _ = await eventually(2) { frontmostPID() == probe.pid }
     h.result.notes["frontmostAfterReturn"] = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
@@ -524,9 +540,11 @@ func foldWithRecentAppOnOtherDesktop(_ probe: Probe, _ h: Harness) async {
     h.result.notes["frontmostSequence"] = frontApps
     h.result.notes["desktops"] = "home=\(home) other=\(other)"
     h.expect(h.logLines().contains { $0.contains(">>> shade") }, "setup: the Probe window did not fold")
-    h.expect(jumpedTo == nil, "E12: folding the only Probe window switched the desktop (\(home) → \(jumpedTo ?? 0))")
-    h.expect(NSWorkspace.shared.frontmostApplication?.bundleIdentifier != textEdit,
-             "E12: TextEdit on the other desktop became the active app after folding (\(frontApps.joined(separator: " → ")))")
+    h.expect(jumpedTo == nil, "\(id): folding the only Probe window switched the desktop (\(home) → \(jumpedTo ?? 0))")
+    if !textEditHereToo {
+        h.expect(NSWorkspace.shared.frontmostApplication?.bundleIdentifier != textEdit,
+                 "E12: TextEdit on the other desktop became the active app after folding (\(frontApps.joined(separator: " → ")))")
+    }
     // 5. 展开窗口，关掉场景打开的窗口，删掉临时文件。
     await returnToDesktop(home)
     if let strip = stripFrames().first {
@@ -608,6 +626,9 @@ let systemScenarios: [Scenario] = [
     },
     Scenario(id: "E12", title: "别的桌面上有最近用过的应用程序时，收起只有一扇窗口的应用程序：不切换桌面", options: []) { probe, h in
         await foldWithRecentAppOnOtherDesktop(probe, h)
+    },
+    Scenario(id: "E12-both", title: "接手焦点的应用程序在两个桌面上都有窗口，最近用过的在别的桌面上：收起后不切换桌面", options: []) { probe, h in
+        await foldWithRecentAppOnOtherDesktop(probe, h, textEditHereToo: true)
     },
     Scenario(id: "E05", title: "收起后切换深色、浅色外观", options: []) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }
