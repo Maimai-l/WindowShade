@@ -685,10 +685,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
 
+    /// 有窗口收起着时先展开全部，等各应用程序队列上排着的放回做完再退出，最多等 2 秒（无响应的应用程序不让退出卡住）。
+    /// 不在主线程上等：放回的一部分要回到主线程做，主线程等着，就只能等满 2 秒
+    /// （用户的 macOS 14.5 本机运行，8e7e5c1，场景 L01：退出时主线程停了 2026 毫秒）。
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !shaded.isEmpty else { return .terminateNow }
+        restoreAll()
+        let restorer = windowRestorer
+        DispatchQueue.global(qos: .userInitiated).async {
+            if !restorer.waitForQueuedWork(timeout: 2) { wlog("quit: some windows were still being restored after 2 s") }
+            DispatchQueue.main.async { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ note: Notification) {
         restoreAll()
-        // 放回在各应用程序的队列上做：等已经排着的做完再退出，最多 2 秒（无响应的应用程序不让退出卡住）。
-        if !windowRestorer.waitForQueuedWork(timeout: 2) { wlog("quit: some windows were still being restored after 2 s") }
         reconcileTimer?.invalidate()
         reconcileTimer = nil
         if let mouseDownMonitor {
@@ -723,8 +735,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         unshade(CGWindowID(n.uint32Value))
     }
 
+    /// 展开全部窗口、等放回做完都在 applicationShouldTerminate 里做。
     @objc func quit() {
-        restoreAll()
         NSApp.terminate(nil)
     }
 
