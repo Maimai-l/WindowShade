@@ -82,6 +82,27 @@ extension GlanceController {
         controller.takeOverUnhiddenSessions(for: active.pid) { restored.append($0) }
         precondition(restored == [id], "User takeover restores exactly once")
 
+        // 按下卷帘条时，看一眼为了显示画面临时取消隐藏的应用程序要马上藏回去，画面留着。
+        // 按住卷帘条切桌面时，应用程序不能还显示着（2026-10-19 CI 场景 S6-carry-sip，56ae7e5：
+        // 按下后 585 毫秒才藏回去）。
+        let pressed = install()
+        pressed.stage = .shown
+        pressed.frontmostBeforeUnhide = 999
+        pressed.unhideAt = 1
+        pressed.unhiddenAt = 2
+        controller.stripPressed(id)
+        precondition(pressed.rehiddenAt != nil, "Pressing the strip hides the temporarily revealed app again")
+        precondition(controller.sessions[id] === pressed && pressed.stage == .shown,
+                     "Pressing the strip keeps the glance picture")
+        precondition(pressed.stripClicked, "After a press the glance does not reveal the app again")
+        controller.finish(pressed, reason: "test-cleanup")
+        // 没有取消隐藏过的看一眼：按下不做隐藏。
+        let snapshotOnly = install()
+        snapshotOnly.stage = .shown
+        controller.stripPressed(id)
+        precondition(snapshotOnly.rehiddenAt == nil)
+        controller.finish(snapshotOnly, reason: "test-cleanup")
+
         // A source not yet temporarily revealed has no ownership to transfer.
         let preparing = install()
         controller.takeOverUnhiddenSessions(for: preparing.pid) { restored.append($0) }
