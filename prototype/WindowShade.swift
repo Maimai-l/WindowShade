@@ -197,6 +197,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var carryRevealHolds: Set<CGWindowID> = []
     /// 这次运行里原窗口没移过去的收起方式（见 App/CarryToDesktop.swift 和 Domain/DesktopCarry.swift 的 carryDecision）。
     var carryFailedHideMethods: Set<HideMethod> = []
+    /// 正在收起、收起后要交接焦点的窗口：它的卷帘条在这期间有没有被按下（见 StripPressFlag）。
+    var stripPressFlags: [CGWindowID: StripPressFlag] = [:]
     // 记下菜单里指针停在哪一项：截图要异步等，结果回来时指针已经移开，就不再弹出不相干窗口的预览。
     var menuPreviewHoverID: CGWindowID?
     var menuPreviewAnchor: NSRect?

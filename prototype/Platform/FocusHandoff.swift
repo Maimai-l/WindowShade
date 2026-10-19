@@ -43,6 +43,8 @@ enum FocusHandoffResult: Equatable, Sendable {
     case otherApp(pid: pid_t)
     /// 当前桌面上没有可以接收焦点的窗口。
     case nowhere
+    /// 收起过程中用户已经按下了卷帘条：焦点在卷帘条上，不交接。
+    case keptOnStrip
 
     /// 交出焦点之后，隐藏整个应用程序不会让系统切换桌面。
     var appHideSafe: Bool { self != .nowhere }
@@ -59,6 +61,27 @@ struct FocusHandoffRequest: Sendable {
     /// 已被 WindowShade 收起的窗口：停在屏幕角落时还露出 1 像素，算在屏幕上，但不能接收焦点
     /// （交给它，它成了当前窗口，应用程序下次被激活时系统把它拉回屏幕内；场景 A37）。
     var foldedIDs: Set<CGWindowID> = []
+    /// 收起过程中卷帘条是否被按下过（见 StripPressFlag）。
+    var stripPressed: StripPressFlag? = nil
+}
+
+/// 收起过程中卷帘条是否被按下过。按下在主线程上记，交接焦点在后台队列上读，所以加锁。
+/// 用户已经在点卷帘条时还把焦点交给同一应用程序的其他窗口，那扇窗口会被带到前面盖住卷帘条，
+/// 双击的第二下就落在它上面（2026-10-19 CI 场景 A32，4dc0853：按下卷帘条 28 毫秒后交接了焦点）。
+final class StripPressFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pressed = false
+
+    init() {}
+
+    func set() {
+        lock.lock(); pressed = true; lock.unlock()
+    }
+
+    var isSet: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return pressed
+    }
 }
 
 struct FocusHandoff: Sendable {
@@ -73,6 +96,10 @@ struct FocusHandoff: Sendable {
     /// 依据：用户的 macOS 14.5 本机运行（4f1a815），见 docs/testing.md 第 5 节。
     /// 只有隐藏之前、在后台队列上交接的调用方传 true；隐藏之后才交接或在主线程上交接的不等。
     func handOff(_ request: FocusHandoffRequest, waitForHeir: Bool = false) -> FocusHandoffResult {
+        if request.stripPressed?.isSet == true {
+            control.log("focus: the strip was pressed during the fold; keeping the focus on it id=\(request.id)")
+            return .keptOnStrip
+        }
         guard request.frontmostPID == request.pid || request.frontmostPID == request.selfPID else {
             return .notFrontmost
         }
