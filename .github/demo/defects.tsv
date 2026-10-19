@@ -44,3 +44,4 @@ carried-into-full-screen	a0a3612	S6-carry-fullscreen	^S6-carry-fullscreen: the s
 # 那一条的有效性由 tests/run-lint-validity.sh 检查。
 # settings-login-item-stall	d910ac1	C15	^I6:	——见 docs/testing.md 第 5 节 2026-10-08 设置窗口一行
 window-without-title-bar-folded	4ab6982	X13,X14	^X1[34]: WindowShade folded
+painted-top-bar-cut	fd67b75	X15	^X15: the strip is
