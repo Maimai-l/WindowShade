@@ -424,6 +424,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         if event.type == .leftMouseUp, ignoreNextMouseUp {
             ignoreNextMouseUp = false
             wlog("strip: mouse up after a system drag window=\(windowNumber)")
+            SystemStripDrag.released(self, with: event, pressPoint: pressPoint)
             return
         }
         // 系统拖动期间，拖动事件如果还发过来，不交给内容视图，免得它再自己移一次卷帘条。
@@ -459,12 +460,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
             pressOnResizeEdge = styleMask.contains(.resizable)
                 && (pressPoint.x < Self.resizeEdge || pressPoint.x > frame.width - Self.resizeEdge)
             onPress?()
-            if SystemStripDrag.isEnabled, event.clickCount == 1, !pressOnResizeEdge {
-                // 先交给系统拖动，再照常处理按下（卷帘条成为当前窗口）。反过来做，拖动要等卷帘条成为当前窗口以后才开始，
-                // a0a3612 的本机录像里晚了 179 毫秒。performDrag 立刻返回，系统在后台拖。
-                potentialWindowDrag = false
-                ignoreNextMouseUp = true
-                SystemStripDrag.start(self, with: event) { [weak self] moved in
+            // 先交给系统拖动，再照常处理按下（卷帘条成为当前窗口）。反过来做，拖动要等卷帘条成为当前窗口以后才开始，
+            // a0a3612 的本机录像里晚了 179 毫秒。performDrag 立刻返回，系统在后台拖。
+            if SystemStripDrag.isEnabled, event.clickCount == 1, !pressOnResizeEdge,
+               SystemStripDrag.start(self, with: event, ended: { [weak self] moved in
                     guard let self else { return }
                     self.isHeldByPointer = false
                     if moved {
@@ -474,7 +473,9 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                     } else {
                         (self.contentView as? TitleStripView)?.onClick?()
                     }
-                }
+               }) {
+                potentialWindowDrag = false
+                ignoreNextMouseUp = true
                 super.sendEvent(event)
                 return
             }
@@ -549,7 +550,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
 /// 拖卷帘条交给系统（NSWindow.performDrag）：拖着卷帘条按 Control-左右方向键时，系统像拖普通窗口一样带着它切桌面，
 /// 跳过全屏应用程序的桌面。WindowShade 自己逐帧移动时，系统不知道在拖窗口，会停在全屏应用程序的桌面上（用户 2026-10-19 指出）。
 /// 偏好 WindowShadeStripDragByHand 为 true 时，照旧由 WindowShade 自己逐帧移动（stripOrigin）。
-/// 松开时调用 ended：卷帘条动过是拖动，没动过是单击。系统拖动时，松开事件可能不再发给卷帘条，所以按鼠标键的状态判断松开。
+/// 松开时调用 ended：卷帘条动过是拖动，没动过是单击。松开事件一般照常送到卷帘条（a0a3612 本机日志），由它结束拖动；
+/// 送不到时按鼠标键的状态判断松开。
 @MainActor final class SystemStripDrag {
     static var isEnabled: Bool { !UserDefaults.standard.bool(forKey: "WindowShadeStripDragByHand") }
     private static var running: [SystemStripDrag] = []
@@ -559,6 +561,8 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     private let wasMovable: Bool
     private let ended: (_ moved: Bool) -> Void
     private var timer: Timer?
+    private var done = false
+    private var releasedAt: CFAbsoluteTime?
 
     private init(window: NSWindow, ended: @escaping (_ moved: Bool) -> Void) {
         self.window = window
@@ -567,49 +571,77 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         self.ended = ended
     }
 
-    static func start(_ window: NSWindow, with event: NSEvent, ended: @escaping (_ moved: Bool) -> Void) {
+    /// 交给系统拖动。鼠标键已经松开时不交（返回 false），由调用方照原来的方式处理单击、双击：
+    /// 双击时 AppKit 会把第二次按下再送一遍，那时鼠标键早已松开，这一份事件带的指针位置也不对（b7a43f8 的 CI 场景 A26）。
+    static func start(_ window: NSWindow, with event: NSEvent, ended: @escaping (_ moved: Bool) -> Void) -> Bool {
+        guard NSEvent.pressedMouseButtons & 1 != 0 else { return false }
         let drag = SystemStripDrag(window: window, ended: ended)
         let started = CFAbsoluteTimeGetCurrent()
         // 系统拖动时，按交给它以后指针移过的距离移动卷帘条。主线程处理到这次按下时，指针可能已经移开了一段，先把卷帘条挪过这一段；
-        // 不然整段拖动都落后这么多，松开后卷帘条也不在松开时指针所在的位置（a0a3612 本机录像：拖动中落后 37 点，松开后差 32 点）。
+        // 不然整段拖动都落后这么多（a0a3612 本机录像：拖动中落后 37 点）。超过 maxCatchUp 的不补，当作位置读错了。
         var caughtUp = CGPoint.zero
-        if let pressedAt = event.cgEvent?.location, let now = CGEvent(source: nil)?.location {
-            caughtUp = CGPoint(x: now.x - pressedAt.x, y: now.y - pressedAt.y)
-            if abs(caughtUp.x) > 0.5 || abs(caughtUp.y) > 0.5 {
-                let origin = window.frame.origin
-                window.setFrameOrigin(NSPoint(x: origin.x + caughtUp.x, y: origin.y - caughtUp.y))
-            }
+        let pressedAt = window.convertPoint(toScreen: event.locationInWindow)
+        let now = NSEvent.mouseLocation
+        let delta = CGPoint(x: now.x - pressedAt.x, y: now.y - pressedAt.y)
+        if hypot(delta.x, delta.y) > 0.5, hypot(delta.x, delta.y) <= maxCatchUp {
+            let origin = window.frame.origin
+            window.setFrameOrigin(NSPoint(x: origin.x + delta.x, y: origin.y + delta.y))
+            caughtUp = delta
         }
         window.isMovable = true
         window.performDrag(with: event)
-        let pressed = NSEvent.pressedMouseButtons & 1 != 0
         wlog("strip: system drag window=\(window.windowNumber) returnedAfter=\(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms "
-             + "stillPressed=\(pressed) caughtUp=(\(Int(caughtUp.x)),\(Int(caughtUp.y)))")
-        guard pressed else {
-            // 已经松开了（很快的单击）：等这次按下处理完、卷帘条成为当前窗口之后，再判断是单击还是拖动。
-            DispatchQueue.main.async { MainActor.assumeIsolated { drag.finish() } }
-            return
-        }
+             + "caughtUp=(\(Int(caughtUp.x)),\(Int(caughtUp.y))) pointerMovedBeforeDrag=(\(Int(delta.x)),\(Int(delta.y)))")
         running.append(drag)
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak drag] _ in
             MainActor.assumeIsolated { drag?.poll() }
         }
         drag.timer = timer
         RunLoop.main.add(timer, forMode: .common)
+        return true
+    }
+    static let maxCatchUp: CGFloat = 200
+
+    /// 松开事件送到了卷帘条：先按松开事件的指针位置和按下时的抓点放准卷帘条，再结束这次拖动。
+    /// 系统拖动从它处理到的那一刻的指针位置跟起，松开时差几点（b7a43f8：本机 4 点，CI 34 点）。
+    /// 放的距离超过 maxCatchUp 的不放，当作位置读错了。
+    static func released(_ window: NSWindow, with event: NSEvent, pressPoint: NSPoint) {
+        guard let drag = running.first(where: { $0.window === window }) else { return }
+        if let target = stripOrigin(at: event, pressPoint: pressPoint) {
+            let origin = window.frame.origin
+            let off = hypot(target.x - origin.x, target.y - origin.y)
+            if off > 0.5, off <= maxCatchUp {
+                window.setFrameOrigin(target)
+                wlog("strip: placed at the release point window=\(window.windowNumber) moved=\(Int(target.x - origin.x)),\(Int(target.y - origin.y))")
+            }
+        }
+        drag.finish()
     }
 
+    /// 鼠标键松开后，先等 0.1 秒松开事件（它带着松开时的指针位置，见 released）；等不到再结束。
     private func poll() {
-        guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
-        finish()
+        guard NSEvent.pressedMouseButtons & 1 == 0 else {
+            releasedAt = nil
+            return
+        }
+        let now = CFAbsoluteTimeGetCurrent()
+        guard let releasedAt else {
+            self.releasedAt = now
+            return
+        }
+        if now - releasedAt >= 0.1 { finish() }
     }
 
     private func finish() {
+        // 松开事件和定时检查都可能先到：只结束一次。
+        guard !done else { return }
+        done = true
         timer?.invalidate()
         timer = nil
         Self.running.removeAll { $0 === self }
         guard let window else { return }
         window.isMovable = wasMovable
-        let moved = window.frame.origin != startOrigin
+        let moved = hypot(window.frame.origin.x - startOrigin.x, window.frame.origin.y - startOrigin.y) > 0.5
         wlog("strip: system drag ended window=\(window.windowNumber) moved=\(moved)")
         ended(moved)
     }
@@ -826,8 +858,7 @@ final class TitleStripView: NSImageView {
         onPress?()
         // 放在 NativeProxyOverlayWindow 里时由窗口交给系统拖动，这里不再做。
         if SystemStripDrag.isEnabled, event.clickCount == 1, let window, !(window is NativeProxyOverlayWindow) {
-            ignoreNextMouseUp = true
-            SystemStripDrag.start(window, with: event) { [weak self] moved in
+            ignoreNextMouseUp = SystemStripDrag.start(window, with: event) { [weak self] moved in
                 guard let self else { return }
                 if moved {
                     if let window = self.window { self.onMoveEnded?(window.frame) }
@@ -845,6 +876,7 @@ final class TitleStripView: NSImageView {
     override func mouseUp(with event: NSEvent) {
         if ignoreNextMouseUp {
             ignoreNextMouseUp = false
+            if let window { SystemStripDrag.released(window, with: event, pressPoint: dragOffset) }
             return
         }
         if didDrag {
