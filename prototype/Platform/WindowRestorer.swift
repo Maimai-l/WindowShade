@@ -147,6 +147,16 @@ final class WindowRestorer: Sendable {
         return window
     }
 
+    /// 在应用程序自己的队列上最小化这扇窗口，排在已经入队的放回、带到最前之后。
+    /// 三击标题栏是先展开再做系统动作：展开时安排的“带到最前”可能已经排进队列，最小化在主线程上直接做的话，
+    /// 那次“带到最前”会在最小化之后执行，把窗口拉回来（2026-10-19 CI 场景 A08，72a2e77）。
+    func minimize(_ window: WindowHandle, pid: pid_t) {
+        run(pid: pid) { [control] in
+            control.setMinimized(window, true)
+            control.log("titlebar-triple-click: minimized on the app queue pid=\(pid)")
+        }
+    }
+
     /// 把应用程序和这扇窗口带到最前。应用程序已在最前时不再激活：连续激活会反复重启菜单栏的交叉淡入，
     /// 可能把两套菜单叠印留在屏幕上；这时只取消隐藏（隐藏后恢复的路径需要），再升起、聚焦窗口。
     func bringToFront(_ window: WindowHandle, pid: pid_t) {

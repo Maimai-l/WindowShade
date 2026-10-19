@@ -434,12 +434,15 @@ extension AppDelegate {
             // 缩放按钮和直接设位置大小都没成：不做，不合成双击。
             wlog("titlebar-triple-click: zoom unavailable source=\(source) id=\(id)")
         case .minimize:
-            let err = setAXMinimizedReturningError(win, true)
-            if err == .success {
-                wlog("titlebar-triple-click: AX minimize source=\(source) id=\(id)")
+            // 在这个应用程序的队列上做，排在展开时已经入队的“带到最前”之后（见 WindowRestorer.minimize）。
+            var pid: pid_t = 0
+            if AXUIElementGetPid(win, &pid) == .success {
+                windowRestorer.minimize(WindowHandle(ax: win), pid: pid)
+                wlog("titlebar-triple-click: AX minimize queued source=\(source) id=\(id)")
                 break
             }
-            wlog("titlebar-triple-click: AX minimize failed source=\(source) id=\(id) err=\(err)")
+            let err = setAXMinimizedReturningError(win, true)
+            wlog("titlebar-triple-click: AX minimize source=\(source) id=\(id) err=\(err)")
         case .none:
             wlog("titlebar-triple-click: system none source=\(source) id=\(id)")
         }
