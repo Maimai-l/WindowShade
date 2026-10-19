@@ -274,7 +274,8 @@ func carryStripPastFullScreenDesktop(_ probe: Probe, _ h: Harness) async {
     // 在这个桌面上开一个文本编辑的空文稿，设成全屏：系统把全屏应用程序的桌面放在这个桌面右边。
     let textEdit = "com.apple.TextEdit"
     let textEditWasRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: textEdit).isEmpty
-    // 用 open 打开一个空文稿，不用 AppleScript：AppleScript 控制文本编辑要用户授权，CI 上会弹出授权框盖住窗口（a0a3612）。
+    // 在临时目录写一个空文件，用 open 让文本编辑打开它，不用 AppleScript：AppleScript 控制文本编辑要用户授权，
+    // CI 上会弹出授权框，盖住要测的窗口（a0a3612）。
     let note = FileManager.default.temporaryDirectory.appendingPathComponent("S6 full screen.txt")
     try? Data().write(to: note)
     run("/usr/bin/open", ["-a", "TextEdit", note.path])

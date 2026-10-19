@@ -323,15 +323,16 @@ def strip_red(frames_patches, moves):
     The strip's red button moves with the strip; the red button of a window behind the strip stays where it
     is. Dragging the strip uncovers what was behind it: on the CI recording of 2026-10-19 (a5e17ba) a
     TextEdit window under the Finder strip showed its red button until TextEdit redrew the window as
-    inactive. In each frame the strip's red button is taken as follows. Patches behind the strip's red
-    button of the frame before, against the way the pointer moved, are left out: the strip does not move
-    against the pointer. Of the rest, the one nearest to the expected position is taken: where the red
-    button was in the first frame with a red patch, moved as far as the pointer has moved since. Neither
-    rule is enough alone. The strip trails the pointer and then jumps to catch up (22 points in one frame on
-    the CI recording of a5e17ba, 44 points when the system takes over the drag on the CI recording of
-    a0a3612), and when the drag turns back, an uncovered red button can lie ahead of the strip. In the first
-    frame with a red patch it is the patch furthest right, because the drag starts to the right, away from
-    what it uncovers.
+    inactive. The strip's red button is taken as follows. In the first frame with a red patch, it is the
+    patch furthest right, because the drag starts to the right, away from what it uncovers. In each later
+    frame, patches more than 2 points behind where the strip's red button was in the frame before, counting
+    the way the pointer moved as forward, are left out, unless none would be left; when the pointer has not
+    moved, none are left out. Of the rest, the one nearest to the expected position is taken: where the red
+    button was in the first frame with a red patch, moved as far as the pointer has moved since.
+    Counting from the frame before is not enough: the strip trails the pointer and then jumps to catch up
+    (22 points in one frame on the CI recording of a5e17ba, 44 points when the system takes over the drag on
+    the CI recording of a0a3612). Taking the nearest patch alone is not enough: when the drag turns back, an
+    uncovered red button can lie ahead of the strip.
     """
     track, last, last_move, first, first_move = [], None, None, None, None
     for patches, move in zip(frames_patches, moves):
