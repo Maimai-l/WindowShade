@@ -4,22 +4,22 @@ import Cocoa
 
 extension AppDelegate {
     /// 卷帘条留在 target 桌面，原窗口用私有接口移过去，收起方式不变（见 Domain/DesktopCarry.swift 的 canCarry）。
-    /// 返回 false 表示原窗口跟不过去，由调用方把卷帘条挪回原桌面；已隐藏的应用程序总是返回 true，移不过去时稍后由 undoCarry 挪回。
+    /// 返回 false 表示原窗口跟不过去，由调用方把卷帘条挪回原桌面；已隐藏的应用程序要移时先返回 true，移不过去时稍后由 undoCarry 挪回。
     func carryFoldedWindow(id: CGWindowID, state: ShadeState, toSpace target: UInt64) -> Bool {
         guard canCarry(state.hide) else {
             wlog("space: carry not supported id=\(id) hide=\(state.hide.rawValue); moving the strip back")
             return false
         }
-        // 这台 Mac 上移过一次没移过去：不再试，免得每次切桌面都重来一遍（用户 macOS 15.2 日志，869b8b0：
-        // 按住卷帘条时移了又挪回、挪回又移，4 秒里试了 5 次，应用程序被反复显示、隐藏）。
+        // 这个系统版本上原窗口移过一次没移过去：不再试，免得每次切桌面都再移一次。
+        // 依据：用户 macOS 15.2 的日志（869b8b0），4 秒里试了 5 次，应用程序反复显示、隐藏。
         if carryFailedThisRun || PrivateSLSMemo.isIneffective("carry") {
             wlog("space: carry skipped id=\(id); moving another app's window to a desktop did not work on this Mac")
             return false
         }
         let mover = PrivateSLSWindowMover.shared
         let windowID = state.sourceWindowID
-        // 系统完整性保护开着时，设透明不起作用：临时取消隐藏应用程序时窗口会露出来，系统还会切到窗口所在的桌面
-        // （用户 macOS 15.2 录像，869b8b0）。这时不取消隐藏，卷帘条挪回原桌面。
+        // 系统完整性保护开着，或已记下设透明不起作用时，临时取消隐藏应用程序会让窗口露出来，系统还会切到窗口所在的桌面
+        // （用户 macOS 15.2 的录像，869b8b0）。这时不取消隐藏，卷帘条挪回原桌面。
         if state.hide == .hidden, SystemIntegrity.isEnabled || PrivateSLSMemo.isIneffective("alpha") {
             wlog("space: carry not possible id=\(id) hide=hidden: the app would have to be shown to move its window")
             return false
@@ -73,7 +73,7 @@ extension AppDelegate {
     private func finishCarriedHide(id: CGWindowID, pid: pid_t, windowID: CGWindowID, moved: Bool,
                                    original: UInt64?, attempt: Int) {
         let restorer = windowRestorer
-        // 用户在这期间展开了窗口：不再隐藏应用程序（用户 macOS 15.2 日志，869b8b0：展开后又被隐藏了 3 次）。
+        // 用户在这期间展开了窗口：不再隐藏应用程序，也不挪回卷帘条。依据：用户 macOS 15.2 的日志（869b8b0），展开后应用程序又隐藏了 3 次。
         let stillFolded = shaded[id] != nil
         if stillFolded, let app = runningApp(pid: pid), !app.isTerminated, !app.isHidden, attempt < 4 {
             wlog("space: app still shown after carrying id=\(id) attempt=\(attempt); hiding it again")
@@ -93,7 +93,7 @@ extension AppDelegate {
         if stillFolded, let original { undoCarry(id: id, backTo: original) }
     }
 
-    /// 本次运行内马上生效；同时按系统版本记进偏好，下次启动也不再试。
+    /// 记下原窗口没移过去：本次运行里马上不再试；同时按系统版本记进偏好，下次启动也不再试。
     private func rememberCarryFailed() {
         carryFailedThisRun = true
         PrivateSLSMemo.markIneffective("carry")

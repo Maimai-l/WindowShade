@@ -478,7 +478,7 @@ let baselineDefaults: [[String]] = [
     // 设置窗口打开上次看的那一页；1 是“卷帘”页，H01、H02 要改的开关都在这一页
     // （2026-10-17 本机运行：用户的 Mac 上次看的是“快捷键”页，H01、H02 没找到设置窗口）。
     ["WindowShade.Settings.LastViewedSection", "-integer", "1"],
-    // S6-carry-sip 改过的两项，换回默认：按实际的系统完整性保护判断；没有记下“移不了窗口”。
+    // 换回默认：按系统完整性保护的实际状态判断（S6-carry-sip 改过）；清掉记下的“没移过去”，免得 S6-carry 不再移窗口。
     ["WindowShadeAssumeSIPEnabled", "-bool", "false"],
     ["PrivateSLS.ineffective.carry", "-string", "none"],
 ]
