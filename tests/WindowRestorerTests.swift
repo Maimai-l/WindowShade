@@ -41,6 +41,16 @@ struct WindowRestorerTests {
             t.expect(control.calls == ["unhide", "moveToSpace(25)"] + geometry, "先取消隐藏、再把窗口移到卷帘条的桌面（实际 \(control.calls)）")
         }
 
+        t.section("L01", "退出前等已经排着的放回做完：每次调用等 0.1 秒的应用程序，两扇窗口都放回了再返回")
+        do {
+            let control = FakeRestoreControl(delay: 0.1)
+            let restorer = WindowRestorer(control: control)
+            for _ in 0..<2 { restorer.run(pid: 7) { _ = restorer.restore(request(.offscreen)) } }
+            let finished = restorer.waitForQueuedWork(timeout: 2)
+            t.expect(finished, "2 秒内做完")
+            t.expect(control.calls.count == geometry.count * 2, "两扇窗口都写回了（实际 \(control.calls.count) 次调用）")
+        }
+
         t.section("F2", "最小化的窗口：先找回窗口、解除最小化，再写回")
         do {
             let control = FakeRestoreControl()

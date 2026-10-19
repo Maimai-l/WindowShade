@@ -55,6 +55,9 @@ final class AppQueues: @unchecked Sendable {
             return queue
         }
     }
+
+    /// 目前所有应用程序的队列。
+    func all() -> [DispatchQueue] { lock.withLock { Array(queues.values) } }
 }
 
 final class WindowRestorer: Sendable {
@@ -74,6 +77,19 @@ final class WindowRestorer: Sendable {
             let value = work()
             callbackQueue.async { done(value) }
         }
+    }
+
+    /// 等各应用程序队列上已经排着的放回做完，最多等 timeout 秒；都做完了返回 true。
+    /// 退出前用：放回在各应用程序自己的队列上做，WindowShade 不等就退出，排在后面的窗口留在屏幕角落
+    /// （用户的 macOS 14.5 本机运行，5239473，场景 L01：两扇窗口只放回了一扇）。
+    @discardableResult
+    func waitForQueuedWork(timeout: TimeInterval) -> Bool {
+        let group = DispatchGroup()
+        for queue in queues.all() {
+            group.enter()
+            queue.async { group.leave() }
+        }
+        return group.wait(timeout: .now() + timeout) == .success
     }
 
     /// 只在应用程序自己的队列上执行，不回调。

@@ -242,6 +242,10 @@ open /Applications
 sleep 3
 record "$OUT/driver-finder.log" "$OUT/demo-finder.mp4" com.apple.finder 900 500 8
 RECORDING_LOG_END=$(wc -l < ~/Library/Logs/WindowShade/windowshade.log 2>/dev/null || echo 0)
+# 马上取出这一段：日志写到一定大小会换新文件，跑完全部场景再按行号取就取不到了
+# （用户的 macOS 14.5 本机运行，5239473：取出的这一段是空的，逐帧检查报找不到展开记录）。
+sed -n "$(( RECORDING_LOG_START + 1 )),${RECORDING_LOG_END}p" ~/Library/Logs/WindowShade/windowshade.log \
+  > "$OUT/windowshade-recordings.log" 2>/dev/null || true
 
 # 场景 E13：关闭一个收起的、有未保存内容的文本编辑窗口（2026-10-08 曾让整台 Mac 不响应输入）。
 # 驱动程序自己新建文档、打字、收起、点卷帘条上的关闭按钮、在“是否保存”里选删除，并不停地发探测点击。
@@ -449,9 +453,6 @@ SCENARIO_RESULTS+=("$OUT/scenarios-noscreen.json" "$OUT/scenarios-noax.json")
 fi
 
 cp ~/Library/Logs/WindowShade/windowshade.log "$OUT/windowshade.log" 2>/dev/null || true
-if $RECORDINGS; then
-  sed -n "$(( ${RECORDING_LOG_START:-0} + 1 )),$(( ${RECORDING_LOG_END:-0} ))p" "$OUT/windowshade.log" > "$OUT/windowshade-recordings.log"
-fi
 collect_crashes
 pgrep -x WindowShade >/dev/null || { echo "WindowShade exited during the recording"; exit 1; }
 grep -E "tap|>>> shade|corner|minimized|overlay|glance|verification|space:|screen:|capture full|titlebar" "$OUT/windowshade.log" | tail -80 || true

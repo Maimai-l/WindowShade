@@ -687,6 +687,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ note: Notification) {
         restoreAll()
+        // 放回在各应用程序的队列上做：等已经排着的做完再退出，最多 2 秒（无响应的应用程序不让退出卡住）。
+        if !windowRestorer.waitForQueuedWork(timeout: 2) { wlog("quit: some windows were still being restored after 2 s") }
         reconcileTimer?.invalidate()
         reconcileTimer = nil
         if let mouseDownMonitor {
