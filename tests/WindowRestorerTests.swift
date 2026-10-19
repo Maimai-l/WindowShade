@@ -51,6 +51,17 @@ struct WindowRestorerTests {
             t.expect(control.calls.count == geometry.count * 2, "两扇窗口都放回了（实际 \(control.calls.count) 次调用）")
         }
 
+        t.section("A08", "三击标题栏最小化：排在已经入队的“带到最前”之后执行，不会被它拉回来（2026-10-19 CI 场景 A08，72a2e77）")
+        do {
+            let control = FakeRestoreControl(delay: 0.05)
+            let restorer = WindowRestorer(control: control)
+            let window = request(.hidden).window
+            restorer.run(pid: 7) { restorer.bringToFront(window, pid: 7) }
+            restorer.minimize(window, pid: 7)
+            _ = restorer.waitForQueuedWork(timeout: 2)
+            t.expect(control.calls.last == "minimized=true", "最小化在最后（实际 \(control.calls)）")
+        }
+
         t.section("F2", "最小化的窗口：先找回窗口、解除最小化，再写回")
         do {
             let control = FakeRestoreControl()
