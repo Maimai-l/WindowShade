@@ -148,6 +148,14 @@ enum TapHelper {
         tapPort = tap
         CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        // 系统在回调超时或输入过多时会停用钩子，有时不发 tapDisabledBy* 事件，钩子从此收不到点击：
+        // 每 5 秒查一次，关了就重新打开（上游 surfine/WindowShade 31047b0）。
+        let watch = Timer(timeInterval: 5, repeats: true) { _ in
+            guard let tap = TapHelper.tapPort, !CGEvent.tapIsEnabled(tap: tap) else { return }
+            CGEvent.tapEnable(tap: tap, enable: true)
+            TapHelper.say("tap: re-enabled after the system turned it off without an event")
+        }
+        RunLoop.main.add(watch, forMode: .common)
         say("ready pid=\(getpid())")
         withExtendedLifetime(parentWatch) { CFRunLoopRun() }
         exit(0)
