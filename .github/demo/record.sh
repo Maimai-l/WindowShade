@@ -322,7 +322,7 @@ if [ -n "$SHARD" ]; then
 fi
 
 if [ -n "$ONLY" ]; then
-  # COMPAT- 场景要用别家的应用程序：只在 CI 的临时虚拟机上装，装不上就跳过（场景记一条 skipped）。
+  # COMPAT- 场景要用其他开发者的应用程序：只在 CI 的临时虚拟机上装，装不上就跳过（场景记一条 skipped）。
   if [ "$LOCAL" != "1" ] && [[ ",$ONLY," == *",COMPAT-"* ]]; then
     echo "==> install apps for the COMPAT scenarios"
     export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1

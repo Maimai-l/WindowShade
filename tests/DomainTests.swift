@@ -72,11 +72,11 @@ struct DomainTests {
         // 缺陷回归（CI 场景 A11）：应用程序弹出独立的模态提示框时，原窗口照样收起，焦点交给了提示框。
         t.expect(decide(FoldFacts(appHasModalDialog: true)) == .reject(.modalDialog),
                  "应用程序弹出模态提示框时不收起")
-        // 缺陷回归（2026-10-19 用户实测）：全屏窗口不收起时，菜单栏上只说“这个窗口不能收起”，不说原因。
+        // 缺陷回归（2026-10-19 用户实测）：修复之前，全屏窗口不收起时菜单栏上只说“这个窗口不能收起”，看不出原因。
         t.expect(FoldRejection.fullScreen.notice == "全屏时不能收起", "全屏窗口不收起时，提示说的是全屏")
         let rejections: [FoldRejection] = [.offSpace, .fullScreen, .minimized, .hasSheet, .modalDialog,
                                            .quickLookWithoutFile, .adobePanel("")]
-        t.expect(rejections.allSatisfy { !$0.notice.contains("这个窗口") }, "每个不收起的原因都有自己的提示，不用“这个窗口不能收起”")
+        t.expect(rejections.allSatisfy { !$0.notice.contains("这个窗口") }, "提示里不出现“这个窗口”")
         t.expect(Set(rejections.map(\.notice)).count == rejections.count, "不同的原因提示不同")
         t.expect(rejections.allSatisfy { $0.notice.count <= 14 }, "提示不超过 14 个字，菜单栏上显示得下")
         if case .reject = decide(FoldFacts(adobeKind: .floatingPanel)) {

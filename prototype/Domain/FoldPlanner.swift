@@ -51,7 +51,7 @@ struct FoldSettings: Sendable {
     var screenCaptureKitAvailable = true
 }
 
-/// 不收起的原因。log 写进日志；notice 是菜单栏上给用户看的那句话，说用户能看到的情况，不说“这个窗口”。
+/// 不收起的原因。log 写进日志。notice 显示在菜单栏上，说用户看得到的原因，不超过 14 个字，多了会被截断。
 enum FoldRejection: Error, Equatable, Sendable {
     case offSpace
     case fullScreen
@@ -75,12 +75,12 @@ enum FoldRejection: Error, Equatable, Sendable {
 
     var notice: String {
         switch self {
-        case .offSpace: return "窗口不在当前桌面上"
+        case .offSpace: return "窗口在屏幕外"
         case .fullScreen: return "全屏时不能收起"
         case .minimized: return "已最小化的窗口不能收起"
-        case .hasSheet: return "先回答窗口上的对话框"
-        case .modalDialog: return "先回答弹出的提示框"
-        case .quickLookWithoutFile: return "这个预览不能收起"
+        case .hasSheet: return "先关掉窗口上的对话框"
+        case .modalDialog: return "先关掉弹出的对话框"
+        case .quickLookWithoutFile: return "找不到快速查看的文件"
         case .adobePanel: return "浮动面板不能收起"
         }
     }

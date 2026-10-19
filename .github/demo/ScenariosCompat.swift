@@ -1,10 +1,10 @@
-// 别家应用程序的窗口：记下窗口顶部的样子和收起的结果，用来判断卷帘条从哪里切开、哪些窗口不该收起。
-// 这些应用程序由 record.sh 在 RECORD_PART 里点到 COMPAT- 场景时装上（Homebrew）。没装上的跳过。
+// 其他开发者的应用程序：记下窗口顶部的样子和收起的结果，用来判断卷帘条从哪里裁切、哪些窗口不该收起。
+// 这些应用程序在 RECORD_PART 的 only: 里列出 COMPAT- 场景时，由 record.sh 用 Homebrew 装上；没装上的场景跳过。
 
 import AppKit
 import ApplicationServices
 
-/// 一个辅助功能元素的角色、子角色、位置大小，写进日志。
+/// 把辅助功能元素的角色、子角色、位置大小和标题前 30 个字写成一行，供日志用。
 func axSummary(_ element: AXUIElement) -> String {
     let frame = axFrame(element).map { "(\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height)))" } ?? "-"
     let subrole = axString(element, kAXSubroleAttribute as String)
@@ -13,7 +13,7 @@ func axSummary(_ element: AXUIElement) -> String {
         + (title.isEmpty ? "" : " \"\(title)\"")
 }
 
-/// 窗口顶部 150 点以内的辅助功能元素，最多 300 个。
+/// 窗口顶部 150 点以内的辅助功能元素；最多查看 300 个。
 func axTopElements(_ window: AXUIElement, top: CGFloat) -> [String] {
     var lines: [String] = []
     var budget = 300
@@ -36,7 +36,7 @@ func axHasAttribute(_ element: AXUIElement, _ attribute: String) -> Bool {
     return AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success && value != nil
 }
 
-/// 记下一个应用程序所有窗口的信息和截图，再双击主窗口顶部看 WindowShade 怎么处理。
+/// 记下一个应用程序所有窗口的信息和截图，再双击最大那扇窗口的顶部，看 WindowShade 怎么处理。
 func compatDump(_ name: String, appPath: String, _ h: Harness) async {
     guard let bundleID = Bundle(path: appPath)?.bundleIdentifier else {
         h.result.notes["skipped"] = "\(appPath) is not installed"
@@ -49,7 +49,7 @@ func compatDump(_ name: String, appPath: String, _ h: Harness) async {
         return app != nil
     }
     guard let app else { h.expect(false, "\(name): did not start"); return }
-    await pause(15)   // 启动画面、登录提示、首次运行的说明
+    await pause(15)   // 等启动画面、登录提示和首次运行的说明出完
     let pid = app.processIdentifier
     let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
     var cgLines: [String] = []
@@ -79,7 +79,7 @@ func compatDump(_ name: String, appPath: String, _ h: Harness) async {
     h.result.notes["axWindows"] = axLines
     for line in cgLines + axLines { log("\(name): \(line)") }
 
-    // 最大的那扇窗口：双击顶部正中往下 12 点处，看 WindowShade 收没收、卷帘条多高。
+    // 最大的那扇窗口：双击顶部往下 12 点、正中附近的空白处，看 WindowShade 是否收起、卷帘条多高。
     guard let window = windows.max(by: { (axFrame($0)?.width ?? 0) * (axFrame($0)?.height ?? 0)
                                           < (axFrame($1)?.width ?? 0) * (axFrame($1)?.height ?? 0) }),
           let frame = axFrame(window) else { h.result.notes["fold"] = "no AX window"; return }
@@ -103,7 +103,7 @@ func compatDump(_ name: String, appPath: String, _ h: Harness) async {
     await pause(2)
 }
 
-/// WindowShade 自己的窗口（不限高度）：卷帘条可能比 stripFrames 认的 60 点高。
+/// WindowShade 自己的窗口，不限高度：其他开发者的应用程序的卷帘条可能高于 stripFrames 限定的 60 点。
 func compatStripWindows() -> [(id: Int, bounds: CGRect)] {
     guard let pid = windowShadePID(),
           let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
@@ -117,10 +117,10 @@ func compatStripWindows() -> [(id: Int, bounds: CGRect)] {
 }
 
 let compatScenarios: [Scenario] = [
-    Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，双击收起", options: [], group: "compat") { _, h in
+    Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，双击顶部看结果", options: [], group: "compat") { _, h in
         await compatDump("netease", appPath: "/Applications/NeteaseMusic.app", h)
     },
-    Scenario(id: "COMPAT-quickrecorder", title: "QuickRecorder：记下面板，双击顶部", options: [], group: "compat") { _, h in
+    Scenario(id: "COMPAT-quickrecorder", title: "QuickRecorder：记下各个面板，双击最大那扇的顶部", options: [], group: "compat") { _, h in
         await compatDump("quickrecorder", appPath: "/Applications/QuickRecorder.app", h)
     },
 ]

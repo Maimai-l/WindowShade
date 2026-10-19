@@ -213,7 +213,7 @@ extension AppDelegate {
         let pos = readout.pos
         let size = readout.size
         guard readout.isWindow else {
-            quietNotice("只有窗口能收起", log: "shade: reject non-window role=\(readout.role ?? "?") id=\(id)")
+            quietNotice("这里不能收起", log: "shade: reject non-window role=\(readout.role ?? "?") id=\(id)")
             return
         }
         let bundleID = appBundleID(pid: pid)
