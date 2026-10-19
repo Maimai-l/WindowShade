@@ -248,6 +248,120 @@ func carryStripToNextDesktop(_ probe: Probe, _ h: Harness) async {
     await returnToDesktop(home)
 }
 
+/// 桌面编号到类型：0 是普通桌面，4 是全屏应用程序占的桌面。
+func spaceTypes() -> [UInt64: Int] {
+    guard let cid = skyLightConnection(), let symbol = skyLightSymbol("SLSCopyManagedDisplaySpaces") else { return [:] }
+    typealias Copy = @convention(c) (Int32) -> Unmanaged<CFArray>?
+    guard let displays = unsafeBitCast(symbol, to: Copy.self)(cid)?.takeRetainedValue() as? [[String: Any]] else { return [:] }
+    var types: [UInt64: Int] = [:]
+    for space in displays.flatMap({ $0["Spaces"] as? [[String: Any]] ?? [] }) {
+        if let id = (space["ManagedSpaceID"] as? NSNumber)?.uint64Value { types[id] = space["type"] as? Int ?? -1 }
+    }
+    return types
+}
+
+/// S6-carry-fullscreen：原桌面右边紧挨着一个全屏应用程序的桌面时，按住卷帘条按 Control-右方向键。
+/// 拖着普通窗口按 Control-右方向键时，系统跳过全屏应用程序的桌面，直接到下一个普通桌面；拖着卷帘条也要这样：
+/// 屏幕不停在全屏应用程序的桌面上，卷帘条和原窗口都到下一个普通桌面。
+/// 先拿没收起的测试窗口试一次：系统对普通窗口也不跳过时（例如虚拟机上），记为跳过，不算失败。
+/// 依据：用户 macOS 15.2 的录像和日志（2026-10-18，869b8b0）：卷帘条被带进全屏应用程序的桌面（编号 25 至 30），
+/// 原窗口移不进去，卷帘条被挪回，屏幕来回切换。用户 2026-10-19 指出拖普通窗口时系统会跳过全屏应用程序的桌面。
+func carryStripPastFullScreenDesktop(_ probe: Probe, _ h: Harness) async {
+    let id = "S6-carry-fullscreen"
+    guard await ensureTwoDesktops(), let home = activeSpaceID() else {
+        h.result.notes["skipped"] = "this Mac has only one desktop and adding one failed"; return
+    }
+    // 在这个桌面上开一个文本编辑的空文稿，设成全屏：系统把全屏应用程序的桌面放在这个桌面右边。
+    let textEdit = "com.apple.TextEdit"
+    let textEditWasRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: textEdit).isEmpty
+    run("/usr/bin/osascript", ["-e", "tell application \"TextEdit\" to make new document", "-e", "tell application \"TextEdit\" to activate"])
+    await pause(1.5)
+    var fullScreenWindow: AXUIElement?
+    if let app = NSRunningApplication.runningApplications(withBundleIdentifier: textEdit).first {
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXFocusedWindowAttribute as CFString, &value)
+        if let value, CFGetTypeID(value) == AXUIElementGetTypeID() { fullScreenWindow = unsafeDowncast(value, to: AXUIElement.self) }
+    }
+    func cleanUp() async {
+        if let window = fullScreenWindow {
+            AXUIElementSetAttributeValue(window, "AXFullScreen" as CFString, kCFBooleanFalse)
+            await pause(2)
+            var close: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &close) == .success, let close,
+               CFGetTypeID(close) == AXUIElementGetTypeID() {
+                AXUIElementPerformAction(unsafeDowncast(close, to: AXUIElement.self), kAXPressAction as CFString)
+            }
+        }
+        if !textEditWasRunning {
+            NSRunningApplication.runningApplications(withBundleIdentifier: textEdit).forEach { $0.terminate() }
+        }
+        await pause(1)
+        await returnToDesktop(home)
+    }
+    guard let window = fullScreenWindow,
+          AXUIElementSetAttributeValue(window, "AXFullScreen" as CFString, kCFBooleanTrue) == .success else {
+        h.result.notes["skipped"] = "TextEdit could not go full screen"; await cleanUp(); return
+    }
+    await pause(2.5)
+    await returnToDesktop(home)
+    let types = spaceTypes()
+    guard activeSpaceID() == home, let row = desktopRows().first(where: { $0.contains(home) }),
+          let at = row.firstIndex(of: home), at + 2 < row.count, types[row[at + 1]] == 4, types[row[at + 2]] == 0 else {
+        h.result.notes["skipped"] = "the full-screen desktop is not between this desktop and the next one: \(desktopRows()) types=\(types)"
+        await cleanUp(); return
+    }
+    let next = row[at + 2]
+    h.result.notes["desktops"] = "home=\(home) fullScreen=\(row[at + 1]) next=\(next)"
+
+    // 先拿没收起的测试窗口：按住标题栏按 Control-右方向键，看系统是否跳过全屏应用程序的桌面；再按 Control-左方向键带回来。
+    NSRunningApplication(processIdentifier: probe.pid)?.activate()
+    await pause(0.5)
+    guard let frame = probe.window().flatMap(axFrame) else {
+        h.result.violations.append("\(id): setup: no test window"); await cleanUp(); return
+    }
+    let titleBar = CGPoint(x: frame.midX, y: frame.minY + 12)
+    await glide(to: titleBar, duration: 0.3)
+    await pause(0.3)
+    post(.leftMouseDown, at: titleBar)
+    await pause(0.4)
+    await switchDesktop(right: true)
+    let normalLanded = activeSpaceID()
+    await switchDesktop(right: false)
+    post(.leftMouseUp, at: titleBar)
+    await pause(1)
+    h.result.notes["normalWindow"] = "landed on \(normalLanded.map(String.init) ?? "?")"
+    guard normalLanded == next, activeSpaceID() == home else {
+        h.result.notes["skipped"] = "the system did not skip the full-screen desktop for a normal window either "
+            + "(landed on \(normalLanded.map(String.init) ?? "?"), now \(activeSpaceID().map(String.init) ?? "?"))"
+        await cleanUp(); return
+    }
+
+    guard await foldProbe(probe, h) != nil, let strip = stripFrames().first else { await cleanUp(); return }
+    let grab = CGPoint(x: strip.midX, y: strip.midY)
+    await glide(to: grab, duration: 0.3)
+    await pause(0.3)
+    post(.leftMouseDown, at: grab)
+    await pause(0.4)
+    await switchDesktop(right: true)
+    let landed = activeSpaceID()
+    post(.leftMouseUp, at: grab)
+    await pause(1.5)
+    h.expect(landed == next, "\(id): the screen stopped on \(landed.flatMap { types[$0] } == 4 ? "the full-screen app's desktop" : "desktop \(landed.map(String.init) ?? "?")") "
+             + "instead of the next desktop \(next)")
+    h.expect(activeSpaceID() == landed, "\(id): the desktop switched by itself after the strip was released (\(landed.map(String.init) ?? "?") → \(activeSpaceID().map(String.init) ?? "?"))")
+    if activeSpaceID() == next {
+        let carried = stripFrames().first
+        h.expect(carried != nil, "\(id): the strip did not come to the next desktop")
+        if let carried {
+            await doubleClick(at: CGPoint(x: carried.midX, y: carried.midY))
+            await pause(2.0)
+            h.expect(activeSpaceID() == next, "\(id): unfolding switched the desktop (\(next) → \(activeSpaceID().map(String.init) ?? "?"))")
+            h.expect(probeWindowOnThisDesktop(probe), "\(id): the window did not open on the next desktop")
+        }
+    }
+    await cleanUp()
+}
+
 /// S6-carry-sip：和 S6-carry 一样按住卷帘条切到右边的桌面，但让 WindowShade 当作系统完整性保护开着（用户的 Mac 开着，CI 的虚拟机关着）。
 /// 这时已隐藏的应用程序的窗口等展开时再移：按住切桌面时应用程序一直不显示，屏幕和卷帘条都留在右边的桌面；
 /// 展开后窗口在右边的桌面上，屏幕不切回原来的桌面。
@@ -615,6 +729,10 @@ let systemScenarios: [Scenario] = [
     },
     Scenario(id: "S6-carry", title: "按住卷帘条按 Control-右方向键：卷帘条留在右边的桌面，展开后窗口也在那里", options: []) { probe, h in
         await carryStripToNextDesktop(probe, h)
+    },
+    Scenario(id: "S6-carry-fullscreen", title: "右边紧挨着全屏应用程序的桌面时按住卷帘条按 Control-右方向键：和拖普通窗口一样跳过它，卷帘条和窗口到下一个桌面",
+             options: []) { probe, h in
+        await carryStripPastFullScreenDesktop(probe, h)
     },
     Scenario(id: "S6-carry-sip", title: "系统完整性保护开着时按住卷帘条切桌面：应用程序不显示，屏幕不自己切换桌面，展开后窗口在右边的桌面",
              options: [], changesSettings: true) { probe, h in
