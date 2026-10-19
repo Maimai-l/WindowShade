@@ -19,6 +19,8 @@ protocol RestoreControl: Sendable {
     func frame(_ window: WindowHandle) -> CGRect?
     func skyLightMove(id: CGWindowID, to point: CGPoint) -> Bool
     func skyLightSetAlpha(id: CGWindowID, _ alpha: Float) -> Bool
+    /// 把别的应用程序的窗口移到 space 桌面，移过去了返回 true（需求 S6）。
+    func moveToSpace(id: CGWindowID, space: UInt64) -> Bool
     func isFrontmost(pid: pid_t) -> Bool
     func activate(pid: pid_t)
     func raise(_ window: WindowHandle)
@@ -36,6 +38,8 @@ struct RestoreRequest: Sendable {
     let size: CGSize
     /// 用 SkyLight 设成透明前的透明度（hide 为 privateAlpha 时用）。
     let alpha: Float?
+    /// 取消隐藏后先把窗口移到这个桌面，再写回位置（hide 为 hidden、卷帘条被带到别的桌面时用）。
+    var moveToSpace: UInt64? = nil
 }
 
 /// 每个应用程序一条串行队列：对同一个应用程序的辅助功能调用依次执行，对不同应用程序的互不等待。
@@ -89,6 +93,10 @@ final class WindowRestorer: Sendable {
             control.log("restore: private SLS alpha back id=\(request.id) alpha=\(String(format: "%.2f", alpha)) ok=\(ok)")
         case .hidden:
             control.unhideApp(pid: request.pid)
+            if let space = request.moveToSpace {
+                let moved = control.moveToSpace(id: request.id, space: space)
+                control.log("restore: moved the window to the strip's desktop id=\(request.id) space=\(space) ok=\(moved)")
+            }
         case .minimized:
             // 隐藏、最小化之后原辅助功能元素可能失效（Safari 常见），先重新找回再解除最小化。
             control.setMinimized(control.resolve(request.window, id: request.id, pid: request.pid), false)

@@ -105,6 +105,13 @@ struct RestoreControlSystem: RestoreControl {
     }
     func skyLightMove(id: CGWindowID, to point: CGPoint) -> Bool { PrivateSLSWindowMover.shared.moveWindow(id: id, to: point) }
     func skyLightSetAlpha(id: CGWindowID, _ alpha: Float) -> Bool { PrivateSLSWindowMover.shared.setAlpha(id: id, alpha: alpha) }
+    func moveToSpace(id: CGWindowID, space: UInt64) -> Bool {
+        let mover = PrivateSLSWindowMover.shared
+        // 刚取消隐藏时窗口还没回到桌面上，查不到它在哪个桌面：最多等 0.5 秒。
+        for _ in 0..<25 where mover.windowSpace(id: id) == nil { Thread.sleep(forTimeInterval: 0.02) }
+        if mover.windowSpace(id: id) == space { return true }
+        return mover.moveOtherAppWindow(id: id, toSpace: space) != nil
+    }
     func isFrontmost(pid: pid_t) -> Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid }
     func activate(pid: pid_t) {
         guard let app = NSRunningApplication(processIdentifier: pid) else { return }

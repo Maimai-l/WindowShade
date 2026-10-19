@@ -249,7 +249,8 @@ func carryStripToNextDesktop(_ probe: Probe, _ h: Harness) async {
 }
 
 /// S6-carry-sip：和 S6-carry 一样按住卷帘条切到右边的桌面，但让 WindowShade 当作系统完整性保护开着（用户的 Mac 开着，CI 的虚拟机关着）。
-/// 这时 WindowShade 不移已隐藏的应用程序的窗口：应用程序一直不显示，屏幕留在右边的桌面，卷帘条回到原来的桌面，回去后照常展开。
+/// 这时已隐藏的应用程序的窗口等展开时再移：按住切桌面时应用程序一直不显示，屏幕留在右边的桌面，卷帘条留在右边的桌面；
+/// 展开后窗口在右边的桌面上，屏幕不切回原来的桌面。
 /// 依据：用户 macOS 15.2 的录像和日志（2026-10-18，869b8b0）：WindowShade 为了移窗口临时取消隐藏应用程序，窗口露了出来；
 /// 窗口没移过去，卷帘条挪回后又重新移，屏幕在几个桌面之间来回切换。
 func carryStripWithSIPEnabled(_ probe: Probe, _ h: Harness) async {
@@ -266,27 +267,41 @@ func carryStripWithSIPEnabled(_ probe: Probe, _ h: Harness) async {
     await pause(0.3)
     post(.leftMouseDown, at: grab)
     await pause(0.4)
+    // 从切桌面到松开后 1.5 秒，每 0.1 秒看一次应用程序有没有显示出来（共 3 秒）：
+    // 修复之前 WindowShade 在按住期间就取消隐藏，只在松开后看会漏掉。
+    let pid = probe.pid
+    let watcher = Task.detached { () -> Int in
+        var count = 0
+        for _ in 0..<30 {
+            if NSRunningApplication(processIdentifier: pid)?.isHidden == false { count += 1 }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return count
+    }
     await switchDesktop(right: true)
     let other = activeSpaceID()
-    // 松开后 1.5 秒里，每 0.1 秒看一次应用程序有没有显示出来。
-    var shown = 0
     post(.leftMouseUp, at: grab)
-    for _ in 0..<15 {
-        if NSRunningApplication(processIdentifier: probe.pid)?.isHidden == false || probeWindowOnThisDesktop(probe) { shown += 1 }
-        await pause(0.1)
-    }
+    await pause(1.5)
+    let shown = await watcher.value
     guard let other, other != home else {
         h.result.notes["skipped"] = "Control-Right Arrow did not switch desktops"
         await returnToDesktop(home)
         return
     }
-    h.expect(shown == 0, "S6-carry-sip: the app was shown while the strip was carried (\(shown) of 15 checks)")
+    h.expect(shown == 0, "S6-carry-sip: the app was shown while the strip was carried (\(shown) of 30 checks)")
     h.expect(activeSpaceID() == other, "S6-carry-sip: the desktop switched by itself (\(other) → \(activeSpaceID() ?? 0))")
-    h.expect(stripFrames().isEmpty, "S6-carry-sip: the strip stayed on the new desktop though the window cannot follow")
-    guard await returnToDesktop(home) else { return }
-    await pause(0.5)
-    h.expect(stripFrames().count == 1, "S6-carry-sip: the strip is not back on the original desktop")
-    await unfold(folded, probe, h)
+    let carried = stripFrames().first
+    h.expect(carried != nil, "S6-carry-sip: the strip did not stay on the new desktop")
+    if let carried {
+        await doubleClick(at: CGPoint(x: carried.midX, y: carried.midY))
+        await pause(2.0)
+        h.expect(activeSpaceID() == other, "S6-carry-sip: unfolding switched the desktop (\(other) → \(activeSpaceID() ?? 0))")
+        h.expect(probeWindowOnThisDesktop(probe), "S6-carry-sip: the window did not open on the new desktop")
+        await expectNoStrip(h, within: 3)
+    } else if await returnToDesktop(home) {
+        await unfold(folded, probe, h)
+    }
+    await returnToDesktop(home)
 }
 
 /// S6-carry-finder-sip：让 WindowShade 当作系统完整性保护开着，收起一扇访达窗口（访达不隐藏整个应用程序，窗口移到屏幕外），
@@ -583,7 +598,7 @@ let systemScenarios: [Scenario] = [
     Scenario(id: "S6-carry", title: "按住卷帘条按 Control-右方向键：卷帘条留在右边的桌面，展开后窗口也在那里", options: []) { probe, h in
         await carryStripToNextDesktop(probe, h)
     },
-    Scenario(id: "S6-carry-sip", title: "系统完整性保护开着时按住卷帘条切桌面：应用程序不显示，屏幕不自己切换桌面，卷帘条回原桌面",
+    Scenario(id: "S6-carry-sip", title: "系统完整性保护开着时按住卷帘条切桌面：应用程序不显示，屏幕不自己切换桌面，展开后窗口在新桌面",
              options: [], changesSettings: true) { probe, h in
         await carryStripWithSIPEnabled(probe, h)
     },

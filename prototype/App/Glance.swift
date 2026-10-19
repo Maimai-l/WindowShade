@@ -394,7 +394,7 @@ final class GlanceController {
         var backdropArea: NSRect?
         if (state.hide == .offscreen || state.hide == .privateOffscreen) && canRecord {
             source = .stream
-        } else if canRecord, Self.unhideForLiveEnabled, state.hide == .hidden, FastCapture.isAvailable,
+        } else if canRecord, Self.unhideForLiveEnabled, state.hide == .hidden, state.pendingSpaceID == nil, FastCapture.isAvailable,
                   !activatesOnUnhide.contains(state.bundleID),
                   framesAlmostEqual(card, original, tolerance: 0.5),
                   panel.insetBy(dx: -0.5, dy: -0.5).contains(original) {
@@ -419,7 +419,8 @@ final class GlanceController {
     /// 原窗口临时回到原处时，必须被卷帘条（标题栏）和面板（卡片 + 背景垫片）完全盖住。
     private func canUnhideUnderCover(state: ShadeState, strip: NSRect, card: NSRect,
                                      wanted: NSRect, panel: NSRect, realContent: NSRect) -> Bool {
-        guard Self.unhideForLiveEnabled, state.hide == .hidden, FastCapture.isAvailable,
+        // 窗口还在原来的桌面、要等展开时才移过来（pendingSpaceID）：不取消隐藏，免得窗口在原桌面上露出来。
+        guard Self.unhideForLiveEnabled, state.hide == .hidden, state.pendingSpaceID == nil, FastCapture.isAvailable,
               !activatesOnUnhide.contains(state.bundleID) else { return false }
         let original = cocoaFrame(fromAXPosition: state.originalPosition, size: state.originalSize)
         let stripAtOrigin = abs(strip.minX - original.minX) < 1 && abs(strip.maxY - original.maxY) < 1

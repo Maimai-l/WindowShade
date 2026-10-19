@@ -22,8 +22,9 @@ enum CarryDecision: Equatable, Sendable {
     case attempt
     /// 这种收起方式不跟过去（canCarry）。
     case skipUnsupported
-    /// 系统完整性保护开着时，已隐藏的应用程序的窗口：要移它得先取消隐藏应用程序，而这时设不了透明，窗口会露出来。
-    case skipNeedsUnhide
+    /// 系统完整性保护开着时，已隐藏的应用程序的窗口：现在移得先取消隐藏应用程序，而这时设不了透明，窗口会露出来。
+    /// 卷帘条留在新桌面，窗口等展开时再移：取消隐藏后、带到最前之前移过去，用户已经在新桌面上，看不到窗口在原桌面上出现。
+    case moveWhenUnfolding
     /// 这次运行里，同一种收起方式的窗口移过一次没移过去。
     case skipFailedBefore
 }
@@ -33,7 +34,7 @@ enum CarryDecision: Equatable, Sendable {
 func carryDecision(hide: HideMethod, systemIntegrityEnabled: Bool, failedBefore: Set<HideMethod>) -> CarryDecision {
     guard canCarry(hide) else { return .skipUnsupported }
     if failedBefore.contains(hide) { return .skipFailedBefore }
-    if hide == .hidden && systemIntegrityEnabled { return .skipNeedsUnhide }
+    if hide == .hidden && systemIntegrityEnabled { return .moveWhenUnfolding }
     return .attempt
 }
 

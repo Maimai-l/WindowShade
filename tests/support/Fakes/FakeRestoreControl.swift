@@ -39,6 +39,7 @@ final class FakeRestoreControl: RestoreControl, @unchecked Sendable {
     func frame(_ window: WindowHandle) -> CGRect? { record("frame"); return nil }
     func skyLightMove(id: CGWindowID, to point: CGPoint) -> Bool { record("skyLightMove"); return true }
     func skyLightSetAlpha(id: CGWindowID, _ alpha: Float) -> Bool { record("skyLightAlpha(\(alpha))"); return true }
+    func moveToSpace(id: CGWindowID, space: UInt64) -> Bool { record("moveToSpace(\(space))"); return true }
     func isFrontmost(pid: pid_t) -> Bool { lock.withLock { frontmost } }
     func activate(pid: pid_t) { record("activate") }
     func raise(_ window: WindowHandle) { record("raise") }

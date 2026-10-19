@@ -195,7 +195,8 @@ extension AppDelegate {
         let alpha = state.hide == .privateAlpha ? windowHider.takeOriginalAlpha(id: state.sourceWindowID) : nil
         return RestoreRequest(window: WindowHandle(ax: state.element), id: state.sourceWindowID, pid: state.pid,
                               hide: state.hide, position: safeRestorePosition(for: state, desired: pos),
-                              size: state.originalSize, alpha: alpha)
+                              size: state.originalSize, alpha: alpha,
+                              moveToSpace: state.hide == .hidden ? state.pendingSpaceID : nil)
     }
 
     /// 展开其他应用程序的窗口（docs/design.md 第 5.5 节）：放回、带到最前在该应用程序的队列上做；
