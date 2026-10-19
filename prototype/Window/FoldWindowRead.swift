@@ -19,6 +19,8 @@ struct FoldWindowReadout {
     /// 同一应用程序的另一扇窗口是模态提示框（AXModal）。
     let appHasModalDialog: Bool
     let quickLookReopenURL: URL?
+    /// 窗口有标题栏，规则见 windowHasTitleBar。
+    let hasTitleBar: Bool
     /// 该应用程序在当前屏幕上可见、未最小化的窗口数：只有 1 扇时才可能隐藏整个应用程序。
     let visibleWindowCount: Int
 }
@@ -46,6 +48,7 @@ func readWindowForFold(_ win: AXUIElement, id: CGWindowID, pid: pid_t, layout: S
                                  !CFEqual($0, win) && axBoolAttribute($0, kAXModalAttribute as String)
                              },
                              quickLookReopenURL: profile.isQuickLook ? quickLookReopenURL(for: win) : nil,
+                             hasTitleBar: profile.hasToolbar || windowHasTitleBar(win, pid: pid),
                              visibleWindowCount: WindowControlSystem().windowCounts(pid: pid, layout: layout).visible)
 }
 

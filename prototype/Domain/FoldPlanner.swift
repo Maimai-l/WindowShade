@@ -39,6 +39,11 @@ struct FoldFacts: Sendable {
     var adobeKind = AdobeChromeKind.none
     var adobeCanShade = true
     var adobeReason = ""
+    /// 窗口有标题栏，规则见 Window/ChromeProfile.swift 的 windowHasTitleBar。
+    var hasTitleBar = true
+    var windowHeight: CGFloat = 600
+    /// 收起后卷帘条的高度。
+    var barHeight: CGFloat = 28
 }
 
 /// 和这次收起有关的用户设置与权限。
@@ -60,6 +65,8 @@ enum FoldRejection: Error, Equatable, Sendable {
     case modalDialog
     case quickLookWithoutFile
     case adobePanel(String)
+    case noTitleBar
+    case notWorthFolding
 
     var log: String {
         switch self {
@@ -70,6 +77,8 @@ enum FoldRejection: Error, Equatable, Sendable {
         case .modalDialog: return "app shows a modal dialog"
         case .quickLookWithoutFile: return "quick look preview with no file to reopen"
         case .adobePanel(let detail): return "adobe panel \(detail)"
+        case .noTitleBar: return "window has no title bar"
+        case .notWorthFolding: return "folding would save too little height"
         }
     }
 
@@ -82,6 +91,8 @@ enum FoldRejection: Error, Equatable, Sendable {
         case .modalDialog: return "先关掉弹出的对话框"
         case .quickLookWithoutFile: return "找不到快速查看的文件"
         case .adobePanel: return "浮动面板不能收起"
+        case .noTitleBar: return "没有标题栏的窗口不能收起"
+        case .notWorthFolding: return "窗口太矮，不能收起"
         }
     }
 }
@@ -92,6 +103,14 @@ enum FoldDecision: Equatable, Sendable {
 }
 
 enum FoldPlanner {
+    /// 收起至少要省下这么高。
+    static let minimumSavedHeight: CGFloat = 60
+
+    /// 收起值不值得：省下的高度不到 minimumSavedHeight，或卷帘条占了窗口一半以上，就不值得。
+    static func worthFolding(windowHeight: CGFloat, barHeight: CGFloat) -> Bool {
+        windowHeight - barHeight >= minimumSavedHeight && barHeight * 2 <= windowHeight
+    }
+
     static func decide(facts: FoldFacts, profile: AppProfile, settings: FoldSettings) -> FoldDecision {
         guard facts.visibleOnActiveSpace else { return .reject(.offSpace) }
         guard !facts.fullScreen else { return .reject(.fullScreen) }
@@ -100,6 +119,10 @@ enum FoldPlanner {
         guard !facts.appHasModalDialog else { return .reject(.modalDialog) }
         // 快速查看窗口收起时要关掉，展开时靠文件路径重新打开；读不到路径就关掉，展开时预览找不回来（场景 A32）。
         guard !facts.isQuickLook || facts.quickLookReopenable else { return .reject(.quickLookWithoutFile) }
+        guard facts.hasTitleBar else { return .reject(.noTitleBar) }
+        guard worthFolding(windowHeight: facts.windowHeight, barHeight: facts.barHeight) else {
+            return .reject(.notWorthFolding)
+        }
         guard facts.adobeKind != .floatingPanel, facts.adobeCanShade else {
             return .reject(.adobePanel("kind=\(facts.adobeKind.rawValue) reason=\(facts.adobeReason)"))
         }

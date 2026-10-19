@@ -281,6 +281,16 @@ final class ChromeProfileCache: @unchecked Sendable {
     }
 }
 
+/// 窗口有没有标题栏：有系统的关闭、最小化或缩放按钮（应用程序把按钮藏起来的也算），或有工具栏。
+/// Adobe、微信这类自己画标题栏的应用程序读不到按钮和工具栏，也算有标题栏。
+/// 没有标题栏的窗口（录屏工具的浮动面板、Gemini 的悬浮输入框）顶部是内容，双击交给应用程序，不收起。
+func windowHasTitleBar(_ win: AXUIElement, pid: pid_t) -> Bool {
+    let buttons = [kAXCloseButtonAttribute, kAXMinimizeButtonAttribute, kAXZoomButtonAttribute] as [String]
+    if buttons.contains(where: { axButtonElement(win, $0) != nil }) { return true }
+    if isAdobeApp(pid: pid) || fixedNonstandardChromeHeight(pid: pid) != nil { return true }
+    return firstToolbar(win) != nil
+}
+
 func resolveWindowChromeProfile(win: AXUIElement, id: CGWindowID,
                                 pos: CGPoint,
                                 size: CGSize,

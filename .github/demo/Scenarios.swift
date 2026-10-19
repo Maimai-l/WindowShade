@@ -408,6 +408,27 @@ func foldProbe(_ probe: Probe, _ harness: Harness) async -> Folded? {
     return Folded(window: window, frame: frame, titleBar: titleBar, close: close)
 }
 
+/// 把窗口放到固定位置（size 为 nil 时保留原来的大小），双击顶部往下 10 点处，检查 WindowShade 没有收起它、没有卷帘条。
+func expectDoubleClickDoesNotFold(_ probe: Probe, _ h: Harness, size: CGSize?, id: String) async {
+    guard let window = probe.window() else {
+        h.result.violations.append("setup: no Probe window")
+        return
+    }
+    place(window, origin: probeOrigin, size: size ?? axFrame(window)?.size ?? probeSize)
+    await probe.bringToFront()
+    await pause(0.6)
+    guard let frame = axFrame(window) else { return }
+    h.result.notes["frame"] = "\(frame)"
+    let top = CGPoint(x: frame.minX + frame.width * 0.72, y: frame.minY + 10)
+    await glide(to: top, duration: 0.3)
+    await pause(0.2)
+    await doubleClick(at: top)
+    let folded = await h.waitForLog(">>> shade", timeout: 2.5)
+    h.expect(!folded && stripFrames().isEmpty, "\(id): WindowShade folded a window it should leave alone")
+    await glide(to: h.neutral, duration: 0.2)
+    if folded { await expectNoStrip(h, within: 1) }
+}
+
 /// I1：窗口回到收起前的位置和大小（误差 2 点），应用程序没有隐藏。
 func expectRestored(_ probe: Probe, _ frame: CGRect, _ harness: Harness, within seconds: Double) async {
     let start = Date()
@@ -892,6 +913,12 @@ let scenarios: [Scenario] = [
         h.expect(closed, "X04: the window did not close")
         h.expectOnce("close was requested", probe.count("close-request"))
         await expectNoStrip(h, within: 2)
+    },
+    Scenario(id: "X13", title: "窗口没有标题栏：双击顶部不收起", options: ["--borderless"]) { probe, h in
+        await expectDoubleClickDoesNotFold(probe, h, size: probeSize, id: "X13")
+    },
+    Scenario(id: "X14", title: "窗口只有 58 点高：双击标题栏不收起", options: ["--size=480,30"]) { probe, h in
+        await expectDoubleClickDoesNotFold(probe, h, size: nil, id: "X14")
     },
     Scenario(id: "X05", title: "窗口没有红绿灯按钮：点卷帘条左端，再双击展开", options: ["--no-buttons"]) { probe, h in
         guard let folded = await foldProbe(probe, h) else { return }

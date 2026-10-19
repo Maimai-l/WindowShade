@@ -8,6 +8,7 @@
 //   --sheet-on-close     关窗口时像未保存的文档一样挂出对话框：Delete / Cancel / Save
 //   --slow-close=秒      关窗口前主线程停这么久（按下关闭的辅助功能请求会超时，但窗口照样关掉）
 //   --no-buttons         窗口没有关闭、最小化、缩放按钮
+//   --borderless         窗口没有标题栏（像录屏工具的浮动面板）
 //   --title-churn        每 0.1 秒改一次第一扇窗口的标题
 // 运行中接受分布式通知 com.windowshade.probe.command，内容是命令：
 //   freeze:秒   主线程停这么久          quit / crash      正常退出 / 立即崩溃
@@ -112,6 +113,7 @@ final class ProbeApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextV
         let size = (options["size"] ?? "640,420").split(separator: ",").compactMap { Double($0) }
         var style: NSWindow.StyleMask = [.titled, .resizable]
         if options["no-buttons"] == nil { style.formUnion([.closable, .miniaturizable]) }
+        if options["borderless"] != nil { style = [.borderless] }
         let offset = CGFloat((index - 1) * 50)
         let width = CGFloat(size.first ?? 640)
         let height = CGFloat(size.last ?? 420)

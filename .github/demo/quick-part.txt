@@ -1,4 +1,4 @@
 # 每次推送先跑这里写的部分或场景（.github/workflows/demo.yml 的 quick 任务），几分钟出结果；通过了再跑完整的一套。写这次改动相关的部分或场景。
 # 取第一个不以 # 开头的非空行，去掉空白后作为 RECORD_PART 交给 record.sh，写法见 record.sh 里 RECORD_PART 的说明，
 # 例如 recordings、only:B06-alone,C06、recordings+only:C06。
-only:COMPAT-netease,COMPAT-quickrecorder,A33-Chrome
+only:X13,X14,X05,A01,COMPAT-netease,COMPAT-quickrecorder

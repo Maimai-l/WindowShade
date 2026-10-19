@@ -75,10 +75,19 @@ struct DomainTests {
         // 缺陷回归（2026-10-19 用户实测）：修复之前，全屏窗口不收起时菜单栏上只说“这个窗口不能收起”，看不出原因。
         t.expect(FoldRejection.fullScreen.notice == "全屏时不能收起", "全屏窗口不收起时，提示说的是全屏")
         let rejections: [FoldRejection] = [.offSpace, .fullScreen, .minimized, .hasSheet, .modalDialog,
-                                           .quickLookWithoutFile, .adobePanel("")]
+                                           .quickLookWithoutFile, .adobePanel(""), .noTitleBar, .notWorthFolding]
         t.expect(rejections.allSatisfy { !$0.notice.contains("这个窗口") }, "提示里不出现“这个窗口”")
         t.expect(Set(rejections.map(\.notice)).count == rejections.count, "不同的原因提示不同")
         t.expect(rejections.allSatisfy { $0.notice.count <= 14 }, "提示不超过 14 个字，菜单栏上显示得下")
+        // 缺陷回归（2026-10-19 用户实测）：修复之前，录屏工具 QuickRecorder 的浮动面板没有标题栏，双击顶部照样放了收起的音效。
+        t.expect(decide(FoldFacts(hasTitleBar: false)) == .reject(.noTitleBar), "没有标题栏的窗口不收起")
+        t.expect(decide(FoldFacts(windowHeight: 80, barHeight: 28)) == .reject(.notWorthFolding),
+                 "收起只省下 52 点：不收起")
+        t.expect(decide(FoldFacts(windowHeight: 150, barHeight: 80)) == .reject(.notWorthFolding),
+                 "卷帘条占窗口一半以上：不收起")
+        t.expect(decide(FoldFacts(windowHeight: 88, barHeight: 28)) != .reject(.notWorthFolding),
+                 "省下 60 点、卷帘条不到一半：照常收起")
+        t.expect(FoldPlanner.worthFolding(windowHeight: 160, barHeight: 80), "卷帘条正好一半、省下 80 点：照常收起")
         if case .reject = decide(FoldFacts(adobeKind: .floatingPanel)) {
             t.expect(true, "Adobe 浮动面板不收起")
         } else { t.expect(false, "Adobe 浮动面板不收起") }

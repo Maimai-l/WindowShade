@@ -89,7 +89,8 @@ extension AppDelegate {
                                pid: pid_t, profile: WindowChromeProfile,
                                options: ShadeInvocationOptions,
                                fullScreen: Bool, minimized: Bool, hasSheet: Bool,
-                               appHasModalDialog: Bool, quickLookReopenable: Bool) -> Result<ShadePlan, FoldRejection> {
+                               appHasModalDialog: Bool, quickLookReopenable: Bool,
+                               hasTitleBar: Bool) -> Result<ShadePlan, FoldRejection> {
         let visible = windowIsVisible(pos: pos, size: size)
         let facts = FoldFacts(visibleOnActiveSpace: visible,
                               fullScreen: fullScreen,
@@ -100,7 +101,10 @@ extension AppDelegate {
                               quickLookReopenable: quickLookReopenable,
                               adobeKind: profile.adobeProfile.kind,
                               adobeCanShade: profile.adobeProfile.canShade,
-                              adobeReason: profile.adobeProfile.reason)
+                              adobeReason: profile.adobeProfile.reason,
+                              hasTitleBar: hasTitleBar,
+                              windowHeight: size.height,
+                              barHeight: profile.axBarHeight)
         var screenCaptureKitAvailable = false
         if #available(macOS 14.0, *) { screenCaptureKitAvailable = true }
         let settings = FoldSettings(appearance: appearanceMode,
@@ -227,7 +231,8 @@ extension AppDelegate {
             makeShadePlan(pos: pos, size: size, pid: pid, profile: profile, options: options,
                           fullScreen: readout.fullScreen, minimized: readout.minimized, hasSheet: readout.hasSheet,
                           appHasModalDialog: readout.appHasModalDialog,
-                          quickLookReopenable: readout.quickLookReopenURL != nil)
+                          quickLookReopenable: readout.quickLookReopenURL != nil,
+                          hasTitleBar: readout.hasTitleBar)
         }
         let plan: ShadePlan
         switch shadePlan {

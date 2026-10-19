@@ -283,6 +283,12 @@ extension AppDelegate {
             titlebarMissDetail = "outside id=\(id) frame=(\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))) barH=\(Int(barH))"
             return nil
         }
+        // 没有标题栏的窗口（windowHasTitleBar）和收起不值得的窗口（FoldPlanner.worthFolding）不收起：双击交给应用程序，不放音效、不提示。
+        guard windowHasTitleBar(win, pid: pid) else { titlebarMissDetail = "no title bar id=\(id)"; return nil }
+        guard FoldPlanner.worthFolding(windowHeight: size.height, barHeight: barH) else {
+            titlebarMissDetail = "not worth folding id=\(id) height=\(Int(size.height)) barH=\(Int(barH))"
+            return nil
+        }
         return (id, pid)
     }
     func handleTitleBarTripleClick(at point: CGPoint, clickCount: Int64 = 3) -> Bool {
