@@ -508,12 +508,15 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
     if profile.isQuickLook {
         barH = min(quickLookOriginalTitleBarHeight, logicalSize.height)
     } else if profile.standardTitleBarOnly {
-        barH = standardBarH
+        // 看着像标准标题栏的窗口：截图里找到更深的下沿（自己画的顶栏）时裁到那里，找不到时照旧裁标准标题栏。
+        barH = visualBarH.map { $0 > standardBarH + 1 && $0 <= maxPixelBoundaryHeight ? $0 : standardBarH } ?? standardBarH
     } else {
         barH = min(visualBarH ?? fallbackBarH, min(logicalSize.height, 300))
     }
     let cropHeight = max(1, Int(ceil(barH * scale)))
-    let boundary = fixedBarH != nil ? "fixed" : profile.pixelBoundary && visualBarH == nil ? "AX" : profile.boundaryName
+    let boundary = fixedBarH != nil ? "fixed"
+        : profile.standardTitleBarOnly && barH > standardBarH ? "pixel"
+        : profile.pixelBoundary && visualBarH == nil ? "AX" : profile.boundaryName
     guard let rawStrip = full.cropping(to: CGRect(x: 0, y: 0, width: full.width, height: cropHeight)) else {
         return NativeStripPreparation(barH: barH, boundary: boundary, strip: nil,
                                       brokenHealth: (false, ""), scale: scale,
