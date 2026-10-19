@@ -116,6 +116,16 @@ DRAG_BACKWARD = 1.5
 DRAG_PICKUP = 0.1
 
 
+def pointer_x(path, t):
+    """Where the pointer was at time t during the drag (path: [time, x, y] points)."""
+    if t <= path[0][0]:
+        return path[0][1]
+    for (t0, x0, _), (t1, x1, _) in zip(path, path[1:]):
+        if t0 <= t <= t1:
+            return x0 + (x1 - x0) * ((t - t0) / max(1e-6, t1 - t0))
+    return path[-1][1]
+
+
 def lights_positions(video, events, scale, screen_w, samples):
     """The same samples with the strip position read from its red button instead of the brightness profile.
 
@@ -124,8 +134,9 @@ def lights_positions(video, events, scale, screen_w, samples):
     and its red button is a sharp patch; its center moves with the strip to a fraction of a point.
     Before WindowShade gets the press the strip is not yet active and its lights are gray; those first
     frames keep the profile reading, and the red readings are anchored on the profile reading of the
-    first red frame. Only red patches on the strip count (on_strip). Returns None when the red button is
-    missing later in the drag.
+    first red frame. The red button is followed from frame to frame (strip_red), so the red button of a
+    window that the drag uncovers is not taken for it. Returns None when the red button is missing later
+    in the drag.
     """
     window, path = events["window"], events["drag"]["path"]
     left = max(0, window["x"] - 40)
@@ -134,12 +145,12 @@ def lights_positions(video, events, scale, screen_w, samples):
     frames, ow, oh, points_per_pixel = frames_between(video, rect, scale, path[0][0], path[-1][0])
     if len(frames) != len(samples):
         return None
-    centres = []
-    for frame, (_, offset, _) in zip(frames, samples):
-        patches = on_strip(red_patches(frame, ow, oh, points_per_pixel), left, window, offset)
-        if not patches and any(c is not None for c in centres):
+    centres = strip_red([red_patches(frame, ow, oh, points_per_pixel) for frame in frames], [p for _, _, p in samples])
+    seen = False
+    for c in centres:
+        if c is None and seen:
             return None
-        centres.append(max(patches)[3] if patches else None)
+        seen = seen or c is not None
     first = next((i for i, c in enumerate(centres) if c is not None), None)
     if first is None:
         return None
@@ -173,14 +184,10 @@ def best_offset(template, signal, low, high):
 
 
 def check_drag(video, events, times, scale, screen_w):
-    """Section 6.5: while the strip is dragged it follows the pointer: it starts moving within DRAG_PICKUP seconds, trails by at most DRAG_LAG points, does not stall and does not jump back.
-
-    Also returns how far the strip had moved in each frame of the drag ({frame time: points}), read from
-    the strip's picture; check_lights uses it to tell the strip's lights from those of a window behind it.
-    """
+    """Section 6.5: while the strip is dragged it follows the pointer: it starts moving within DRAG_PICKUP seconds, trails by at most DRAG_LAG points, does not stall and does not jump back."""
     drag = events.get("drag")
     if not drag or not drag.get("path"):
-        return [], "no drag recorded", {}
+        return [], "no drag recorded"
     window = events["window"]
     path = drag["path"]
     grab_x = drag["grab"][0]
@@ -201,12 +208,7 @@ def check_drag(video, events, times, scale, screen_w):
     points_per_column = shrink / scale
 
     def pointer_dx(t):
-        if t <= path[0][0]:
-            return path[0][1] - grab_x
-        for (t0, x0, _), (t1, x1, _) in zip(path, path[1:]):
-            if t0 <= t <= t1:
-                return (x0 + (x1 - x0) * ((t - t0) / max(1e-6, t1 - t0))) - grab_x
-        return path[-1][1] - grab_x
+        return pointer_x(path, t) - grab_x
 
     samples = []
     for i in range(count):
@@ -216,8 +218,7 @@ def check_drag(video, events, times, scale, screen_w):
         offset = best_offset(template, signal, t_left - 20, t_left + int(260 / points_per_column))
         samples.append((times[i], (offset - t_left) * points_per_column, pointer_dx(times[i])))
     if len(samples) < 10:
-        return [f"drag: only {len(samples)} frames during the drag"], "too few frames", {}
-    offsets = {t: s for t, s, _ in samples}
+        return [f"drag: only {len(samples)} frames during the drag"], "too few frames"
     samples = lights_positions(video, events, scale, screen_w, samples) or samples
 
     # The strip starts moving when WindowShade gets the press. A click on the strip first makes WindowShade
@@ -250,7 +251,7 @@ def check_drag(video, events, times, scale, screen_w):
         failures.append(f"drag: the strip stopped while the pointer moved, {stalls} times")
     if backward:
         failures.append(f"drag: the strip jumped back against the pointer {backward} times")
-    return failures, summary, offsets
+    return failures, summary
 
 
 # While the strip is dragged it is the active window and shows colored traffic
@@ -262,12 +263,10 @@ def check_drag(video, events, times, scale, screen_w):
 LIGHT_MAX = 17
 # Red patches smaller than this (square points) are edges of other things.
 LIGHT_MIN_AREA = 20
-# A red patch is on the strip when its center is at least this many points
-# right of the strip's left edge and not past its right edge. The strip's red
-# button sits 7 points or more inside the left edge, so its center is 13 points
-# or more inside; the margin allows for the strip position read from the
-# picture being a few points short.
-ON_STRIP = 5
+# The strip's red button sits about 15 points inside the strip's left edge
+# (14.8-16.6 on the recordings of 2026-10-19). A red patch more than this many
+# points left of it is not on the strip.
+ON_STRIP_LEFT = 12
 
 
 def frames_between(video, rect, scale, start, end):
@@ -312,24 +311,44 @@ def red_patches(crop, width, height, points_per_pixel):
     return patches
 
 
-def on_strip(patches, left, window, offset):
-    """The red patches on the strip, which had moved offset points. When offset is None (not known), all patches are kept.
+def strip_red(frames_patches, moves):
+    """For each frame (its red patches, in drag order), the center of the strip's red button, or None before it shows.
 
-    Patch centers are in points from left. Dragging the strip uncovers what was behind it: on the CI recording
-    of 2026-10-19 (a5e17ba) a TextEdit window under the Finder strip showed its red button until TextEdit
-    redrew the window as inactive.
+    moves: for each frame, where the pointer was (points, from any fixed origin).
+
+    The strip's red button moves with the strip; the red button of a window behind the strip stays where it
+    is. Dragging the strip uncovers what was behind it: on the CI recording of 2026-10-19 (a5e17ba) a
+    TextEdit window under the Finder strip showed its red button until TextEdit redrew the window as
+    inactive. So in each frame the strip's red button is taken as the patch nearest to where it was in the
+    frame before, moved as far as the pointer moved since then (on the CI machine the strip moved 10 points
+    between two frames, and the uncovered red button was 9 points from where the strip's had been). In the
+    first frame with red it is the patch furthest right: the drag starts to the right, away from what it
+    uncovers.
     """
-    if offset is None:
+    track, last, last_move = [], None, None
+    for patches, move in zip(frames_patches, moves):
+        if patches:
+            if last is None:
+                last = max(patches, key=lambda p: p[3])[3]
+            else:
+                expected = last + move - last_move
+                last = min(patches, key=lambda p: abs(p[3] - expected))[3]
+            last_move = move
+            track.append(last)
+        else:
+            track.append(None)
+    return track
+
+
+def on_strip(patches, red, width):
+    """The red patches on the strip, whose red button is centered at red (None: not known, keep all)."""
+    if red is None:
         return patches
-    edge = window["x"] + offset
-    return [p for p in patches if left + p[3] >= edge + ON_STRIP and left + p[3] <= edge + window["w"]]
+    return [p for p in patches if red - ON_STRIP_LEFT <= p[3] <= red + width]
 
 
-def check_lights(video, events, scale, screen_w, times, offsets):
-    """While the strip is dragged (it is the active window), it shows one set of traffic lights.
-
-    offsets: how far the strip had moved in each frame ({frame time: points}, from check_drag).
-    """
+def check_lights(video, events, scale, screen_w, times):
+    """While the strip is dragged (it is the active window), it shows one set of traffic lights."""
     drag = events.get("drag")
     if not drag or not drag.get("path"):
         return []
@@ -341,12 +360,14 @@ def check_lights(video, events, scale, screen_w, times, offsets):
     ow = max(1, int(round(rect[2] * scale)) // shrink)
     oh = max(1, int(round(rect[3] * scale)) // shrink)
     points_per_pixel = shrink / scale
-    # From 0.2 s after the press, when the strip has become the active window, to the end of the drag.
-    start, end = path[0][0] + 0.2, path[-1][0]
-    for t, frame in zip(times, crops(video, rect, scale, shrink)):
-        if not (start <= t <= end):
+    # The strip's red button is followed from the press; the frames are judged from 0.2 s after the press,
+    # when the strip has become the active window, to the end of the drag.
+    drag = [(t, red_patches(frame, ow, oh, points_per_pixel))
+            for t, frame in zip(times, crops(video, rect, scale, shrink)) if path[0][0] <= t <= path[-1][0]]
+    for (t, patches), red in zip(drag, strip_red([p for _, p in drag], [pointer_x(path, t) for t, _ in drag])):
+        if t < path[0][0] + 0.2:
             continue
-        patches = on_strip(red_patches(frame, ow, oh, points_per_pixel), left, window, offsets.get(t))
+        patches = on_strip(patches, red, window["w"])
         widest = max((max(pw, ph) for _, pw, ph, _ in patches), default=0)
         if len(patches) > 1 or widest > LIGHT_MAX:
             shapes = ", ".join(f"{pw:.0f}x{ph:.0f} pt" for _, pw, ph, _ in patches)
@@ -421,7 +442,7 @@ def check(video, events_path, log_path):
         pixels = indicator_pixels(lights[i])
         if pixels > INDICATOR_PIXELS:
             failures.append(f"indicator: recording indicator at {t:.3f}s ({pixels} pixels)")
-    drag_failures, drag_summary, offsets = check_drag(video, events, times, scale, screen_w)
+    drag_failures, drag_summary = check_drag(video, events, times, scale, screen_w)
     # Frame timing on the CI virtual machine is not steady: there the numbers are only reported.
     if os.environ.get("WINDOWSHADE_LOCAL") == "1":
         failures += drag_failures
@@ -429,7 +450,7 @@ def check(video, events_path, log_path):
         for line in drag_failures:
             print(f"INFO {video}: {line} (not judged on CI)")
     print(f"INFO {video}: {drag_summary}")
-    failures += check_lights(video, events, scale, screen_w, times, offsets)
+    failures += check_lights(video, events, scale, screen_w, times)
     log_text = open(log_path, errors="replace").read()
     failures += check_geometry(log_text, window)
     failures += check_state_machine(log_text)
