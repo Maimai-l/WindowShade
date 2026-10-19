@@ -40,7 +40,7 @@ struct FocusHandoffTests {
             let notPressed = StripPressFlag()
             var withoutPress = request(frontmost: appPID)
             withoutPress.stripPressed = notPressed
-            t.expect(FocusHandoff(control: FakeFocusControl()).handOff(withoutPress) != .keptOnStrip, "没按下卷帘条：照常交接")
+            t.expect(FocusHandoff(control: FakeFocusControl()).handOff(withoutPress) != .keptOnStrip, "没按下卷帘条：结果不是 keptOnStrip")
         }
 
         t.section("F4", "原窗口所属的应用程序不在前台：不交接")

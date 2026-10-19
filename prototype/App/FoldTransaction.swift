@@ -389,7 +389,7 @@ extension AppDelegate {
                                   otherFoldedWindows: shaded.filter { $0.key != id && $0.value.pid == pid }.count,
                                   noFocusHeir: noFocusHeir)
         // 窗口藏好之后，键盘输入不能再发给它：交出焦点和移开窗口放在同一个后台任务里，主线程不等。
-        // 这期间用户按下了卷帘条，焦点就留在卷帘条上（StripPressFlag）。
+        // 收起过程中用户按过卷帘条时，不交出焦点，焦点留在卷帘条上（见 StripPressFlag）。
         var focusRequest = handOffFocusAfter ? id.map { focusHandoffRequest(win: win, pid: pid, id: $0) } : nil
         if focusRequest != nil, let id {
             let pressed = StripPressFlag()

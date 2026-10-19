@@ -61,12 +61,12 @@ struct FocusHandoffRequest: Sendable {
     /// 已被 WindowShade 收起的窗口：停在屏幕角落时还露出 1 像素，算在屏幕上，但不能接收焦点
     /// （交给它，它成了当前窗口，应用程序下次被激活时系统把它拉回屏幕内；场景 A37）。
     var foldedIDs: Set<CGWindowID> = []
-    /// 收起过程中卷帘条是否被按下过（见 StripPressFlag）。
+    /// 收起过程中用户有没有按过卷帘条（见 StripPressFlag）。
     var stripPressed: StripPressFlag? = nil
 }
 
-/// 收起过程中卷帘条是否被按下过。按下在主线程上记，交接焦点在后台队列上读，所以加锁。
-/// 用户已经在点卷帘条时还把焦点交给同一应用程序的其他窗口，那扇窗口会被带到前面盖住卷帘条，
+/// 收起过程中用户有没有按过卷帘条。按下在主线程上记，交接焦点在后台队列上读，所以加锁。
+/// 用户已经按下卷帘条后，如果还把焦点交给同一应用程序的另一扇窗口，那扇窗口会到前面盖住卷帘条，
 /// 双击的第二下就落在它上面（2026-10-19 CI 场景 A32，4dc0853：按下卷帘条 28 毫秒后交接了焦点）。
 final class StripPressFlag: @unchecked Sendable {
     private let lock = NSLock()
