@@ -78,6 +78,9 @@ extension AppDelegate {
                 guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return .unknown }
                 return self.observeFoldHide(.minimized, win: state.element, pid: state.pid, id: id)
             },
+            onExpired: { [weak self] in
+                self?.resolveExpiredFoldVerification(id: id, expected: expected)
+            },
             result: { [weak self] result in
                 guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return }
                 wlog("shade: hide verification id=\(id) hide=\(state.hide) result=\(result)")
@@ -91,6 +94,32 @@ extension AppDelegate {
                 }
             }
         ).start()
+    }
+
+    /// 核对途中过期以后收尾（见 FoldVerifier.ExpiredVerdict）：不看时间，只要还是同一次收起，就重新读一次真实状态，照实收尾；
+    /// 换了一次收起就不碰。这里不再改动窗口，只按已经发生的事收尾。依据：上游 surfine/WindowShade 2d66e57。
+    func resolveExpiredFoldVerification(id: CGWindowID, expected: FoldCallbackStamp) {
+        var seen = FoldVerifier.Observation.unknown
+        if foldCallbackIsSameFold(expected), let state = shaded[id] {
+            seen = observeFoldHide(state.hide, win: state.element, pid: state.pid, id: id)
+        }
+        // 读的时候可能又等了一个忙着的应用程序：收尾之前再核对一次是不是同一次收起。
+        let same = foldCallbackIsSameFold(expected)
+        let verdict = FoldVerifier.expiredVerdict(sameFold: same, observation: seen)
+        let age = Int((ProcessInfo.processInfo.systemUptime - expected.capturedAt) * 1000)
+        wlog("shade: hide verification expired id=\(id) ageMs=\(age) sameFold=\(same) observed=\(seen) verdict=\(verdict)")
+        switch verdict {
+        case .ignore:
+            return
+        case .complete:
+            guard let state = shaded[id] else { return }
+            revealOverlayAfterVerification(id: id, state: state)
+        case .rollback:
+            rollbackFoldTransaction(id: id, expectedTransaction: expected.transaction)
+        case .retainUnconfirmed:
+            guard let state = shaded[id] else { return }
+            retainUnconfirmedFold(id: id, state: state)
+        }
     }
 
     func revealOverlayAfterVerification(id: CGWindowID, state: ShadeState) {

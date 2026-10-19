@@ -11,15 +11,42 @@ final class FoldVerifier {
     private let salvagedObservation: () -> Observation
     private let quickObservation: (() -> Observation)?
     private let result: (Observation) -> Void
+    private let onExpired: (() -> Void)?
     private var started = false
     private var finished = false
     private static let quickInterval: TimeInterval = 0.03
+
+    /// 核对途中过期以后怎么收尾。过期是因为机器很忙、主线程堵得比时限还久，或者切了桌面换了呈现代次；
+    /// 以前过期就丢掉：窗口已经藏起来，卷帘条却没显示，也没记“收起状态未确认”，也没回滚，用户看到窗口凭空消失
+    /// （上游 surfine/WindowShade 2d66e57：虚拟机上安装阶段用了 9.5 秒）。
+    enum ExpiredVerdict: Equatable, Sendable {
+        /// 这扇窗口已经换了一次收起，或已经展开、清理：旧的核对不碰。
+        case ignore
+        /// 重新读到已藏好：显示卷帘条，按核对通过收尾。
+        case complete
+        /// 重新读到窗口还在：回滚。
+        case rollback
+        /// 读不准：保留“收起状态未确认”的恢复入口。
+        case retainUnconfirmed
+    }
+
+    /// 过期以后只看是不是同一次收起（不看时间）和重新读到的真实状态。
+    static func expiredVerdict(sameFold: Bool, observation: Observation) -> ExpiredVerdict {
+        guard sameFold else { return .ignore }
+        switch observation {
+        case .hidden: return .complete
+        case .visible: return .rollback
+        case .unknown: return .retainUnconfirmed
+        }
+    }
 
     init(schedule: @escaping Schedule, isCurrent: @escaping () -> Bool,
          observation: @escaping () -> Observation, salvage: @escaping () -> Bool,
          salvagedObservation: @escaping () -> Observation,
          quickObservation: (() -> Observation)? = nil,
+         onExpired: (() -> Void)? = nil,
          result: @escaping (Observation) -> Void) {
+        self.onExpired = onExpired
         self.schedule = schedule; self.isCurrent = isCurrent
         self.observation = observation; self.salvage = salvage
         self.salvagedObservation = salvagedObservation
@@ -60,9 +87,9 @@ final class FoldVerifier {
     }
 
     private func check(attempt: Int) {
-        guard !finished, isCurrent() else { return }
+        guard live() else { return }
         let seen = observation()
-        guard !finished, isCurrent() else { return }
+        guard live() else { return }
         if seen == .hidden { finish(.hidden) }
         else if attempt == 1 {
             pollQuickly(until: 0.45, elapsed: 0)
@@ -71,11 +98,13 @@ final class FoldVerifier {
         else {
             // salvage 在真正改动窗口前，要再核对一次窗口身份和权限。
             let attempted = salvage()
-            guard !finished, isCurrent() else { return }
+            guard live() else { return }
             guard attempted else { finish(.visible); return }
             schedule(0.35) {
-                guard !self.finished, self.isCurrent() else { return }
-                self.finish(self.salvagedObservation())
+                guard self.live() else { return }
+                let seen = self.salvagedObservation()
+                guard self.live() else { return }
+                self.finish(seen)
             }
         }
     }
@@ -84,5 +113,18 @@ final class FoldVerifier {
         guard !finished, isCurrent() else { return }
         finished = true
         result(value)
+    }
+
+    /// 主核对链（check → 补救 → 补救后再读）每一步之前的检查。链在这里断了就不会再排下一步，
+    /// 所以过期时交给 onExpired 收尾，不静默丢掉。快速轮询那条支线不走这里：它断了，主链还在。
+    /// 没给 onExpired 时和以前一样，只返回 false。
+    private func live() -> Bool {
+        guard !finished else { return false }
+        if isCurrent() { return true }
+        if let onExpired {
+            finished = true
+            onExpired()
+        }
+        return false
     }
 }

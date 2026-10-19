@@ -20,6 +20,12 @@ struct FoldCallbackStamp: Equatable, Sendable {
               current.presentation == presentation else { return false }
         return true
     }
+
+    /// 是不是同一次收起：窗口、进程、事务号、收起方式都相同。故意不看时间和呈现代次（切桌面、菜单栏显示或隐藏都会换它）：
+    /// 那些只说明回调晚了，不说明这扇窗口被别的操作接手了。只给过期核对的收尾用，它据此重新读真实状态再决定。
+    func sameFold(as current: Self) -> Bool {
+        current.window == window && current.pid == pid && current.transaction == transaction && current.hide == hide
+    }
 }
 
 /// AX 观察器的 refcon 只放一个不复用的整数，从不当成对象解引用。
