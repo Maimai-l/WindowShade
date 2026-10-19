@@ -12,6 +12,7 @@ ROWS=(
   "mouse-tap-in-process|b1a164f|run-input-safety-lint.sh|the mouse tap lives in the tap helper and asks WindowShade with time limits"
   "window-list-on-main-after-unfold|5e6eca7|run-input-safety-lint.sh|the per-frame wait after unfolding reads the window list off the main thread"
   "glance-panel-made-on-click|3d1e0c6|run-input-safety-lint.sh|the glance panel is reused, not made when a strip is clicked"
+  "tap-disabled-silently|d8effeb|run-input-safety-lint.sh|the mouse tap is checked every few seconds and turned back on when the system turned it off"
 )
 
 work=$(mktemp -d)
