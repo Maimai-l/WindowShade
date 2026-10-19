@@ -18,9 +18,10 @@ extension AppDelegate {
         }
         let mover = PrivateSLSWindowMover.shared
         let windowID = state.sourceWindowID
-        // 系统完整性保护开着，或已记下设透明不起作用时，临时取消隐藏应用程序会让窗口露出来，系统还会切到窗口所在的桌面
+        // 系统完整性保护开着时设不了透明，临时取消隐藏应用程序会让窗口露出来，系统还会切到窗口所在的桌面
         // （用户 macOS 15.2 的录像，869b8b0）。这时不取消隐藏，卷帘条挪回原桌面。
-        if state.hide == .hidden, SystemIntegrity.isEnabled || PrivateSLSMemo.isIneffective("alpha") {
+        // 不看“设透明不起作用”的记录：系统完整性保护关着时也可能写下它（be8f9b1 的 CI 任务 scenarios-1），按它跳过会让本来能移过去的窗口不移。
+        if state.hide == .hidden, SystemIntegrity.isEnabled {
             wlog("space: carry not possible id=\(id) hide=hidden: the app would have to be shown to move its window")
             return false
         }
