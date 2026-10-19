@@ -1,5 +1,5 @@
 #!/bin/bash
-# 卷帘条下沿的像素判定：合成的窗口顶部，纯计算，不需要任何权限。
+# 顶部区域下沿的像素判定：合成的窗口顶部，纯计算，不需要权限。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/chrome-band-tests

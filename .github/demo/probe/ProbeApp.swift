@@ -9,7 +9,7 @@
 //   --slow-close=秒      关窗口前主线程停这么久（按下关闭的辅助功能请求会超时，但窗口照样关掉）
 //   --no-buttons         窗口没有关闭、最小化、缩放按钮
 //   --borderless         窗口没有标题栏（像录屏工具的浮动面板）
-//   --top-bar=高         窗口顶部是自己画的一条这么高的红色顶栏，中间有一个画出来的白色搜索框，红绿灯浮在上面；
+//   --top-bar=高         窗口顶部是自己画的一条这么高的红色顶栏，中间画着像搜索框的白色圆角框，红绿灯叠在顶栏上；
 //                        辅助功能读不到顶栏和搜索框（像网页、跨平台框架画的顶栏）
 //   --title-churn        每 0.1 秒改一次第一扇窗口的标题
 // 运行中接受分布式通知 com.windowshade.probe.command，内容是命令：
@@ -33,7 +33,7 @@ final class ProbeWindow: NSWindow {
     }
 }
 
-/// 自己画的顶栏：红色底，中间一个白色圆角框。只是画出来的，辅助功能里没有它。
+/// 自己画的顶栏：红色底，中间画着像搜索框的白色圆角框。只是画出来的，辅助功能里没有它。
 final class PaintedTopBar: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)

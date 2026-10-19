@@ -920,7 +920,7 @@ let scenarios: [Scenario] = [
     Scenario(id: "X14", title: "窗口只有 58 点高：双击标题栏不收起", options: ["--size=480,30"]) { probe, h in
         await expectDoubleClickDoesNotFold(probe, h, size: nil, id: "X14")
     },
-    Scenario(id: "X15", title: "自己画的 64 点顶栏，辅助功能读不到：卷帘条包住整条顶栏，再双击展开", options: ["--top-bar=64"]) { probe, h in
+    Scenario(id: "X15", title: "窗口顶部是自己画的 64 点顶栏，辅助功能读不到：整条顶栏都在卷帘条里，再双击展开", options: ["--top-bar=64"]) { probe, h in
         let before = Set(compatStripWindows().map(\.id))
         guard let folded = await foldProbe(probe, h) else { return }
         // 卷帘条留在原窗口的顶边上；别的 WindowShade 窗口（预览卡片等）不算。
@@ -932,7 +932,7 @@ let scenarios: [Scenario] = [
             h.expect(false, "X15: no strip after the fold")
             return
         }
-        // 卷帘条的高度可能带着阴影或边框多出几点，不会比顶栏矮。
+        // 卷帘条可能因为阴影或边框多出几点，所以只查它不比顶栏矮；下限取 63 不取 64，给取整留 1 点。
         h.expect(strip.bounds.height >= 63, "X15: the strip is \(Int(strip.bounds.height)) pt tall and cuts through the 64 pt top bar")
         await doubleClick(at: CGPoint(x: folded.frame.minX + folded.frame.width * 0.72, y: strip.bounds.minY + 14))
         await glide(to: h.neutral, duration: 0.2)

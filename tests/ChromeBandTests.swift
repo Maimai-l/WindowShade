@@ -1,4 +1,4 @@
-// 顶部区域下沿的像素判定（Core/ChromeBand.swift）：合成的窗口顶部，2 倍像素。
+// 顶部区域下沿的像素判定（Core/ChromeBand.swift）：合成的窗口顶部，按 2 倍缩放。
 import CoreGraphics
 import Foundation
 
@@ -27,7 +27,7 @@ struct ChromeBandTests {
         ChromeBand.bottom(of: image(color), scale: 2, floor: floor, controls: controls)
     }
 
-    /// 自绘的 60 点高红色顶栏，中间有一个白色搜索框（15–45 点），下面是白色内容区。
+    /// 自己画的 60 点高红色顶栏，中间有一个白色搜索框（从顶边往下 15～45 点），下面是白色内容区。
     static func customTopBar(_ x: CGFloat, _ y: CGFloat) -> Color {
         guard y < 60 else { return white }
         return (15..<45).contains(y) && (150..<270).contains(x) ? white : red
@@ -37,22 +37,22 @@ struct ChromeBandTests {
         var t = TestSuite("chrome-band")
 
         t.section("S1", "没有原生工具栏的窗口：卷帘条到顶部区域的下沿为止")
-        // 缺陷回归（2026-10-19 用户实测）：修复之前，网易云音乐的卷帘条只到红绿灯下面，切过了它自绘的顶栏。
-        t.expect(bottom(customTopBar) == 60, "自绘的 60 点顶栏：下沿在 60 点，不停在红绿灯下面")
+        // 缺陷回归（2026-10-19 用户实测）：修复之前，网易云音乐的卷帘条只到红绿灯下面，它自己画的顶栏下半截不在卷帘条里。
+        t.expect(bottom(customTopBar) == 60, "自己画的 60 点顶栏：下沿在 60 点，不只到红绿灯下面")
         t.expect(bottom { x, y in (60..<60.5).contains(y) ? grey : customTopBar(x, y) } == 60.5,
                  "顶栏和内容区之间有一条分隔线：线留在卷帘条里")
         t.expect(bottom { x, y in
             if (28..<28.5).contains(y) { return grey }
             if y < 52 { return toolbar }
             return x > 150 ? white : (240, 240, 250, 255)
-        } == 52, "标题栏下面接着同色的一排按钮，中间隔一条细线：细线不算下沿，下沿在 52 点")
+        } == 52, "标题栏和下面同色的一排之间隔一条细线：细线不算下沿，下沿在 52 点")
         t.expect(bottom(customTopBar, controls: [50...70]) == 70, "下沿落在辅助功能读到的控件中间：挪到控件下面")
-        t.expect(bottom { _, y in y < 20 ? red : white } == 28, "顶部区域比红绿灯还浅：下沿不浅于红绿灯（floor）")
+        t.expect(bottom { _, y in y < 20 ? red : white } == 28, "顶部区域的下沿高于红绿灯的下沿：下沿取红绿灯的下沿（floor）")
         t.expect(bottom({ x, y in
             if y < 40 { return (60, 60, 60, 255) }
             if y < 80 { return (46..<74).contains(y) && (120..<380).contains(x) ? white : (90, 90, 90, 255) }
             return (250, 250, 250, 255)
-        }, controls: [46...74]) == 80, "浏览器：标签条下面紧接着地址栏一排（另一种底色）：两层都留在卷帘条里")
+        }, controls: [46...74]) == 80, "浏览器的标签条下面紧接着另一种底色的地址栏一排：两层都留在卷帘条里")
         t.expect(bottom(customTopBar, controls: [75...95]) == 60, "下沿下面隔了 15 点的控件是内容区的：不算顶部区域")
 
         t.section("S1", "分不出下沿时返回 nil（调用方改用简化标题栏）")

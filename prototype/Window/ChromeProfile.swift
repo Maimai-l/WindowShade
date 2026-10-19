@@ -346,7 +346,8 @@ private func resolveWindowChromeProfileUncached(win: AXUIElement,
         ? standardCropH
         : titlebarHitHeight(of: win, id: id, winTop: pos.y, winSize: size, pid: pid))
 
-    // 有原生工具栏、只要标准标题栏、Adobe、快速查看、自绘标题栏有固定高度的、WindowShade 自己的窗口，辅助功能读到的高度是准的。
+    // 其余窗口的卷帘条下沿在截图里找。下面几种不找：有原生工具栏的、只裁标准标题栏的、Adobe 的、快速查看的窗口，
+    // 辅助功能读到的高度够用；配置表里有固定高度的应用程序（微信这类）和 WindowShade 自己的窗口，已经知道高度。
     let pixelBoundary = !hasToolbar && !standardTitleBarOnly && !preciseChrome && localChromeHeight == nil
         && adobeProfile.kind == .none && trafficLights.style != .quickLook
     var topControls: [ClosedRange<CGFloat>] = []

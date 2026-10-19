@@ -36,9 +36,9 @@ struct WindowChromeProfile {
     let standardCropHeight: CGFloat
     let axBarHeight: CGFloat
     let hitBarHeight: CGFloat
-    /// 卷帘条的下沿在收起时的截图里找（ChromeBand）：没有原生工具栏、辅助功能读不出顶部区域多高的窗口。
+    /// 为 true 时，卷帘条的下沿在收起时的截图里找（ChromeBand）：用于没有原生工具栏、辅助功能读不出顶部区域多高的窗口。
     var pixelBoundary = false
-    /// 辅助功能读到的顶部控件的上下沿（点，从窗口顶边算），卷帘条的下沿不切过它们。
+    /// 辅助功能读到的顶部控件的上下沿（点，从窗口顶边算），卷帘条的下沿不落在它们中间。
     var topControls: [ClosedRange<CGFloat>] = []
 
     var isQuickLook: Bool {

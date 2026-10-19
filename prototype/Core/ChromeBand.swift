@@ -1,5 +1,6 @@
-// 在收起时的截图里找窗口顶部区域的下沿：顶部区域（标题栏连同自绘的顶栏）的底色一直往下铺，铺不满一行的地方就是内容区开始的地方。
-// 只用于没有原生工具栏的窗口：网页、跨平台框架画的顶栏，辅助功能读不到它有多高（docs/design.md 的 S1）。
+// 在收起时的截图里找窗口顶部区域（标题栏连同应用程序自己画的顶栏）的下沿：从上往下逐行看，
+// 底色在一行里占不到四成、连着超过 3 点的地方，就是内容区的开始。
+// 只用于没有原生工具栏、也没有已知高度的窗口：网页、跨平台框架自己画的顶栏，辅助功能读不出它有多高（docs/design.md 的 S1）。
 // 纯计算，不调用系统接口，可在任意线程上做。
 
 import CoreGraphics
@@ -18,20 +19,20 @@ struct RGBAPixels {
 }
 
 enum ChromeBand {
-    /// 底色相差在这个范围内（每个颜色分量）算同一种颜色。
+    /// 两种颜色的每个分量相差都不超过这个值，算同一种颜色。
     static let colorTolerance = 14
-    /// 一行里底色占这个比例以上，这一行仍属顶部区域（上面画着按钮、搜索框、文字也不要紧）。
+    /// 一行里底色占这个比例以上，这一行仍属顶部区域（上面画着按钮、搜索框、文字也算）。
     static let chromeRowShare = 0.4
-    /// 顶部区域本身要有一种占主导的底色；渐变、透出后面内容的半透明材质分不出下沿，不猜。
+    /// 顶部区域本身要有一种占主导的底色；渐变、透出后面内容的半透明材质分不出下沿，返回 nil。
     static let bandUniformShare = 0.5
-    /// 底色中断超过这么高（点）才算到了内容区；更短的是顶部区域里的分隔线。
+    /// 底色中断超过这么高（点）才算到了内容区；不超过这么高、下面又接上底色的，是顶部区域里的分隔线。
     static let maxInnerLine: CGFloat = 3
     /// 下沿下面这么近（点）以内就有顶部控件时，算顶部区域的下一层。
     static let nextTierGap: CGFloat = 8
 
     /// 顶部区域的下沿（点，从窗口顶边算）。找不到时返回 nil，调用方改用简化标题栏。
-    /// floor：不能比它更浅（红绿灯的下沿）。ceiling：最多找到这么深。
-    /// controls：辅助功能读到的顶部控件的上下沿（点）；下沿不能切过任何一个控件。
+    /// floor：下沿最高到这里（调用方传红绿灯的下沿，至少 12 点）。ceiling：最深找到这里。
+    /// controls：辅助功能读到的顶部控件的上下沿（点）；下沿不落在任何一个控件中间。
     static func bottom(of pixels: RGBAPixels, scale: CGFloat, floor: CGFloat, ceiling: CGFloat = 140,
                        controls: [ClosedRange<CGFloat>] = []) -> CGFloat? {
         guard pixels.width > 40, pixels.height > 8, scale > 0 else { return nil }
@@ -55,7 +56,7 @@ enum ChromeBand {
             }
             return Double(near) / Double(xs.count)
         }
-        // 一层顶部区域的底色：这几行取样的中位色；这几行本身没有一种占主导的底色时为 nil。
+        // 一层顶部区域的底色：这几行取样点的中位色。不透明的取样点太少，或中位色平均占不到每行的一半（bandUniformShare）时为 nil。
         func bandColor(_ rows: [Int]) -> (Int, Int, Int)? {
             let rows = rows.filter { $0 < pixels.height }
             var reds: [Int] = [], greens: [Int] = [], blues: [Int] = []
@@ -69,7 +70,7 @@ enum ChromeBand {
             let covered = rows.map { shareOf(color, row: $0) }.reduce(0, +) / Double(rows.count)
             return covered >= bandUniformShare ? color : nil
         }
-        // 第一层的底色取顶边往下 2 点到 floor（至少 6 点）之间。
+        // 第一层的底色取顶边往下 2 点到 floor 之间的几行；floor 不到 6 点时取到 6 点。
         guard var band = bandColor(Array(px(2)..<max(px(6), floorRow))) else { return nil }
         func share(_ y: Int) -> Double { shareOf(band, row: y) }
 
@@ -82,7 +83,8 @@ enum ChromeBand {
             while end < lastRow, share(end) < chromeRowShare { end += 1 }
             if end < lastRow, end - y <= innerLine { y = end; continue }
             var candidate = CGFloat(y) / scale
-            // 断开处是一条整行同色的细线（顶部区域和内容区之间的分隔线），下面的内容是别的颜色时，把线留在卷帘条里。
+            // 断开处先是一条最多 2 点高、85% 以上取样点同色的细线，下面又是另一种颜色时，
+            // 这条线是顶部区域和内容区之间的分隔线，留在卷帘条里。
             if let lineColor = uniformColor(pixels, y: y, xs: xs) {
                 var line = y + 1
                 while line < min(end, y + px(2)), uniformColor(pixels, y: line, xs: xs).map({ same($0, lineColor) }) == true {
@@ -91,13 +93,13 @@ enum ChromeBand {
                 let below = line < pixels.height ? uniformColor(pixels, y: line, xs: xs) : nil
                 if line < end, below.map({ !same($0, lineColor) }) ?? true { candidate = CGFloat(line) / scale }
             }
-            // 不切过顶部的控件：下沿落在某个控件中间时，挪到那个控件下面接着找。
+            // 下沿不落在顶部控件中间：落在某个控件中间时，从那个控件的下沿接着往下找。
             if let control = controls.first(where: { $0.lowerBound < candidate - 1 && candidate < $0.upperBound - 1 }) {
                 y = max(y + 1, px(control.upperBound))
                 continue
             }
-            // 下沿下面紧接着（nextTierGap 以内）又有控件：那是顶部区域的下一层（例如浏览器标签条下面的地址栏一排），
-            // 换成这一层的底色接着找。
+            // 下沿下面 1 点到 nextTierGap 之间又有控件，中间那几行有一种底色时，那是顶部区域的下一层
+            // （例如浏览器标签条下面的地址栏一排），换成这一层的底色接着找。
             if let control = controls.filter({ $0.lowerBound >= candidate - 1 && $0.lowerBound <= candidate + nextTierGap })
                 .min(by: { $0.lowerBound < $1.lowerBound }),
                control.lowerBound - candidate >= 1,
