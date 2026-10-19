@@ -263,9 +263,10 @@ LIGHT_MAX = 17
 # Red patches smaller than this (square points) are edges of other things.
 LIGHT_MIN_AREA = 20
 # A red patch is on the strip when its center is at least this many points
-# right of the strip's left edge. The strip's red button sits 7 points or more
-# inside the edge, so its center is 13 points or more inside; the margin allows
-# for the strip position read from the picture being a few points short.
+# right of the strip's left edge and not past its right edge. The strip's red
+# button sits 7 points or more inside the left edge, so its center is 13 points
+# or more inside; the margin allows for the strip position read from the
+# picture being a few points short.
 ON_STRIP = 5
 
 
@@ -312,11 +313,11 @@ def red_patches(crop, width, height, points_per_pixel):
 
 
 def on_strip(patches, left, window, offset):
-    """The red patches on the strip, which had moved offset points (None: unknown, keep all).
+    """The red patches on the strip, which had moved offset points. When offset is None (not known), all patches are kept.
 
-    Dragging the strip uncovers what was behind it; on the CI recording of 2026-10-19 that was a TextEdit
-    window at the same place, whose red button showed until TextEdit drew itself inactive. Patch centers
-    are in points from left.
+    Patch centers are in points from left. Dragging the strip uncovers what was behind it: on the CI recording
+    of 2026-10-19 (a5e17ba) a TextEdit window under the Finder strip showed its red button until TextEdit
+    redrew the window as inactive.
     """
     if offset is None:
         return patches
