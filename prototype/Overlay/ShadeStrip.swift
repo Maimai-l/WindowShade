@@ -460,10 +460,10 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                 && (pressPoint.x < Self.resizeEdge || pressPoint.x > frame.width - Self.resizeEdge)
             onPress?()
             if SystemStripDrag.isEnabled, event.clickCount == 1, !pressOnResizeEdge {
-                // 先照常处理按下（卷帘条成为当前窗口），再交给系统拖动。
+                // 先交给系统拖动，再照常处理按下（卷帘条成为当前窗口）：成为当前窗口要等一会儿，先处理它，拖动就晚开始这么久
+                // （a0a3612 本机录像：指针动了 179 毫秒后卷帘条才开始动）。performDrag 立刻返回，系统在后台拖。
                 potentialWindowDrag = false
                 ignoreNextMouseUp = true
-                super.sendEvent(event)
                 SystemStripDrag.start(self, with: event) { [weak self] moved in
                     guard let self else { return }
                     self.isHeldByPointer = false
@@ -475,6 +475,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
                         (self.contentView as? TitleStripView)?.onClick?()
                     }
                 }
+                super.sendEvent(event)
                 return
             }
         }
@@ -569,13 +570,24 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
     static func start(_ window: NSWindow, with event: NSEvent, ended: @escaping (_ moved: Bool) -> Void) {
         let drag = SystemStripDrag(window: window, ended: ended)
         let started = CFAbsoluteTimeGetCurrent()
+        // 系统从交给它那一刻的指针位置算起。主线程处理到按下时，指针可能已经移开了一段：先把卷帘条补上这一段，
+        // 不然整段拖动都落后这么多，松开后卷帘条也不在指针放下的位置（a0a3612 本机录像：落后 32 点）。
+        var caughtUp = CGPoint.zero
+        if let pressedAt = event.cgEvent?.location, let now = CGEvent(source: nil)?.location {
+            caughtUp = CGPoint(x: now.x - pressedAt.x, y: now.y - pressedAt.y)
+            if abs(caughtUp.x) > 0.5 || abs(caughtUp.y) > 0.5 {
+                let origin = window.frame.origin
+                window.setFrameOrigin(NSPoint(x: origin.x + caughtUp.x, y: origin.y - caughtUp.y))
+            }
+        }
         window.isMovable = true
         window.performDrag(with: event)
         let pressed = NSEvent.pressedMouseButtons & 1 != 0
         wlog("strip: system drag window=\(window.windowNumber) returnedAfter=\(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms "
-             + "stillPressed=\(pressed)")
+             + "stillPressed=\(pressed) caughtUp=(\(Int(caughtUp.x)),\(Int(caughtUp.y)))")
         guard pressed else {
-            drag.finish()
+            // 已经松开了（很快的单击）：等这次按下处理完再判断，单击排在卷帘条成为当前窗口之后，和以前一样。
+            DispatchQueue.main.async { MainActor.assumeIsolated { drag.finish() } }
             return
         }
         running.append(drag)
