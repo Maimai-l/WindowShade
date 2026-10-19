@@ -289,6 +289,64 @@ func carryStripWithSIPEnabled(_ probe: Probe, _ h: Harness) async {
     await unfold(folded, probe, h)
 }
 
+/// S6-carry-finder-sip：系统完整性保护当作开着，收起一扇访达窗口（访达不隐藏整个应用程序，窗口移到屏幕外），
+/// 按住卷帘条切到右边的桌面：卷帘条留在右边的桌面，展开后窗口在右边的桌面，屏幕不切回原来的桌面。
+/// 依据：用户 macOS 15.2 的日志（869b8b0），移到屏幕外的访达窗口跟过去了 4 次；系统完整性保护开着时这种窗口照样要跟过去。
+func carryFinderStripWithSIPEnabled(_ h: Harness) async {
+    guard await relaunchWindowShade([["WindowShadeAssumeSIPEnabled", "-bool", "true"]]) else {
+        h.result.violations.append("S6-carry-finder-sip: setup: WindowShade did not start again"); return
+    }
+    guard await ensureTwoDesktops(), let home = activeSpaceID() else {
+        h.result.notes["skipped"] = "this Mac has only one desktop and adding one failed"; return
+    }
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("windowshade-s6-finder")
+    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    run("/usr/bin/open", [folder.path])
+    var window: AXUIElement?
+    _ = await eventually(5) { window = finderWindow(titled: folder.lastPathComponent); return window != nil }
+    await pause(1)
+    guard let window, let frame = axFrame(window) else {
+        h.result.violations.append("S6-carry-finder-sip: setup: the Finder window did not open"); return
+    }
+    AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+    let point = emptyTitleBarPoint(CGPoint(x: frame.midX, y: frame.minY + 14), minX: frame.minX + 80, maxX: frame.maxX - 20)
+    let stripsBefore = stripFrames().count
+    await glide(to: point, duration: 0.3)
+    await doubleClick(at: point)
+    _ = await eventually(4) { stripFrames().count > stripsBefore }
+    await pause(0.8)
+    guard let strip = stripFrames().first(where: { $0.contains(point) || abs($0.minY - frame.minY) < 30 }) ?? stripFrames().first else {
+        h.result.violations.append("S6-carry-finder-sip: the Finder window did not fold")
+        closeWindow(window); return
+    }
+    let grab = CGPoint(x: strip.midX, y: strip.midY)
+    await glide(to: grab, duration: 0.3)
+    await pause(0.3)
+    post(.leftMouseDown, at: grab)
+    await pause(0.4)
+    await switchDesktop(right: true)
+    let other = activeSpaceID()
+    post(.leftMouseUp, at: grab)
+    await pause(1.5)
+    defer { closeWindow(window) }
+    guard let other, other != home else {
+        h.result.notes["skipped"] = "Control-Right Arrow did not switch desktops"
+        await returnToDesktop(home)
+        return
+    }
+    h.result.notes["desktops"] = "home=\(home) carried to=\(other) now=\(activeSpaceID().map { String($0) } ?? "?")"
+    h.expect(activeSpaceID() == other, "S6-carry-finder-sip: the desktop switched back after the strip was released")
+    let carried = stripFrames().first
+    h.expect(carried != nil, "S6-carry-finder-sip: the strip did not stay on the new desktop")
+    if let carried {
+        await doubleClick(at: CGPoint(x: carried.midX, y: carried.minY + 8))
+        await pause(2.0)
+        h.expect(activeSpaceID() == other, "S6-carry-finder-sip: unfolding switched the desktop (\(other) → \(activeSpaceID() ?? 0))")
+        h.expect(!finderWindowFramesOnThisDesktop().isEmpty, "S6-carry-finder-sip: the Finder window did not open on the new desktop")
+    }
+    await returnToDesktop(home)
+}
+
 /// E11 和 E11-trash：在当前桌面上开一扇访达窗口，切到右边的桌面，用 openTarget 打开要收起的访达窗口，
 /// 只留它一扇在右边的桌面上，收起、展开，检查桌面都没有切换。openTarget 收到一个可以打开的空文件夹，E11 打开它，E11-trash 不用它。
 func foldFinderOnSecondDesktop(_ h: Harness, id: String, openTarget: (URL) -> Void) async {
@@ -528,6 +586,10 @@ let systemScenarios: [Scenario] = [
     Scenario(id: "S6-carry-sip", title: "系统完整性保护开着时按住卷帘条切桌面：应用程序不显示，屏幕不自己切换桌面，卷帘条回原桌面",
              options: [], changesSettings: true) { probe, h in
         await carryStripWithSIPEnabled(probe, h)
+    },
+    Scenario(id: "S6-carry-finder-sip", title: "系统完整性保护开着时按住访达的卷帘条切桌面：卷帘条留在新桌面，展开后窗口也在那里",
+             options: [], changesSettings: true) { _, h in
+        await carryFinderStripWithSIPEnabled(h)
     },
     Scenario(id: "E12", title: "别的桌面上有最近用过的应用程序时，收起只有一扇窗口的应用程序：不切换桌面", options: []) { probe, h in
         await foldWithRecentAppOnOtherDesktop(probe, h)

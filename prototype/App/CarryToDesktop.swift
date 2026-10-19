@@ -6,25 +6,22 @@ extension AppDelegate {
     /// 卷帘条留在 target 桌面，原窗口用私有接口移过去，收起方式不变（见 Domain/DesktopCarry.swift 的 canCarry）。
     /// 返回 false 表示原窗口跟不过去，由调用方把卷帘条挪回原桌面；已隐藏的应用程序要移时先返回 true，移不过去时稍后由 undoCarry 挪回。
     func carryFoldedWindow(id: CGWindowID, state: ShadeState, toSpace target: UInt64) -> Bool {
-        guard canCarry(state.hide) else {
+        switch carryDecision(hide: state.hide, systemIntegrityEnabled: SystemIntegrity.isEnabled,
+                             failedBefore: carryFailedHideMethods) {
+        case .attempt:
+            break
+        case .skipUnsupported:
             wlog("space: carry not supported id=\(id) hide=\(state.hide.rawValue); moving the strip back")
             return false
-        }
-        // 这个系统版本上原窗口移过一次没移过去：不再试，免得每次切桌面都再移一次。
-        // 依据：用户 macOS 15.2 的日志（869b8b0），4 秒里试了 5 次，应用程序反复显示、隐藏。
-        if carryFailedThisRun || PrivateSLSMemo.isIneffective("carry") {
-            wlog("space: carry skipped id=\(id); moving another app's window to a desktop did not work on this Mac")
+        case .skipFailedBefore:
+            wlog("space: carry skipped id=\(id) hide=\(state.hide.rawValue); this kind of folded window could not be moved earlier in this run")
+            return false
+        case .skipNeedsUnhide:
+            wlog("space: carry not possible id=\(id) hide=hidden: the app would have to be shown to move its window")
             return false
         }
         let mover = PrivateSLSWindowMover.shared
         let windowID = state.sourceWindowID
-        // 系统完整性保护开着时设不了透明，临时取消隐藏应用程序会让窗口露出来，系统还会切到窗口所在的桌面
-        // （用户 macOS 15.2 的录像，869b8b0）。这时不取消隐藏，卷帘条挪回原桌面。
-        // 不看“设透明不起作用”的记录：系统完整性保护关着时也可能写下它（be8f9b1 的 CI 任务 scenarios-1），按它跳过会让本来能移过去的窗口不移。
-        if state.hide == .hidden, SystemIntegrity.isEnabled {
-            wlog("space: carry not possible id=\(id) hide=hidden: the app would have to be shown to move its window")
-            return false
-        }
         if state.hide == .hidden {
             // 应用程序隐藏后，查不到它的窗口在哪张桌面上，移了也核对不了（CI 场景 S6-carry，30acfcc）：
             // 先把窗口设成透明，再在后台临时取消隐藏应用程序，等查到窗口在哪张桌面后移过去、核对，
@@ -60,7 +57,7 @@ extension AppDelegate {
         guard let method = mover.moveOtherAppWindow(id: windowID, toSpace: target) else {
             wlog("space: carry failed id=\(id) window=\(windowID) to=\(target) hide=\(state.hide.rawValue) "
                  + "on=\(mover.windowSpace(id: windowID).map(String.init) ?? "-"); moving the strip back")
-            rememberCarryFailed()
+            rememberCarryFailed(state.hide)
             return false
         }
         recordCarry(id: id, state: state, toSpace: target, method: method)
@@ -90,14 +87,13 @@ extension AppDelegate {
         restorer.run(pid: pid) { _ = PrivateSLSWindowMover.shared.setAlpha(id: windowID, alpha: 1) }
         carryRevealHolds.remove(id)
         guard !moved else { return }
-        rememberCarryFailed()
+        rememberCarryFailed(.hidden)
         if stillFolded, let original { undoCarry(id: id, backTo: original) }
     }
 
-    /// 记下原窗口没移过去：本次运行里马上不再试；同时按系统版本记进偏好，下次启动也不再试。
-    private func rememberCarryFailed() {
-        carryFailedThisRun = true
-        PrivateSLSMemo.markIneffective("carry")
+    /// 记下这种收起方式的窗口没移过去：这次运行里不再试。不记进偏好，也不连别的收起方式一起不试（见 carryDecision）。
+    private func rememberCarryFailed(_ hide: HideMethod) {
+        carryFailedHideMethods.insert(hide)
     }
 
     private func recordCarry(id: CGWindowID, state: ShadeState, toSpace target: UInt64, method: String) {
