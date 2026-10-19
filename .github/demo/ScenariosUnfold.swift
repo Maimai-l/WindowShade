@@ -66,8 +66,19 @@ func pressAppMenu(_ pid: pid_t, menu: String, item: String) async -> Bool {
     var bar: CFTypeRef?
     guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXMenuBarAttribute as CFString, &bar) == .success,
           let bar else { return false }
-    guard let menuItem = axChildren(bar as! AXUIElement).first(where: { axString($0, kAXTitleAttribute as String) == menu }),
-          let target = findElement(menuItem, { axString($0, kAXTitleAttribute as String) == item }) else { return false }
+    guard let menuItem = axChildren(bar as! AXUIElement).first(where: { axString($0, kAXTitleAttribute as String) == menu })
+    else { return false }
+    if let target = findElement(menuItem, { axString($0, kAXTitleAttribute as String) == item }) {
+        return AXUIElementPerformAction(target, kAXPressAction as CFString) == .success
+    }
+    // 用户的测试机（macOS 14.5，8e9a4f1）：菜单没打开时，辅助功能读不到“窗口”菜单里的窗口列表（场景 B09、B18）。
+    // 先打开菜单再找；找不到就关掉菜单。
+    AXUIElementPerformAction(menuItem, kAXPressAction as CFString)
+    await pause(0.4)
+    guard let target = findElement(menuItem, { axString($0, kAXTitleAttribute as String) == item }) else {
+        AXUIElementPerformAction(menuItem, kAXCancelAction as CFString)
+        return false
+    }
     return AXUIElementPerformAction(target, kAXPressAction as CFString) == .success
 }
 
@@ -76,7 +87,7 @@ let unfoldScenarios: [Scenario] = [
         guard let folded = await foldProbe(probe, h) else { return }
         await pressKey(25, [.maskControl, .maskCommand])   // 9
         await pause(1)
-        h.expect(stripFrames().count == 1, "B03: Control-Command-9 changed something with one folded window")
+        h.expect(stripFrames().count == 1, "B03: Control-Command-9 changed something with one folded window (strips \(stripFrames()))")
         await pressKey(18, [.maskControl, .maskCommand])   // 1
         await expectRestored(probe, folded.frame, h, within: 4)
         await expectNoStrip(h, within: 2)
