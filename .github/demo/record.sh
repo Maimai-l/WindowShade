@@ -326,16 +326,8 @@ if [ -n "$ONLY" ]; then
   if [ "$LOCAL" != "1" ] && [[ ",$ONLY," == *",COMPAT-"* ]]; then
     echo "==> install apps for the COMPAT scenarios"
     export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
-    if [[ ",$ONLY," == *",COMPAT-netease,"* ]]; then
-      # 网易云音乐的 DMG 带许可协议，Homebrew 挂载时不会回答同意，挂载失败（bbfc619 的 CI quick 任务）。
-      # 从 formulae.brew.sh 读出下载地址，自己下载，挂载时自动回答同意。用进程替换把 yes 接到 hdiutil 的标准输入；
-      # 写成管道时，hdiutil 退出后 yes 收到 SIGPIPE，在 pipefail 下整条命令算失败。
-      netease_url=$(curl -fsSL https://formulae.brew.sh/api/cask/neteasemusic.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])') \
-        && curl -fsSL -o "$RUNNER_TEMP/netease.dmg" "$netease_url" \
-        && hdiutil attach -nobrowse -noverify -mountpoint /Volumes/netease "$RUNNER_TEMP/netease.dmg" >/dev/null < <(yes) \
-        && cp -R /Volumes/netease/NeteaseMusic.app /Applications/ \
-        && hdiutil detach -quiet /Volumes/netease || echo "NetEase Cloud Music could not be installed"
-    fi
+    # 网易云音乐装不到 CI 虚拟机上：下载站对 CI 虚拟机返回 403（Homebrew 和直接下载都一样，64c9636 的 CI quick 任务）。
+    # COMPAT-netease 在 CI 上跳过；装了网易云音乐的 Mac 上照常运行。
     [[ ",$ONLY," == *",COMPAT-quickrecorder,"* ]] && { brew install --cask lihaoyun6/tap/quickrecorder || true; }
     if [[ ",$ONLY," == *",COMPAT-texpile,"* ]]; then
       # Texpile 不在 Homebrew 里：从 dl.texpile.com/latest.json 读出 DMG 的路径，下载后复制到“应用程序”。
@@ -345,7 +337,7 @@ if [ -n "$ONLY" ]; then
         && cp -R /Volumes/texpile/Texpile.app /Applications/ \
         && hdiutil detach -quiet /Volumes/texpile || echo "Texpile could not be installed"
     fi
-    for app in /Applications/NeteaseMusic.app /Applications/QuickRecorder.app /Applications/Texpile.app; do
+    for app in /Applications/QuickRecorder.app /Applications/Texpile.app; do
       [ -d "$app" ] || continue
       xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
       id=$(defaults read "$app/Contents/Info" CFBundleIdentifier 2>/dev/null) || continue
