@@ -35,6 +35,10 @@ struct StripHitTestTests {
                      "the fold is done: let the strip handle the double-click")
         suite.expect(stripDoubleClickRoute(onShownStrip: true, foldFinished: false) == .handleHere,
                      "the fold is still running: take the double-click and hand it to the strip directly")
+        suite.expect(stripDoubleClickRoute(onShownStrip: true, foldFinished: true, coveredByFoldedWindow: true) == .handleHere,
+                     "the fold is done but the folded window is still on top (Quick Look closing): hand it to the strip directly (A32, e236cf7)")
+        suite.expect(stripDoubleClickRoute(onShownStrip: true, foldFinished: true, coveredByFoldedWindow: false) == .leaveToStrip,
+                     "the fold is done and the strip is on top: let the strip handle it")
 
         suite.section("S5", "收起还没做完时在原标题栏上再双击：算这扇窗口的，不算后面窗口标题栏上的双击（A36）")
         let band = CGRect(x: 160, y: 140, width: 640, height: 32)
