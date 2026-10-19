@@ -171,7 +171,8 @@ extension AppDelegate {
         }
         // 点在一条已经显示出来的卷帘条上：不按标题栏双击处理。收起时卷帘条先显示、原窗口后移开，这段时间命中测试会落到
         // 卷帘条后面的原窗口上，按标题栏双击处理的话，双击会被当成“再收起一次”丢掉（108d26f 上 A32）。
-        // 收起做完了就放行，由卷帘条自己处理；还没做完时不放行，直接调用卷帘条的双击处理（见 StripHitTest.swift）。
+        // 收起做完、点击位置上最上层就是卷帘条时放行，由卷帘条自己处理；还没做完，或者卷帘条被已收起窗口的原窗口盖着时不放行，
+        // 直接调用卷帘条的双击处理（见 StripHitTest.swift）。
         let strip = NSApp.windows.first(where: { window in
             (window is NativeProxyOverlayWindow || window is OverlayWindow) && window.isVisible
                 && window.alphaValue >= 0.05 && !window.ignoresMouseEvents
@@ -179,7 +180,7 @@ extension AppDelegate {
                               separateSpaces: NSScreen.screensHaveSeparateSpaces)
         })
         let foldFinished = strip.map { strip in shaded.values.contains { $0.overlay === strip } } ?? false
-        // 点上最上层的窗口是不是刚收起的原窗口（快速查看窗口关闭时还在放过渡）：是的话点击到不了卷帘条，见 stripDoubleClickRoute。
+        // 点击位置上最上层的窗口是不是某扇已收起窗口的原窗口（快速查看窗口正在关闭，关闭动画还没结束）：是的话点击到不了卷帘条，见 stripDoubleClickRoute。
         let topWindow = strip == nil ? 0 : NSWindow.windowNumber(at: cocoaPoint, belowWindowWithWindowNumber: 0)
         let coveredByFoldedWindow = topWindow > 0 && topWindow != strip?.windowNumber
             && shaded[CGWindowID(topWindow)] != nil

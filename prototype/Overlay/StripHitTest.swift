@@ -18,16 +18,17 @@ func stripShows(at point: CGPoint, frame: CGRect, shownOn screen: CGRect?, separ
 enum StripDoubleClickRoute: Equatable {
     /// 不在显示出来的卷帘条上：按标题栏双击继续判断。
     case notOnStrip
-    /// 收起已经做完：放行，由卷帘条自己处理。
+    /// 收起已经做完，点击位置上最上层就是卷帘条：放行，由卷帘条自己处理。
     case leaveToStrip
-    /// 收起还没做完：鼠标钩子不放行这次双击，直接调用卷帘条的双击处理（收起做完后再展开）。
-    /// 这段时间里别的窗口可能还盖在卷帘条上，放行的点击会落到它上面，例如快速查看窗口关闭时的过渡窗口
+    /// 收起还没做完，或者卷帘条被已收起窗口的原窗口盖着：鼠标钩子不放行这次双击，直接调用卷帘条的双击处理（收起做完后再展开）。
+    /// 这段时间里别的窗口可能还盖在卷帘条上，放行的点击会落到它上面，例如正在关闭的快速查看窗口
     /// （依据：54f1aa1 上 CI 场景 A32 的录像）。
     case handleHere
 }
 
-/// coveredByFoldedWindow：点上最上层的窗口是刚收起的原窗口（快速查看窗口关闭时的过渡还没放完）。这时收起已经做完，
-/// 放行的点击也会落到它上面，卷帘条收不到第二下（依据：e236cf7 上 CI 场景 A32，关闭快速查看 90 毫秒后的点击丢了）。
+/// coveredByFoldedWindow：点击位置上最上层的窗口是某扇已收起窗口的原窗口（快速查看窗口的关闭动画还没结束）。
+/// 收起已经做完时，鼠标钩子放行的点击也会落到它上面，卷帘条收不到第二次点击
+/// （依据：e236cf7 上 CI 场景 A32，关闭快速查看窗口 90 毫秒后的那次点击没有落到卷帘条上）。
 func stripDoubleClickRoute(onShownStrip: Bool, foldFinished: Bool,
                            coveredByFoldedWindow: Bool = false) -> StripDoubleClickRoute {
     guard onShownStrip else { return .notOnStrip }
