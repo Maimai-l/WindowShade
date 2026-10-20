@@ -37,14 +37,14 @@ enum SettingsCopy {
     static let granted = "已允许"
     static let grant = "打开系统设置"
 
-    static let launchAtLogin = "登录时自动启动"
+    static let launchAtLogin = "登录时打开"
     /// 页名和“系统设置”一致：macOS 26 叫“登录项与扩展”，更早的版本叫“登录项”。
     static var launchNeedsApproval: String {
         if SettingsCopy.isMacOS26OrLater { return "请在“系统设置”的“登录项与扩展”中允许" }
         return "请在“系统设置”的“登录项”中允许"
     }
-    static let launchUnavailable = "这个版本不能在登录时启动"
-    static let launchFailed = "无法修改登录时自动启动"
+    static let launchUnavailable = "请将 WindowShade 移到“应用程序”文件夹中"
+    static let launchFailed = "未能更改登录项"
 
     /// 照系统设置“键盘快捷键”一页顶上的那句说明写，“连按”换成全产品通用的“双击”。
     static let shortcutHint = "若要更改快捷键，请双击组合键，然后按下新的组合键。"
@@ -261,15 +261,14 @@ private struct ShortcutSettings: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        // 照系统设置的“键盘快捷键”：每行一个复选框、名字和右边的组合，双击组合就改。
+        // 照系统设置的“键盘快捷键”：分组第一行是操作说明，下面每行一个复选框、名字和右边的组合，双击组合就改。
         Section {
-            ShortcutRow(model: model, shortcut: .toggleShade)
-            ShortcutRow(model: model, shortcut: .arrange)
-            NumberedShortcutRow(model: model)
-        } header: {
             Text(SettingsCopy.shortcutHint)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            ShortcutRow(model: model, shortcut: .toggleShade)
+            ShortcutRow(model: model, shortcut: .arrange)
+            NumberedShortcutRow(model: model)
         } footer: {
             // 放在分组下面，不单独占一张卡片。
             HStack {
@@ -400,6 +399,7 @@ private struct ShortcutRow: View {
                 .toggleStyle(.checkbox)
                 .labelsHidden()
             Text(shortcut.title)
+                .foregroundStyle(recording ? Color.white : Color.primary)
             Spacer()
             current
                 .contentShape(Rectangle())
@@ -411,6 +411,7 @@ private struct ShortcutRow: View {
                 .accessibilityAction { recording = true }
         }
         .background(KeyCapture(isActive: $recording, onKey: capture))
+        .modifier(SelectedShortcutRow(isSelected: recording))
         .task(id: message) {
             // 录到不能用的组合：说明原因，1.8 秒后回到当前组合。
             guard message != nil else { return }
@@ -421,7 +422,7 @@ private struct ShortcutRow: View {
 
     @ViewBuilder private var current: some View {
         if recording {
-            Text(SettingsCopy.recording).foregroundStyle(.secondary)
+            RecordingField()
         } else if let message {
             Text(message).foregroundStyle(.secondary)
         } else if let hotKey = model.hotKeys[shortcut] {
@@ -476,6 +477,7 @@ private struct NumberedShortcutRow: View {
                 .toggleStyle(.checkbox)
                 .labelsHidden()
             Text(SettingsCopy.numbered)
+                .foregroundStyle(recording ? Color.white : Color.primary)
             Spacer()
             current
                 .contentShape(Rectangle())
@@ -487,6 +489,7 @@ private struct NumberedShortcutRow: View {
                 .accessibilityAction { recording = true }
         }
         .background(KeyCapture(isActive: $recording, onKey: capture))
+        .modifier(SelectedShortcutRow(isSelected: recording))
         .task(id: message) {
             guard message != nil else { return }
             try? await Task.sleep(for: .seconds(1.8))
@@ -496,7 +499,7 @@ private struct NumberedShortcutRow: View {
 
     @ViewBuilder private var current: some View {
         if recording {
-            Text(SettingsCopy.recordingModifiers).foregroundStyle(.secondary)
+            RecordingField(prompt: SettingsCopy.recordingModifiers)
         } else if let message {
             Text(message).foregroundStyle(.secondary)
         } else {
@@ -528,6 +531,42 @@ private struct NumberedShortcutRow: View {
     private func reject(_ text: String) {
         shadeSounds.beep()
         message = text
+    }
+}
+
+/// 正在录制的那一行照系统设置，整行用强调色作选中背景。名字改白色在各行里做，右边的输入框见 RecordingField。
+private struct SelectedShortcutRow: ViewModifier {
+    let isSelected: Bool
+
+    func body(content: Content) -> some View {
+        if isSelected {
+            content.listRowBackground(Color.accentColor)
+        } else {
+            content
+        }
+    }
+}
+
+/// 录制时右边的空白输入框：白底，右端有闪烁的插入点。prompt 只供 VoiceOver 读出，不显示。
+private struct RecordingField: View {
+    var prompt: String = SettingsCopy.recording
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+            let visible = Int(context.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
+            HStack {
+                Spacer()
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(width: 2, height: 16)
+                    .opacity(visible ? 1 : 0)
+            }
+            .padding(.horizontal, 6)
+            .frame(width: 180, height: 22)
+            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white))
+        }
+        .accessibilityElement()
+        .accessibilityLabel(prompt)
     }
 }
 

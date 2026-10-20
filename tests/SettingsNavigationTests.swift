@@ -84,8 +84,7 @@ struct SettingsNavigationTests {
       precondition(!text.hasSuffix("。"), "Settings show no explanatory sentences: \(text)")
     }
     // 小字里不写“不……”（docs/copy-guide.md 规则 2；用户 2026-10-20 指出“有新版本时提示，不自动安装”）。
-    // “这个版本不能在登录时启动”是出问题时的说明，不是说明不会发生什么，不算。
-    for text in SettingsCopy.notes where text != SettingsCopy.launchUnavailable {
+    for text in SettingsCopy.notes {
       precondition(!text.contains("不"), "A note says what happens, not what does not: \(text)")
     }
 
