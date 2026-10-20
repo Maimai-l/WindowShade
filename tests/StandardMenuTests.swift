@@ -1,4 +1,4 @@
-// 应用菜单和状态栏菜单共用的构造：标准菜单、收起窗口的分区、标题截断和“关于”面板。
+// 应用菜单和状态栏菜单共用的构造：标准菜单、收起窗口的分区、标题截断和“关于”窗口。
 // 纯逻辑，不碰用户的设置和窗口。
 
 import Cocoa
@@ -42,7 +42,7 @@ enum StandardMenuTests {
         }
         expect(about.action == #selector(NSApplication.orderFrontStandardAboutPanel(_:))
                 || about.action != nil,
-               "关于 is wired to an action (custom panel or the system default)")
+               "关于 is wired to an action (the app's own window or the system default)")
         // 收起窗口的菜单分区：前 9 个内联带 ⌃⌘1…9，其余进“更多”子菜单。
         let few = (1...3).map { $0 }
         let fewSplit = StandardMenu.splitFoldedWindows(few)
@@ -73,20 +73,17 @@ enum StandardMenuTests {
         expect(StandardMenu.menuTitle("  前后有空白  ") == "前后有空白",
                "menu titles are trimmed before truncation")
 
-        // “关于”面板的内容来自同一份构造：版本、许可与仓库链接。
-        let aboutOptions = StandardMenu.aboutPanelOptions(version: "1.0.14", build: "14")
-        expect((aboutOptions[.applicationVersion] as? String) == "1.0.14"
-                && (aboutOptions[.version] as? String) == "14",
-               "the about panel shows the bundle version and build")
-        let credits = aboutOptions[.credits] as? NSAttributedString
-        expect(credits?.string.contains("MIT License") == true
-                && credits?.string.contains("github.com/surfine/WindowShade") == true,
-               "the about panel credits the license and the repository")
-        var hasLink = false
-        credits?.enumerateAttribute(.link, in: NSRange(location: 0, length: credits?.length ?? 0)) {
-            value, _, _ in if value != nil { hasLink = true }
-        }
-        expect(hasLink, "the repository appears as a clickable link")
+        // “关于”窗口照 Ghostty：版本、构建、提交和仓库链接，不放版权、许可和宣传语（用户 2026-10-20 要求）。
+        let about = AboutContent(version: "1.0.16", build: "16", commit: "866b31b")
+        expect(about.rows.map(\.label) == ["版本", "构建", "提交"]
+                && about.rows.map(\.value) == ["1.0.16", "16", "866b31b"],
+               "the about window lists version, build and commit")
+        expect(about.rows.last?.link?.absoluteString == "https://github.com/Maimai-l/WindowShade/commit/866b31b",
+               "the commit links to that commit in the repository")
+        expect(AboutContent(version: "1.0.16", build: "16", commit: nil).rows.count == 2,
+               "without a commit the about window shows version and build only")
+        expect(!AboutContent.summary.contains("License") && !AboutContent.summary.contains("©"),
+               "the summary line carries no license or copyright")
 
         // 注入了 target/action 时，“设置…”必须带上 ⌘, 且指向注入的目标。
         let withSettings = StandardMenu.make(appName: "WindowShade", settingsTarget: NSApp,

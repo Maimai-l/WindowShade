@@ -238,6 +238,15 @@ for version_key in CFBundleShortVersionString CFBundleVersion; do
   release_value=$(/usr/libexec/PlistBuddy -c "Print $version_key" Info.plist)
   /usr/libexec/PlistBuddy -c "Set :$version_key $release_value" "$APP/Contents/Info.plist"
 done
+# “关于”窗口“提交”一行显示的哈希：在 Git 仓库里编译时写进去，不在仓库里时删掉旧值。
+build_commit=$(git rev-parse --short=9 HEAD 2>/dev/null || true)
+if [ -n "$build_commit" ]; then
+  plutil -replace WindowShadeCommit -string "$build_commit" "$APP/Contents/Info.plist"
+else
+  plutil -remove WindowShadeCommit "$APP/Contents/Info.plist" 2>/dev/null || true
+fi
+# 删掉旧版本留下的版权说明（源码树的 Info.plist 里已经没有这一项）。
+plutil -remove NSHumanReadableCopyright "$APP/Contents/Info.plist" 2>/dev/null || true
 # 删掉旧版本留下的 Apple 事件、相机用途说明（源码树的 Info.plist 里已经没有这两项）。
 plutil -remove NSAppleEventsUsageDescription "$APP/Contents/Info.plist" 2>/dev/null || true
 plutil -remove NSCameraUsageDescription "$APP/Contents/Info.plist" 2>/dev/null || true

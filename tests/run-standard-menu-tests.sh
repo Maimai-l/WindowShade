@@ -1,5 +1,5 @@
 #!/bin/bash
-# 标准菜单、收起窗口的菜单分区和“关于”面板（纯逻辑，不碰用户的设置和窗口）。
+# 标准菜单、收起窗口的菜单分区和“关于”窗口（纯逻辑，不碰用户的设置和窗口）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/standard-menu-tests

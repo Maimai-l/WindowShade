@@ -11,6 +11,40 @@
 
 import Cocoa
 
+/// “关于”窗口的内容：一句用途说明、版本、构建、提交和仓库链接。由 App/AboutWindow.swift 显示。
+/// 照 Ghostty 的“关于”窗口，不放版权、许可和宣传语。只生成数据、不碰界面，便于测试。
+struct AboutContent: Equatable {
+    static let summary = "双击标题栏，窗口收起成卷帘条，留在原处。"
+    static let repository = URL(string: "https://github.com/Maimai-l/WindowShade")!
+
+    struct Row: Equatable {
+        let label: String
+        let value: String
+        /// 有链接时，值显示成可点的链接；“提交”一行链接到 GitHub 上这次提交的页面。
+        let link: URL?
+    }
+
+    let rows: [Row]
+
+    /// commit 为 nil 或空字符串时（不在 Git 仓库里编译），不显示“提交”这一行。
+    init(version: String, build: String, commit: String?) {
+        var rows = [Row(label: "版本", value: version, link: nil),
+                    Row(label: "构建", value: build, link: nil)]
+        if let commit, !commit.isEmpty {
+            rows.append(Row(label: "提交", value: commit,
+                            link: Self.repository.appendingPathComponent("commit").appendingPathComponent(commit)))
+        }
+        self.rows = rows
+    }
+
+    /// 从 App 的 Info.plist 读版本、构建和编译时写进去的提交（WindowShadeCommit）。
+    static func fromBundle(_ bundle: Bundle = .main) -> AboutContent {
+        AboutContent(version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+                     build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+                     commit: bundle.object(forInfoDictionaryKey: "WindowShadeCommit") as? String)
+    }
+}
+
 enum StandardMenu {
     /// 只从主线程安装主菜单：里面要写 `NSApp.servicesMenu`。
     @MainActor
@@ -28,28 +62,6 @@ enum StandardMenu {
         mainMenu.addItem(editMenuItem())
         mainMenu.addItem(windowMenuItem())
         return mainMenu
-    }
-
-    /// 系统标准“关于”面板的内容：一句用途说明 + 许可与仓库链接。
-    /// 纯构造，便于测试；实际展示仍由 `orderFrontStandardAboutPanel` 负责。
-    static func aboutPanelOptions(applicationName: String = "WindowShade",
-                                  version: String,
-                                  build: String)
-        -> [NSApplication.AboutPanelOptionKey: Any] {
-        let credits = NSMutableAttributedString(
-            string: "双击标题栏收起窗口，卷帘条留在原处。\nMIT License\n",
-            attributes: [.font: NSFont.systemFont(ofSize: 11),
-                         .foregroundColor: NSColor.secondaryLabelColor])
-        credits.append(NSAttributedString(
-            string: "github.com/surfine/WindowShade",
-            attributes: [.font: NSFont.systemFont(ofSize: 11),
-                         .link: URL(string: "https://github.com/surfine/WindowShade")!]))
-        return [
-            .applicationName: applicationName,
-            .applicationVersion: version,
-            .version: build,
-            .credits: credits,
-        ]
     }
 
     // MARK: 已收起窗口的菜单分区
@@ -87,7 +99,7 @@ enum StandardMenu {
         let item = NSMenuItem()
         let menu = NSMenu(title: appName)
 
-        // 有自定义实现时用应用的“关于”面板（标准面板 + 许可信息），否则用系统默认的。
+        // 传入 aboutAction 时用应用自己的“关于”窗口（App/AboutWindow.swift），否则用系统的“关于”面板。
         let about = NSMenuItem(title: "关于 \(appName)",
                                action: aboutAction
                                    ?? #selector(NSApplication.orderFrontStandardAboutPanel(_:)),

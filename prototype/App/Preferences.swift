@@ -69,14 +69,9 @@ extension AppDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
     }
 
-/// 系统标准“关于”面板 + 一句用途说明与许可信息（代理应用从状态栏菜单进入）。
+/// 打开“关于”窗口（App/AboutWindow.swift）。代理应用从状态栏菜单打开它。
 @objc func showAboutPanel() {
-    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
-        as? String ?? ""
-    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-    NSApp.orderFrontStandardAboutPanel(options: StandardMenu.aboutPanelOptions(
-        version: version, build: build))
-    NSApp.activate()
+    AboutWindowController.shared.show()
 }
 
 @objc func showPreferences() {
