@@ -35,7 +35,12 @@ struct ShadeSoundTests {
         let second = CFAbsoluteTimeGetCurrent()
         player.play("Purr")
         expect((CFAbsoluteTimeGetCurrent() - second) * 1000 < 25, "a second play also returns at once")
-        Thread.sleep(forTimeInterval: 0.4)
+        // 和第一次一样，等到后台队列上的这次 play() 返回再检查（最多等 3 秒）：在 CI 虚拟机上，每次 play() 要几百毫秒，
+        // 固定等 0.4 秒时它还没返回（1f33537 的 CI 上 plays=1）。
+        let secondDeadline = CFAbsoluteTimeGetCurrent() + 3
+        while player.stats.plays < 2 && CFAbsoluteTimeGetCurrent() < secondDeadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
         expect(player.stats.plays == 2, "both plays ran (plays=\(player.stats.plays))")
 
         if failures == 0 { print("PASS: shade sounds play off the main thread") }
