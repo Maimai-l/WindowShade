@@ -10,6 +10,7 @@ struct CaptureWindowTests {
     toolbarSearchStopsAtTheNodeBudget()
     titlebarHitHeightIsMeasuredOnce()
     quickPreviewRejectsAnEmptyCapture()
+    staleSnapshotSizeForcesARefresh()
     print("PASS CaptureWindowTests")
   }
 
@@ -89,5 +90,21 @@ struct CaptureWindowTests {
                  "the preview is scaled down to the limit")
     precondition(quickWindowPreviewCGImage(id: 9, maxPixelSize: limit, capture: { _ in nil }) == nil,
                  "no capture gives no preview")
+  }
+
+  /// ScreenCaptureKit 的截图尺寸取自窗口列表快照（最多缓存 1.5 秒）。快照之后窗口被缩放过，
+  /// 以前照样用旧的大小截图，卷帘条被拉变形、裁错高度。现在大小对不上就重新枚举（content(requiring:size:)）。
+  @MainActor
+  static func staleSnapshotSizeForcesARefresh() {
+    let now = CGSize(width: 1200, height: 800)
+    precondition(ShareableContentCache.sizeMatches(CGSize(width: 1200, height: 800), expected: now), "same size")
+    precondition(ShareableContentCache.sizeMatches(CGSize(width: 1201.5, height: 798), expected: now),
+                 "a point or two of rounding still matches")
+    precondition(!ShareableContentCache.sizeMatches(CGSize(width: 900, height: 800), expected: now),
+                 "a window resized after the snapshot does not match")
+    precondition(!ShareableContentCache.sizeMatches(CGSize(width: 1200, height: 640), expected: now),
+                 "a height change does not match")
+    precondition(ShareableContentCache.sizeMatches(CGSize(width: 900, height: 640), expected: nil),
+                 "callers without a size keep the old behaviour")
   }
 }
