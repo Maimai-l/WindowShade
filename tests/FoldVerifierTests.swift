@@ -80,6 +80,40 @@ struct FoldVerifierTests {
         let other = FoldCallbackStamp(window: 7, pid: 9, transaction: UUID(), hide: "hidden", presentation: shown, capturedAt: 1)
         t.expect(old.sameFold(as: later), "同一次收起，过了很久、切过桌面：还是同一次")
         t.expect(!old.sameFold(as: other), "另一次收起：不是同一次")
+
+        // 最小化、隐藏应用程序要过一会儿才读得到，收起验证在 0.15 秒和 0.6 秒各读一次。途中切了桌面（最小化本身就可能让系统
+        // 切桌面），以前算作过期，立刻读一次，读到“还没最小化”就回滚，用户看到“没能收起这个窗口”。
+        t.section("V6", "收起验证途中切了桌面：照常等到第二次读，不提前读、不回滚")
+        do {
+            let clock = Clock()
+            let fold = UUID()
+            let installed = FoldCallbackStamp(window: 7, pid: 9, transaction: fold, hide: "minimized",
+                                              presentation: UUID(), capturedAt: 10)
+            var current = installed
+            var now: TimeInterval = 10
+            var reads = 0
+            var expired = 0
+            var results: [FoldVerifier.Observation] = []
+            let verifier = FoldVerifier(schedule: clock.schedule,
+                                        isCurrent: { installed.acceptsIgnoringPresentation(current: current, now: now) },
+                                        observation: { reads += 1; return reads == 1 ? .visible : .hidden },
+                                        salvage: { false }, salvagedObservation: { .hidden },
+                                        onExpired: { expired += 1 },
+                                        result: { results.append($0) })
+            verifier.start()
+            // 切桌面：呈现编号换新。
+            current = FoldCallbackStamp(window: 7, pid: 9, transaction: fold, hide: "minimized",
+                                        presentation: UUID(), capturedAt: 10.1)
+            now = 10.2
+            clock.run()
+            t.expect(expired == 0, "切桌面不算过期（实际过期 \(expired) 次）")
+            t.expect(reads == 2 && results == [.hidden], "第二次读到已最小化：按已藏好收尾（读了 \(reads) 次，结果 \(results)）")
+
+            t.expect(!installed.acceptsIgnoringPresentation(current: current, now: 12.5), "超过时限仍算过期，交给 onExpired")
+            let another = FoldCallbackStamp(window: 7, pid: 9, transaction: UUID(), hide: "minimized",
+                                            presentation: current.presentation, capturedAt: 10.1)
+            t.expect(!installed.acceptsIgnoringPresentation(current: another, now: 10.2), "已经是另一次收起：不算")
+        }
         t.finish()
     }
 }
