@@ -285,13 +285,33 @@ func axChildren(_ el: AXUIElement) -> [AXUIElement] {
     return arr
 }
 
-// 在窗口里找工具栏（含浅层递归），用于量出真实的标题栏+工具栏高度
-func firstToolbar(_ el: AXUIElement, depth: Int = 0) -> AXUIElement? {
-    if depth > 2 { return nil }
-    // 工具栏几乎总在子列表最前，前缀截断只为挡住极端 AX 树（数千子节点的窗口）。
-    let kids = axChildren(el).prefix(axTraversalMaxChildrenPerNode)
-    for c in kids where axRole(c) == (kAXToolbarRole as String) { return c }
-    for c in kids { if let t = firstToolbar(c, depth: depth + 1) { return t } }
+// 在窗口里找工具栏（含浅层递归），用于量出真实的标题栏+工具栏高度。
+// 双击标题栏时它在主线程上跑，所以和其他遍历一样有节点预算：没有工具栏、每层几十个子节点的窗口，
+// 不设预算要读上万次角色。工具栏几乎总在子列表最前，每个节点只看前 axTraversalMaxChildrenPerNode 个子节点。
+func firstToolbar(_ el: AXUIElement) -> AXUIElement? {
+    var nodeBudget = axTraversalNodeBudget
+    return firstDescendant(of: el, maxDepth: 2, nodeBudget: &nodeBudget,
+                           children: { Array(axChildren($0).prefix(axTraversalMaxChildrenPerNode)) },
+                           matches: { axRole($0) == (kAXToolbarRole as String) })
+}
+
+/// 找第一个满足 matches 的后代：先看这一层的全部子节点，再逐个往下找，最多展开到第 maxDepth 层。
+/// 每看一个节点（matches 一次）扣一次预算，预算用完就停下，返回 nil。
+func firstDescendant<Node>(of root: Node, maxDepth: Int, depth: Int = 0, nodeBudget: inout Int,
+                           children: (Node) -> [Node], matches: (Node) -> Bool) -> Node? {
+    if depth > maxDepth || nodeBudget <= 0 { return nil }
+    let kids = children(root)
+    for kid in kids {
+        guard nodeBudget > 0 else { return nil }
+        nodeBudget -= 1
+        if matches(kid) { return kid }
+    }
+    for kid in kids {
+        if let found = firstDescendant(of: kid, maxDepth: maxDepth, depth: depth + 1, nodeBudget: &nodeBudget,
+                                       children: children, matches: matches) {
+            return found
+        }
+    }
     return nil
 }
 
