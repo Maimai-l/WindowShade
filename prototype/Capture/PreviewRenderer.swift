@@ -509,7 +509,7 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
     if profile.isQuickLook {
         barH = min(quickLookOriginalTitleBarHeight, logicalSize.height)
     } else if profile.standardTitleBarOnly {
-        // 红绿灯在标准位置的窗口：截图里找到下沿、又不深过 maxPixelBoundaryHeight 时裁到那里，否则裁标准标题栏。
+        // 红绿灯在标准位置的窗口：规则见 ChromeBand.standardWindowBar。
         barH = ChromeBand.standardWindowBar(standard: standardBarH, found: visualBarH, maxHeight: maxPixelBoundaryHeight)
     } else {
         barH = min(visualBarH ?? fallbackBarH, min(logicalSize.height, 300))

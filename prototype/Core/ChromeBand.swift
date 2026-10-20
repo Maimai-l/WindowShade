@@ -1,6 +1,6 @@
 // 在收起时的截图里找窗口顶部区域（标题栏连同应用程序自己画的顶栏）的下沿：从上往下逐行看，
 // 底色在一行里占不到四成、连着超过 3 点的地方，就是内容区的开始。
-// 只用于没有原生工具栏、也没有已知高度的窗口：网页、跨平台框架自己画的顶栏，辅助功能读不出它有多高（docs/design.md 的 S1）。
+// 用于两种窗口：没有原生工具栏、辅助功能读不出顶部多高的窗口（网页、跨平台框架自己画的顶栏）；红绿灯在标准位置的窗口。见 docs/design.md 的 S1。
 // 纯计算，不调用系统接口，可在任意线程上做。
 
 import CoreGraphics
@@ -31,7 +31,7 @@ enum ChromeBand {
     static let nextTierGap: CGFloat = 8
 
     /// 顶部区域的下沿（点，从窗口顶边算）。找不到时返回 nil，调用方改用简化标题栏。
-    /// floor：下沿最高到这里（调用方传红绿灯的下沿，至少 12 点）。ceiling：最深找到这里。
+    /// floor：下沿最高到这里（调用方传红绿灯按钮的下沿往下 2 点，读不到按钮时传按红绿灯推算的高度，至少 12 点）。ceiling：最深找到这里。
     /// controls：辅助功能读到的顶部控件的上下沿（点）；下沿不落在任何一个控件中间。
     static func bottom(of pixels: TopPixels, scale: CGFloat, floor: CGFloat, ceiling: CGFloat = 140,
                        controls: [ClosedRange<CGFloat>] = []) -> CGFloat? {
@@ -113,9 +113,9 @@ enum ChromeBand {
         return nil
     }
 
-    /// 红绿灯在标准位置的窗口裁多高。标准标题栏的高度由红绿灯推算，自己画的标题栏不一定这么高：
-    /// 截图里找到下沿、又不深过 maxHeight 时裁到下沿，比推算的浅也用（Texpile 的标题栏 31 点，推算是 34 点，
-    /// 多出的 3 点是下面的白色内容区）；找不到时裁推算的高度。
+    /// 红绿灯在标准位置的窗口裁多高。standard 是按红绿灯推算的高度，自己画的顶栏不一定这么高。
+    /// found 不深过 maxHeight 时裁到 found，比 standard 浅也一样；found 为 nil 或深过 maxHeight 时裁到 standard。
+    /// 例如 Texpile 的顶栏 31 点，推算是 34 点，裁到 34 点会带上 3 点白色内容区。
     static func standardWindowBar(standard: CGFloat, found: CGFloat?, maxHeight: CGFloat) -> CGFloat {
         guard let found, found <= maxHeight else { return standard }
         return found
