@@ -19,12 +19,22 @@ enum BridgedSpaceMove {
     private static let performSymbol =
         "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperationP47SLSAsynchronousBridgedWindowManagementOperation"
 
-    /// 第一次用到时查一次类和函数地址；有一样找不到就为 nil，调用方改用别的办法。
+    private static let initializerName = "initWithWindows:spaceID:"
+
+    /// 第一次用到时查一次类、它的初始化方法和函数地址；有一样找不到就为 nil，调用方改用别的办法。
     private static let perform: PerformFunction? = {
-        guard NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation") != nil,
+        guard let cls = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation"), canInitialize(cls),
               let address = findLocalSymbol(image: skyLightPath, name: performSymbol) else { return nil }
         return unsafeBitCast(address, to: PerformFunction.self)
     }()
+
+    /// 这个类的实例认不认 initWithWindows:spaceID:，而且这个方法正好两个参数（连同 self 和 _cmd 共四个）。
+    /// 下面用 objc_msgSend 直接发这条消息：以后的 macOS 去掉这个方法而保留类时，发出去会抛出“unrecognized selector”，
+    /// WindowShade 崩溃；参数个数变了时，会按错的调用约定调用。
+    static func canInitialize(_ cls: AnyClass) -> Bool {
+        guard let method = class_getInstanceMethod(cls, NSSelectorFromString(initializerName)) else { return false }
+        return method_getNumberOfArguments(method) == 4
+    }
 
     static var isAvailable: Bool { perform != nil }
 
@@ -41,7 +51,7 @@ enum BridgedSpaceMove {
         let list = windows.map { NSNumber(value: $0) } as CFArray
         let classPointer = UnsafeRawPointer(Unmanaged.passUnretained(cls as AnyObject).toOpaque())
         guard let allocated = alloc(classPointer, NSSelectorFromString("alloc")),
-              let operation = initialize(allocated, NSSelectorFromString("initWithWindows:spaceID:"),
+              let operation = initialize(allocated, NSSelectorFromString(initializerName),
                                          UnsafeRawPointer(Unmanaged.passUnretained(list).toOpaque()), sid)
         else { return false }
         _ = perform(operation)
