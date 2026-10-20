@@ -427,29 +427,18 @@ enum LegacyQuickCapture {
 
 }
 
-// 只到 CGImage 为止：CGWindowListCreateImage 与降采样都只碰 CoreGraphics，可在
-// 任意线程调用；包装成 NSImage 的那一步留给主线程的调用方。
+// 只到 CGImage 为止：截图与降采样都只碰 CoreGraphics，可在任意线程调用；包装成 NSImage 的那一步留给主线程的调用方。
+// 截图和收起用的快速截图是同一个接口（FastCapture）：设了 WINDOWSHADE_DISABLE_FAST_CAPTURE 时不截，
+// 窗口还没合成出画面（刚展开、刚打开，整张全透明）时返回 nil。收起时调用方据此在隐藏原窗口之前改用
+// ScreenCaptureKit 补截；把透明图当成截到了，卷帘条和菜单的预览就一直是空的。
+// capture 只为测试注入。
 func quickWindowPreviewCGImage(id: CGWindowID,
-                               maxPixelSize: CGSize = hoverPreviewMaxPixelSize) -> CGImage? {
-    let options: CGWindowImageOption = [.boundsIgnoreFraming, .bestResolution]
-    typealias CreateImage = @convention(c) (CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption) -> Unmanaged<CGImage>?
-    struct Loader {
-        static let createImage: CreateImage? = {
-            guard let handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY),
-                  let symbol = dlsym(handle, "CGWindowListCreateImage") else {
-                // Apple 已把 CGWindowListCreateImage 标为废弃（改用 ScreenCaptureKit），当前系统上仍然可用。
-                // 将来系统移除这个符号时，这里记一次日志：卷帘条改用简化标题栏，菜单悬停预览不显示画面，
-                // 不会悄悄出错。
-                LegacyQuickCapture.reportUnavailableOnce()
-                return nil
-            }
-            return unsafeBitCast(symbol, to: CreateImage.self)
-        }()
-    }
-    guard let createImage = Loader.createImage else { return nil }
-    guard let unmanaged = createImage(.null, .optionIncludingWindow, id, options) else { return nil }
-    let raw = unmanaged.takeRetainedValue()
-    return downsampleCGImage(raw, maxPixelSize: maxPixelSize) ?? raw
+                               maxPixelSize: CGSize = hoverPreviewMaxPixelSize,
+                               capture: (CGWindowID) -> CGImage? = { FastCapture.rawWindow($0) }) -> CGImage? {
+    guard let raw = capture(id) else { return nil }
+    // 先缩小再检查：检查要把整张图画一遍，缩小后的图画起来快。
+    let image = downsampleCGImage(raw, maxPixelSize: maxPixelSize) ?? raw
+    return FastCapture.hasContent(image) ? image : nil
 }
 
 /// 在截图里找到的下沿比这更深时，顶部区域太高，不当卷帘条用。

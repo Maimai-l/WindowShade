@@ -9,6 +9,7 @@ struct CaptureWindowTests {
   static func main() {
     toolbarSearchStopsAtTheNodeBudget()
     titlebarHitHeightIsMeasuredOnce()
+    quickPreviewRejectsAnEmptyCapture()
     print("PASS CaptureWindowTests")
   }
 
@@ -59,5 +60,34 @@ struct CaptureWindowTests {
     precondition(measured == 2, "a resized window is measured again")
     _ = hit(other, CGSize(width: 900, height: 600))
     precondition(measured == 3, "another element with the same window number is measured again")
+  }
+
+  /// 收起时用简化标题栏的那条路径先用旧接口截一张预览：窗口还没合成出画面时截到的是全透明的图，
+  /// 以前照样当成截到了，就不再在隐藏原窗口之前用 ScreenCaptureKit 补截，这次收起的预览一直是空的。
+  @MainActor
+  static func quickPreviewRejectsAnEmptyCapture() {
+    func image(width: Int, height: Int, opaque: Bool) -> CGImage {
+      let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+      context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+      if opaque {
+        context.setFillColor(CGColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+      }
+      return context.makeImage()!
+    }
+    let limit = CGSize(width: 720, height: 480)
+    let empty = image(width: 1440, height: 900, opaque: false)
+    precondition(quickWindowPreviewCGImage(id: 9, maxPixelSize: limit, capture: { _ in empty }) == nil,
+                 "a window that is not composited yet gives no preview")
+    let drawn = image(width: 1440, height: 900, opaque: true)
+    guard let preview = quickWindowPreviewCGImage(id: 9, maxPixelSize: limit, capture: { _ in drawn }) else {
+      preconditionFailure("a drawn window gives a preview")
+    }
+    precondition(CGFloat(preview.width) <= limit.width && CGFloat(preview.height) <= limit.height,
+                 "the preview is scaled down to the limit")
+    precondition(quickWindowPreviewCGImage(id: 9, maxPixelSize: limit, capture: { _ in nil }) == nil,
+                 "no capture gives no preview")
   }
 }
