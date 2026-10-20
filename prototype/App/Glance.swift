@@ -190,6 +190,14 @@ final class GlanceController {
     /// 测试可以替换这两个入口来模拟指针与时钟；平时读真实的指针位置。
     var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
     var clock: () -> TimeInterval = { CACurrentMediaTime() }
+    /// 用户此刻是不是自己在切换应用程序：按着鼠标键，或按着 Command（⌘Tab）。测试可以替换。
+    var userIsSwitchingApps: () -> Bool = {
+        NSEvent.pressedMouseButtons != 0 || NSEvent.modifierFlags.contains(.command)
+    }
+    /// 测试用：替换把前台还给取消隐藏之前的应用程序的做法；为 nil 时用 AppDelegate.activateApp。
+    var reactivate: ((pid_t) -> Void)?
+    /// 取消隐藏之后这么久以内的激活，算取消隐藏带来的，不算用户切回原应用程序。
+    static let unhideActivationWindow: TimeInterval = 0.8
     /// 测试用：不经过真正收起的窗口，直接给出卷帘条的位置和画面目标。
     var testTarget: ((CGWindowID) -> (strip: NSRect, target: GlanceTarget?))?
     private(set) var diagnostics = GlanceDiagnostics()
@@ -272,10 +280,21 @@ final class GlanceController {
     }
 
     /// 用户切回临时取消隐藏的应用程序：先交出隐藏所有权，再走正常展开，不能把它藏回去。
+    /// 取消隐藏有时会让系统把这个应用程序换到前台（前台原来是邮件时，CI 场景 C18 里晚了约 0.2 秒）。
+    /// 取消隐藏之后 unhideActivationWindow 以内、用户也没有按着鼠标键或 Command 时，这次激活算取消隐藏带来的：
+    /// 不展开，把前台还给原来的应用程序，以后这个应用程序只给截图。
     func takeOverUnhiddenSessions(for pid: pid_t, restore: (CGWindowID) -> Void) {
         for session in Array(sessions.values) where session.pid == pid
             && session.viaUnhide && session.frontmostBeforeUnhide != nil
             && session.stage != .expanding {
+            if let unhidAt = session.unhideAt, clock() - unhidAt < Self.unhideActivationWindow, !userIsSwitchingApps() {
+                activatesOnUnhide.insert(session.bundleID)
+                if let previous = session.frontmostBeforeUnhide, previous > 0, previous != session.pid {
+                    if let reactivate { reactivate(previous) } else { owner.activateApp(pid: previous) }
+                }
+                wlog("glance: unhide activated the app id=\(session.id) bundle=\(session.bundleID); not a user switch, keeping the fold")
+                continue
+            }
             session.stage = .expanding
             _ = intent.forget(session.id)
             revealHoldUntil.removeValue(forKey: session.id)

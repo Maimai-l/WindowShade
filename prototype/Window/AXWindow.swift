@@ -342,13 +342,15 @@ func stealsTitlebarDoubleClick(_ role: String?) -> Bool {
 struct TopChromeControlSample {
     let minTop: CGFloat
     let maxBottom: CGFloat
-    /// 不是控件，是内容里的文字（includeContent 为 true 时才收）。
+    /// 为 true 时这一项是窗口内容里的元素，不是控件；只在 includeContent 为 true 时收集。
     var isContent = false
 }
 
-/// 窗口内容里的文字：计算器的显示屏这类，和标题栏同一种底色，但不属于顶部区域。
+/// 不是控件的界面元素（文字、分组、滚动区域等）。顶部区域以下的这类元素是窗口内容，例如计算器的显示屏，
+/// 见 ChromeBand.standardWindowBar。窗口本身和工具栏不算。
 func isTopContentRole(_ role: String?) -> Bool {
-    role == "AXStaticText" || role == "AXTextArea"
+    guard let role, !role.isEmpty, !isChromeControlRole(role) else { return false }
+    return role != "AXWindow" && role != "AXToolbar" && role != "AXUnknown"
 }
 
 func collectTopChromeControlSamples(_ el: AXUIElement, winTop: CGFloat, winSize: CGSize,

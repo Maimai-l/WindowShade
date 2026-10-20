@@ -82,6 +82,28 @@ extension GlanceController {
         controller.takeOverUnhiddenSessions(for: active.pid) { restored.append($0) }
         precondition(restored == [id], "User takeover restores exactly once")
 
+        // 缺陷回归（2026-10-20 CI 场景 C18，127faba、6b2d7cd）：前台是邮件时，看一眼取消隐藏原应用程序，
+        // 约 0.2 秒后系统把它换到前台；以前这次激活被当成用户切回原应用程序，窗口被展开。
+        let justUnhidden = install()
+        justUnhidden.stage = .shown
+        justUnhidden.frontmostBeforeUnhide = 999
+        justUnhidden.unhideAt = 9.8
+        justUnhidden.unhiddenAt = 9.9
+        var reactivated: [pid_t] = []
+        controller.reactivate = { reactivated.append($0) }
+        controller.userIsSwitchingApps = { false }
+        restored = []
+        controller.takeOverUnhiddenSessions(for: justUnhidden.pid) { restored.append($0) }
+        precondition(restored.isEmpty && controller.sessions[id] === justUnhidden,
+                     "An activation right after the unhide is not a user switch: keep the fold")
+        precondition(reactivated == [999], "The app that was frontmost before the unhide gets the focus back")
+        // 同样的时刻，用户按着 Command 用 ⌘Tab 切过去：照常展开。
+        controller.userIsSwitchingApps = { true }
+        controller.takeOverUnhiddenSessions(for: justUnhidden.pid) { restored.append($0) }
+        precondition(restored == [id], "A user switch right after the unhide still unfolds")
+        controller.cancelAll(reason: "frontmost-app")
+        restored = [id]
+
         // 按下卷帘条时，看一眼临时取消隐藏过的应用程序要马上藏回去，画面留着。
         // 按住卷帘条切桌面时，应用程序必须已经隐藏（CI 场景 S6-carry-sip，56ae7e5：按下后 585 毫秒才藏回去）。
         let pressed = install()
