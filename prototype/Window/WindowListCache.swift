@@ -83,6 +83,11 @@ final class WindowListCache: @unchecked Sendable {
         snapshot(.all).byPID[pid] ?? []
     }
 
+    /// 全部窗口列表里这扇窗口的那一行。列表最多晚 ttl，刚建的窗口可能还不在里面，这时返回 nil。
+    func allWindowInfo(id: CGWindowID) -> [String: Any]? {
+        snapshot(.all).byID[id]
+    }
+
     // 拥有至少一个窗口的进程集合。用于在耗时的辅助功能枚举之前筛掉纯后台进程：
     // 一个窗口都没有的进程，appWindows(pid:) 只可能返回空数组，却要为此做一次同步的辅助功能调用；
     // 目标进程无响应时，最多要等满一次辅助功能超时（axMessagingTimeout，1 秒）。
@@ -203,14 +208,22 @@ func cgWindowInfo(_ id: CGWindowID) -> [String: Any]? {
 }
 
 func cgWindowLayer(_ id: CGWindowID) -> Int32? {
-    guard let raw = cgWindowInfo(id)?[kCGWindowLayer as String] else { return nil }
+    windowLayer(cgWindowInfo(id))
+}
+
+func windowLayer(_ info: [String: Any]?) -> Int32? {
+    guard let raw = info?[kCGWindowLayer as String] else { return nil }
     if let number = raw as? NSNumber { return number.int32Value }
     if let int = raw as? Int { return Int32(int) }
     return nil
 }
 
-func isDesktopWidgetWindow(id: CGWindowID) -> Bool {
+/// 桌面小组件的窗口。appWindows 对应用程序的每扇窗口都问一次，收起时在主线程上：
+/// 层级先在共用的全部窗口列表里查，一次列表查询供所有窗口用；列表里没有这扇窗口时才单独问窗口服务器。
+/// cache、liveInfo 只为测试注入。
+func isDesktopWidgetWindow(id: CGWindowID, cache: WindowListCache = .shared,
+                           liveInfo: (CGWindowID) -> [String: Any]? = { cgWindowInfo($0) }) -> Bool {
     let desktopWidgetLayer: Int32 = -2147483601
-    let layer = cgWindowLayer(id)
-    return layer == desktopWidgetLayer
+    if let listed = cache.allWindowInfo(id: id) { return windowLayer(listed) == desktopWidgetLayer }
+    return windowLayer(liveInfo(id)) == desktopWidgetLayer
 }
