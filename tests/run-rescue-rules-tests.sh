@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/rescue-rules-tests
-swiftc -parse-as-library prototype/Recovery/RestoreVerifier.swift \
+swiftc -parse-as-library prototype/Recovery/RestoreVerifier.swift prototype/Recovery/RescueRules.swift \
   tests/support/TestSuite.swift tests/RescueRulesTests.swift \
   -o .build/rescue-rules-tests/tests
 .build/rescue-rules-tests/tests

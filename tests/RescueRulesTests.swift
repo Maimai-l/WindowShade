@@ -65,6 +65,29 @@ struct RescueRulesTests {
         suite.expect(neverShown.results == [false] && neverShown.acknowledged == 0,
                      "a window that never came back keeps its record")
 
+        suite.section("R1", "记录停在已收起或展开中、用户已经看得见窗口：只删记录，不再移动、取消隐藏或升起")
+        suite.expect(windowUserVisible(windowOnScreen: true, appHidden: false, minimized: false, transparent: false),
+                     "a window on screen, not hidden, not minimized and opaque is already back")
+        suite.expect(!windowUserVisible(windowOnScreen: false, appHidden: false, minimized: false, transparent: false),
+                     "a window parked off screen still needs the rescue")
+        suite.expect(!windowUserVisible(windowOnScreen: true, appHidden: true, minimized: false, transparent: false),
+                     "a window of a hidden app still needs the rescue")
+        suite.expect(!windowUserVisible(windowOnScreen: true, appHidden: false, minimized: true, transparent: false),
+                     "a minimized window still needs the rescue")
+        suite.expect(!windowUserVisible(windowOnScreen: true, appHidden: false, minimized: false, transparent: true),
+                     "a transparent window in place still needs the rescue")
+
+        suite.section("R2", "透明度：低于 0.05 算看不见；读不到不算透明")
+        suite.expect(windowLooksTransparent(alpha: 0), "alpha 0 is transparent")
+        suite.expect(!windowLooksTransparent(alpha: 1), "alpha 1 is not")
+        suite.expect(!windowLooksTransparent(alpha: nil), "an unreadable alpha is not treated as transparent")
+        suite.expect(!windowLooksTransparent(alpha: .nan), "a broken alpha is not treated as transparent")
+
+        suite.section("R3", "找回之后窗口仍然看不见：最多试 3 次，之后删掉记录，不再每 30 秒挪一次窗口")
+        suite.expect(!journalRescueGivesUp(attempts: 1), "the first unverified attempt is retried")
+        suite.expect(!journalRescueGivesUp(attempts: 2), "the second unverified attempt is retried")
+        suite.expect(journalRescueGivesUp(attempts: 3), "after the third the record is dropped")
+
         suite.finish()
     }
 }
