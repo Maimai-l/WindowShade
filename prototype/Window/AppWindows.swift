@@ -2,20 +2,6 @@
 
 import Cocoa
 
-// 应用程序当前有几个窗口。
-func appWindowCount(_ pid: pid_t) -> Int {
-    appWindows(pid: pid).count
-}
-
-func appCurrentUserWindowCount(_ pid: pid_t) -> Int {
-    appWindows(pid: pid).filter { win in
-        guard !axBoolAttribute(win, kAXMinimizedAttribute as String) else { return false }
-        guard let size = axSize(win), size.width > 40, size.height > 40 else { return false }
-        guard let pos = axPosition(win) else { return true }
-        return windowIsVisible(pos: pos, size: size)
-    }.count
-}
-
 // Adobe After Effects、Premiere 的辅助功能树把工作区窗口的角色报成 AXLayoutArea（不标准），
 // 但它们确实是窗口（窗口服务器里有对应的第 0 层窗口）。只对 Adobe 应用程序放行这个角色，
 // 免得把其他应用程序的布局容器当成窗口。

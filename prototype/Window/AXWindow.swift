@@ -411,17 +411,12 @@ func firstTopChromeControlCluster(of win: AXUIElement, winTop: CGFloat, winSize:
 // 自绘或没有工具栏的窗口，常把搜索框、标题、按钮放在 AXSplitGroup、AXGroup 里面。
 // 顶部确实有控件时，保留到控件底边，再补一段和顶部留白相当的下边距（4–28 点），不截断控件。
 func topChromeControlsHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize,
-                             titleBarBottom: CGFloat?,
-                             allowBelowTitleBar: Bool = false) -> CGFloat? {
+                             titleBarBottom: CGFloat?) -> CGFloat? {
     let ignored = standardTrafficButtonFrames(of: win)
     guard let e = firstTopChromeControlCluster(of: win, winTop: winTop, winSize: winSize,
                                                ignoredFrames: ignored) else { return nil }
-    if let titleBarBottom = titleBarBottom, !allowBelowTitleBar, e.minTop >= titleBarBottom - 2 {
+    if let titleBarBottom = titleBarBottom, e.minTop >= titleBarBottom - 2 {
         return nil
-    }
-    if allowBelowTitleBar, let titleBarBottom = titleBarBottom {
-        let maxChromeStart = max(titleBarBottom + 44, CGFloat(76))
-        if e.minTop > maxChromeStart { return nil }
     }
     return paddedChromeHeight(for: e, containerTop: 0)
 }
@@ -496,12 +491,6 @@ func chromeHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize? = nil, 
 
     var h = titleBarHeight
     if let bh = trafficH { h = max(h, bh) }
-    if let winSize = winSize, let pid = pid, needsControlPaddedChrome(pid: pid),
-       let controlsH = topChromeControlsHeight(of: win, winTop: winTop, winSize: winSize,
-                                               titleBarBottom: trafficH,
-                                               allowBelowTitleBar: true) {
-        return min(max(h, controlsH), min(winSize.height, 300))
-    }
 
     let toolbar = firstToolbar(win)
     if let tb = toolbar, let tp = axPosition(tb), let ts = axSize(tb) {
@@ -509,8 +498,7 @@ func chromeHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize? = nil, 
     }
     if toolbar == nil, let winSize = winSize,
        let controlsH = topChromeControlsHeight(of: win, winTop: winTop, winSize: winSize,
-                                               titleBarBottom: trafficH,
-                                               allowBelowTitleBar: pid.map { isElpass(pid: $0) } ?? false) {
+                                               titleBarBottom: trafficH) {
         h = max(h, controlsH)
     }
     return min(h, 300)
