@@ -254,6 +254,13 @@ extension AppDelegate {
                     let wait = held.value.hide == .minimized ? 0.8 : 0.5
                     self.dismissOverlayWhenSourceInFront(overlay, id: id, until: Date().addingTimeInterval(wait))
                 }
+                let refolding = self.shaded[id] != nil || self.shadeOperationIDs.contains(id)
+                    || self.currentOperationState(id) == .capturing
+                guard restoreCompletionStillCurrent(issued: focusToken, current: self.restoreFocusTokens[id],
+                                                    foldedOrFolding: refolding) else {
+                    wlog("restore: id=\(id) was folded again before this unfold finished; skipping its follow-ups and check")
+                    return
+                }
                 self.scheduleRestoreFollowUps(id: id, request: request, window: window, focusToken: focusToken,
                                               pinToken: pinToken, hide: held.value.hide, reason: reason)
                 self.verifyRestoredWindow(held.value, to: pos, completion: verified.value)

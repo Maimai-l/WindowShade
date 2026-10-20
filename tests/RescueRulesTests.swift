@@ -2,6 +2,8 @@
 // 恢复记录（Recovery/）在 WindowShade 运行期间怎样处理：什么时候删、什么时候还要动窗口。
 // 原则：用户已经看见窗口以后，恢复记录不再移动、取消隐藏或拉回它；匹配不上的记录不一直重试。
 
+import Foundation
+
 @main
 struct RescueRulesTests {
     /// 按顺序给出观察结果的假验证环境：时钟随每次安排前进，安排的检查依次执行。
@@ -120,6 +122,17 @@ struct RescueRulesTests {
         suite.expect(!parkedWindowScanAllowed(inUse: inUse),
                      "windows parked without a record are not touched while anything is folded")
         suite.expect(parkedWindowScanAllowed(inUse: []), "with nothing folded the parked-window scan runs")
+
+        suite.section("R6", "展开还没做完用户又收起了这扇窗口：上一次展开的校正和确认不再做，不删新一次收起的记录")
+        let issued = UUID()
+        suite.expect(restoreCompletionStillCurrent(issued: issued, current: issued, foldedOrFolding: false),
+                     "the unfold is still the latest one: follow-ups and the check run")
+        suite.expect(!restoreCompletionStillCurrent(issued: issued, current: nil, foldedOrFolding: true),
+                     "a new fold started (it clears the token): skip")
+        suite.expect(!restoreCompletionStillCurrent(issued: issued, current: issued, foldedOrFolding: true),
+                     "the window is being folded again: skip")
+        suite.expect(!restoreCompletionStillCurrent(issued: issued, current: UUID(), foldedOrFolding: false),
+                     "a later unfold of the same window owns it now: skip")
 
         suite.finish()
     }

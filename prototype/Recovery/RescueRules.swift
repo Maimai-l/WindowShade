@@ -1,6 +1,8 @@
 // 找回窗口（Recovery/Rescue.swift）的判定：哪些恢复记录还要动窗口，哪些只删掉记录。
 // 原则：用户已经看得见的窗口，恢复记录不再移动、取消隐藏或拉回它；找回做了几次仍不见效就放弃，不一直重试。
 
+import Foundation
+
 /// 用户现在看得见这扇窗口：位置在屏幕上，应用程序没有隐藏，窗口没有最小化，也不是透明的。
 /// 记录停在“已收起”或“展开中”、窗口却已经看得见时，说明它已经回来了（用户唤回、WindowShade 退出前已经放回），
 /// 只删掉记录。再按记录放回，会把用户已经拖走的窗口拉回原处，把用户隐藏的应用程序又取消隐藏。
@@ -45,4 +47,12 @@ func journalHasOrphanEntries(journalIDs: [UInt32], inUse: Set<UInt32>) -> Bool {
 /// 收起着的窗口也停在停放位置，扫描分不出哪扇是 WindowShade 现在藏着的。
 func parkedWindowScanAllowed(inUse: Set<UInt32>) -> Bool {
     inUse.isEmpty
+}
+
+/// 展开在应用程序的队列上做完、回到主线程时，这次展开还算不算数。应用程序慢的时候，窗口已经回来、
+/// 带到最前还没做完，用户可能已经又收起了它：之后的校正和确认都属于上一次展开，不能再做。
+/// 确认会把这扇窗口的恢复记录标成“展开中”、看到窗口还在原处就删掉，删的是新一次收起的记录。
+/// issued 是这次展开发出的令牌，current 是现在登记的令牌（收起一开始就清掉它）。
+func restoreCompletionStillCurrent(issued: UUID, current: UUID?, foldedOrFolding: Bool) -> Bool {
+    current == issued && !foldedOrFolding
 }
