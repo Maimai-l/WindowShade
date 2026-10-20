@@ -126,6 +126,42 @@ struct SettingsNavigationTests {
     let updateItem = UpdaterController.shared.makeMenuItem()
     precondition(!UpdaterController.shared.validateMenuItem(updateItem),
                  "Check for Updates must be disabled when the updater is not running")
+
+    // 缺陷回归（2026-10-20 代码审查发现）：录快捷键时，WindowShade 自己已经注册的全局快捷键先被系统拿走，
+    // 按下去执行的是那个动作（例如收起或展开当前窗口），组合录不进去，也提示不了“已用于：……”。
+    // 录制期间要先注销，录完再注册回来（需求 M3）。
+    let shortcutSuite = "\(suiteName).shortcuts"
+    let shortcutDefaults = UserDefaults(suiteName: shortcutSuite)!
+    let savedShortcutDefaults = GlobalShortcutSettings.defaults
+    GlobalShortcutSettings.defaults = shortcutDefaults
+    let allModifiers = UInt32(controlKey | optionKey | shiftKey | cmdKey)
+    GlobalShortcutSettings.setHotKey(HotKey(keyCode: UInt32(kVK_F13), modifiers: allModifiers), for: .toggleShade)
+    owner.registerGlobalShortcuts()
+    let toggleID = GlobalShortcut.toggleShade.hotKeyID
+    precondition(owner.hotKeyRefs[toggleID] != nil, "The test shortcut is registered")
+    model.setRecordingShortcut(true)
+    precondition(owner.hotKeyRefs.isEmpty, "While a shortcut is being recorded, WindowShade's own global shortcuts are unregistered")
+    model.setRecordingShortcut(false)
+    precondition(owner.hotKeyRefs[toggleID] != nil, "When recording ends, the global shortcuts are registered again")
+    // 录制框成为第一响应者时注销，不再是第一响应者时注册回来。
+    settings.select(section: .shortcuts)
+    await drainLayout()
+    func captureViews(in view: NSView) -> [NSView] {
+      (String(describing: type(of: view)).hasSuffix("CaptureView") ? [view] : [])
+        + view.subviews.flatMap { captureViews(in: $0) }
+    }
+    if let capture = captureViews(in: content).first {
+      precondition(window.makeFirstResponder(capture), "The recording field takes the keyboard")
+      precondition(owner.hotKeyRefs.isEmpty, "The recording field has the keyboard: global shortcuts are unregistered")
+      window.makeFirstResponder(nil)
+      precondition(owner.hotKeyRefs[toggleID] != nil, "The recording field lets go: global shortcuts are registered again")
+    } else {
+      print("note: no recording field found on the shortcuts page; only the settings model was checked")
+    }
+    for ref in owner.hotKeyRefs.values { UnregisterEventHotKey(ref) }
+    owner.hotKeyRefs.removeAll()
+    GlobalShortcutSettings.defaults = savedShortcutDefaults
+    shortcutDefaults.removePersistentDomain(forName: shortcutSuite)
     window.close()
     print("PASS: settings tabs, values, symbols, copy and update controls; screenshots saved")
   }

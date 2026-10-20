@@ -184,6 +184,15 @@ final class SettingsModel: ObservableObject {
         if let app { action(app) }
         reload()
     }
+
+    /// 开始、结束录制快捷键：录制期间 WindowShade 自己的全局快捷键先注销（见 AppDelegate.pauseGlobalShortcutsForRecording）。
+    func setRecordingShortcut(_ recording: Bool) {
+        if recording {
+            app?.pauseGlobalShortcutsForRecording()
+        } else {
+            app?.resumeGlobalShortcutsAfterRecording()
+        }
+    }
 }
 
 // MARK: - 页面
@@ -410,7 +419,7 @@ private struct ShortcutRow: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { recording = true }
         }
-        .background(KeyCapture(isActive: $recording, onKey: capture))
+        .background(KeyCapture(isActive: $recording, onKey: capture, onRecording: recordingChanged))
         .modifier(SelectedShortcutRow(isSelected: recording))
         .task(id: message) {
             // 录到不能用的组合：说明原因，1.8 秒后回到当前组合。
@@ -461,6 +470,10 @@ private struct ShortcutRow: View {
         shadeSounds.beep()
         message = text
     }
+
+    private func recordingChanged(_ recording: Bool) {
+        model.setRecordingShortcut(recording)
+    }
 }
 
 /// “按编号展开”一行：复选框、名字、右边的修饰键加“1–9”。双击右边的组合，按住新的修饰键再按一个数字，
@@ -488,7 +501,7 @@ private struct NumberedShortcutRow: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { recording = true }
         }
-        .background(KeyCapture(isActive: $recording, onKey: capture))
+        .background(KeyCapture(isActive: $recording, onKey: capture, onRecording: recordingChanged))
         .modifier(SelectedShortcutRow(isSelected: recording))
         .task(id: message) {
             guard message != nil else { return }
@@ -532,6 +545,10 @@ private struct NumberedShortcutRow: View {
         shadeSounds.beep()
         message = text
     }
+
+    private func recordingChanged(_ recording: Bool) {
+        model.setRecordingShortcut(recording)
+    }
 }
 
 /// 正在录制的那一行照系统设置，整行用强调色作选中背景。名字改白色在各行里做，右边的输入框见 RecordingField。
@@ -570,16 +587,41 @@ private struct RecordingField: View {
     }
 }
 
-/// 录制快捷键时接收按键的透明视图：isActive 为真时成为第一响应者，Esc 或失去焦点时结束录制。
+/// 录制快捷键时接收按键的透明视图：isActive 为真时成为第一响应者，Esc、失去焦点或设置窗口不再是当前窗口时结束录制。
+/// 成为第一响应者时调用 onRecording(true)，结束时调用 onRecording(false)：录制期间先注销 WindowShade 自己的全局快捷键，
+/// 不然已经在用的组合按下去执行的是它的动作，送不到这里（见 AppDelegate.pauseGlobalShortcutsForRecording）。
 private struct KeyCapture: NSViewRepresentable {
     @Binding var isActive: Bool
     let onKey: (NSEvent) -> Void
+    let onRecording: (Bool) -> Void
 
     final class CaptureView: NSView {
         var onKey: ((NSEvent) -> Void)?
+        var onBegin: (() -> Void)?
         var onEnd: (() -> Void)?
 
         override var acceptsFirstResponder: Bool { true }
+
+        override func becomeFirstResponder() -> Bool {
+            guard super.becomeFirstResponder() else { return false }
+            onBegin?()
+            return true
+        }
+
+        /// 设置窗口不再是当前窗口（切到别的应用程序、关掉窗口）时结束录制：全局快捷键注销着，要马上注册回来。
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+            if let newWindow {
+                NotificationCenter.default.addObserver(self, selector: #selector(windowDidResignKey(_:)),
+                                                       name: NSWindow.didResignKeyNotification, object: newWindow)
+            }
+        }
+
+        @objc private func windowDidResignKey(_ notification: Notification) {
+            guard let window, window.firstResponder === self else { return }
+            window.makeFirstResponder(nil)
+        }
 
         override func keyDown(with event: NSEvent) {
             if event.keyCode == 53 { onEnd?() } else { onKey?(event) }   // 53：Esc
@@ -604,7 +646,12 @@ private struct KeyCapture: NSViewRepresentable {
     func updateNSView(_ view: CaptureView, context: Context) {
         view.onKey = onKey
         let binding = $isActive
-        view.onEnd = { if binding.wrappedValue { binding.wrappedValue = false } }
+        let recordingChanged = onRecording
+        view.onBegin = { recordingChanged(true) }
+        view.onEnd = {
+            if binding.wrappedValue { binding.wrappedValue = false }
+            recordingChanged(false)
+        }
         if isActive, view.window?.firstResponder !== view {
             DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         } else if !isActive, view.window?.firstResponder === view {
