@@ -13,6 +13,8 @@ extension AppDelegate {
                              backing: .buffered, defer: false)
         PaperSurfaceStyle.removeShadow(from: overlay)
         overlay.isReleasedWhenClosed = false
+        // dismissOverlay 回收卷帘条之前把它设成不接收鼠标事件；这里要改回来，否则复用的卷帘条点击没有反应，双击落到后面的窗口上（tests/StripPoolTests.swift）。
+        overlay.ignoresMouseEvents = false
         overlay.setFrame(frame, display: false)
         overlay.isOpaque = false
         overlay.backgroundColor = .clear

@@ -348,8 +348,9 @@ extension AppDelegate {
         return false
     }
     private func enqueuePendingTitlebarTripleClick(_ pending: PendingTitlebarTripleClick) {
+        let generation = titlebarActionGeneration
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.titlebarDoubleClickEnabled,
+            guard let self, generation == self.titlebarActionGeneration, self.titlebarDoubleClickEnabled,
                   systemTitlebarDoubleClickAction() != .none,
                   let transaction = pending.foldTransactionID,
                   self.shaded[pending.id]?.foldTransactionID == transaction else { return }
@@ -363,6 +364,13 @@ extension AppDelegate {
                 })
         }
     }
+    /// 钩子进程已经放行了这次点击（WindowShade 回话晚了）：已经排进主队列的收起和三击的系统动作都不做。
+    func cancelQueuedTitlebarActions() {
+        titlebarActionGeneration &+= 1
+        pendingTitlebarTripleClick?.intent.cancel()
+        pendingTitlebarTripleClick = nil
+    }
+
     func titlebarFoldCanBegin(id: CGWindowID) -> Bool {
         let state = currentOperationState(id)
         return shaded[id] == nil && !shadeOperationIDs.contains(id)
@@ -379,8 +387,10 @@ extension AppDelegate {
     }
     private func enqueueSystemTitlebarDoubleClickAction(on win: AXUIElement, id: CGWindowID,
                                                        originalClickPoint: CGPoint, source: String) {
+        let generation = titlebarActionGeneration
         DispatchQueue.main.async { [weak self] in
-            self?.performSystemTitlebarDoubleClickAction(on: win, id: id,
+            guard let self, generation == self.titlebarActionGeneration else { return }
+            self.performSystemTitlebarDoubleClickAction(on: win, id: id,
                                                         originalClickPoint: originalClickPoint,
                                                         source: source)
         }
@@ -529,10 +539,12 @@ extension AppDelegate {
             pending = nil
         }
         pendingTitlebarTripleClick = pending
-        // 离开钩子之前登记这次手势，窗口操作全部延后。
+        // 离开钩子之前登记这次手势，窗口操作全部延后。回话晚了时，cancelQueuedTitlebarActions 把 titlebarActionGeneration 加一，下面排进主队列的操作就不做，并取消三击的等待。
+        let generation = titlebarActionGeneration
         DispatchQueue.main.async { [weak self] in
-            self?.performTitleBarDoubleClickAction(win: win, id: id, pid: pid,
-                                                   point: point, source: source, pending: pending)
+            guard let self, generation == self.titlebarActionGeneration else { pending?.intent.cancel(); return }
+            self.performTitleBarDoubleClickAction(win: win, id: id, pid: pid,
+                                                  point: point, source: source, pending: pending)
         }
         return true
     }

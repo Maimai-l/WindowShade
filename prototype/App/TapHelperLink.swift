@@ -122,19 +122,26 @@ enum TapHelperLink {
         }
     }
 
-    /// 钩子进程问：这次双击（三击）要不要拦下。钩子过了时限就放行了，过时的询问不处理。
+    /// 钩子进程问：这次双击（三击）要不要拦下。钩子进程过了 answerBy 就放行；询问到达时已经晚了，或决定回话之后已经晚了，都回“放行”。
     fileprivate static func answer(messageID: Int32, data: Data?) -> Bool {
         guard messageID == TapProtocol.askMessageID, let data, let request = TapRequest(data) else { return false }
         let now = CFAbsoluteTimeGetCurrent()
-        guard TapProtocol.isFresh(sentAt: request.sentAt, now: now) else {
+        guard TapProtocol.answerInTime(request, now: now) else {
             wlog("tap-helper: question arrived \(Int((now - request.sentAt) * 1000))ms after the click; the click already passed")
             return false
         }
         guard let delegate = appDelegate else { return false }
-        if request.clicks >= 3 {
-            return delegate.handleTitleBarTripleClick(at: request.point, clickCount: request.clicks)
+        let swallow = request.clicks >= 3
+            ? delegate.handleTitleBarTripleClick(at: request.point, clickCount: request.clicks)
+            : delegate.handleTitleBarDoubleClick(at: request.point)   // 拦下，阻止系统“双击缩放”
+        // 决定回话时读了别的应用程序；决定之后钩子进程可能已经放行：撤掉排好的收起或系统动作，让系统的双击动作单独生效。
+        let answeredAt = CFAbsoluteTimeGetCurrent()
+        if swallow, !TapProtocol.answerInTime(request, now: answeredAt) {
+            delegate.cancelQueuedTitlebarActions()
+            wlog("tap-helper: answer took until \(Int((answeredAt - request.sentAt) * 1000))ms after the click; the click already passed, not folding")
+            return false
         }
-        return delegate.handleTitleBarDoubleClick(at: request.point)   // 拦下，阻止系统“双击缩放”
+        return swallow
     }
 }
 

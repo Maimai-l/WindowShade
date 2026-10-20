@@ -239,6 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var suppressUnshadeSounds = false
     var ownsGlobalInput = true
     var pendingTitlebarTripleClick: PendingTitlebarTripleClick?
+    /// 排进主队列的标题栏动作记下排入时的值；cancelQueuedTitlebarActions 把它加一，值对不上的动作就不做。
+    var titlebarActionGeneration = 0
     var restorePinTokens: [CGWindowID: UUID] = [:]
     /// 用辅助功能“缩放”过的窗口原来的位置和大小（辅助功能坐标）：再缩放一次放回去。
     var zoomRestoreFrames: [CGWindowID: CGRect] = [:]

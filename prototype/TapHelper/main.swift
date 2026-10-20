@@ -108,7 +108,9 @@ enum TapHelper {
                 TapHelper.say("pass: the click already waited \(Int(age * 1000))ms in the queue; not asking clicks=\(clicks)")
                 return pass
             }
-            let request = TapRequest(point: event.location, clicks: clicks, sentAt: CFAbsoluteTimeGetCurrent() - age)
+            let now = CFAbsoluteTimeGetCurrent()
+            // 送出询问通常不花时间，之后最多等 waits.reply 收回话；WindowShade 要在 now + waits.reply 之前回话，晚了这次点击已经放行。
+            let request = TapRequest(point: event.location, clicks: clicks, sentAt: now - age, answerBy: now + waits.reply)
             guard TapHelper.ask(request, waits: waits) else { return pass }
             TapHelper.swallowNextMouseUp = true
             return nil

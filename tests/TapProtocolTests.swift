@@ -12,14 +12,16 @@ struct TapProtocolTests {
         t.expect(TapRequest(request.encoded()) == request, "双击的询问来回不变")
         let triple = TapRequest(point: CGPoint(x: -300, y: 1200), clicks: 3, sentAt: 1)
         t.expect(TapRequest(triple.encoded()) == triple, "副屏上的负坐标、三击也不变")
+        let withDeadline = TapRequest(point: .zero, clicks: 2, sentAt: 50, answerBy: 50.25)
+        t.expect(TapRequest(withDeadline.encoded())?.answerBy == 50.25, "answerBy 也来回不变")
 
         t.section("T2", "坏数据不当成询问")
         t.expect(TapRequest(Data()) == nil, "空数据")
-        t.expect(TapRequest(Data(repeating: 0, count: 31)) == nil, "少一个字节")
-        t.expect(TapRequest(Data(repeating: 0, count: 33)) == nil, "多一个字节")
-        let zeroClicks = [0.0, 0.0, 0.0, 1.0].withUnsafeBytes { Data($0) }
+        t.expect(TapRequest(Data(repeating: 0, count: 39)) == nil, "少一个字节")
+        t.expect(TapRequest(Data(repeating: 0, count: 41)) == nil, "多一个字节")
+        let zeroClicks = [0.0, 0.0, 0.0, 1.0, 1.3].withUnsafeBytes { Data($0) }
         t.expect(TapRequest(zeroClicks) == nil, "点击次数为 0")
-        let notANumber = [Double.nan, 0.0, 2.0, 1.0].withUnsafeBytes { Data($0) }
+        let notANumber = [Double.nan, 0.0, 2.0, 1.0, 1.3].withUnsafeBytes { Data($0) }
         t.expect(TapRequest(notANumber) == nil, "坐标不是数")
 
         t.section("T3", "过了钩子的时限的询问不处理")
@@ -32,6 +34,22 @@ struct TapProtocolTests {
         t.expect(!TapProtocol.isFresh(sentAt: 100, now: 102), "WindowShade 停住 2 秒后才收到")
         t.expect(!TapProtocol.isFresh(sentAt: 100, now: 99), "时刻在未来：不认")
         t.expect(TapProtocol.deadline <= 0.5, "钩子的时限远小于系统停用钩子的约 2 秒")
+
+        // 缺陷回归（2026-10-20 代码审查）：送出询问不花时间时，钩子进程在事件产生后约 0.3 秒放行，
+        // isFresh 却把 0.35 秒以内的询问都算作按时；决定回话时还要读别的应用程序的标题栏，回话晚了，
+        // WindowShade 仍会收起系统已经缩放过的窗口。answerInTime 按询问带来的 answerBy 判断，决定回话之前和之后各查一次。
+        t.section("T9", "按钩子进程实际放行的时刻判断回话是否及时")
+        let asked = TapRequest(point: .zero, clicks: 2, sentAt: 100, answerBy: 100.3)
+        t.expect(TapProtocol.answerInTime(asked, now: 100.1), "钩子进程还在等")
+        t.expect(TapProtocol.answerInTime(asked, now: 100.27), "离钩子进程放行还有 30 毫秒：来得及")
+        t.expect(!TapProtocol.answerInTime(asked, now: 100.29), "离钩子进程放行不到 20 毫秒：回话可能送不到，按放行处理")
+        t.expect(!TapProtocol.answerInTime(asked, now: 100.32), "钩子进程已经放行（0.32 秒，isFresh 仍算作按时）")
+        t.expect(TapProtocol.isFresh(sentAt: 100, now: 100.32) && !TapProtocol.answerInTime(asked, now: 100.32),
+                 "isFresh 算作按时，answerInTime 算作不按时")
+        t.expect(!TapProtocol.answerInTime(asked, now: 99), "时刻在未来：不认")
+        let defaulted = TapRequest(point: .zero, clicks: 2, sentAt: 100)
+        t.expect(abs(defaulted.answerBy - (100 + TapProtocol.deadline - TapProtocol.sendTimeout)) < 1e-9,
+                 "没带 answerBy 时按最早放行的时刻算")
 
         t.section("T4", "回话只认“拦下”这一种")
         t.expect(TapReply.swallow(TapReply.encoded(swallow: true)), "拦下")

@@ -54,11 +54,21 @@ enum TapProtocol {
         return nil
     }
 
-    /// WindowShade 开始处理时，这次询问还算不算数。钩子过了时限就放行了；再按它收起，
+    /// 旧的判断，只有测试还在用（和 T9 对照）；WindowShade 实际用 answerInTime。钩子过了时限就放行了；再按它收起，
     /// 用户就会同时看到系统的双击动作（缩放）和收起。留 50 毫秒余量给回话路上的时间。
     static func isFresh(sentAt: CFAbsoluteTime, now: CFAbsoluteTime) -> Bool {
         let age = now - sentAt
         return age >= 0 && age < deadline - 0.05
+    }
+
+    /// 留给回话送回钩子进程的时间：WindowShade 要在 answerBy 之前至少这么久回话，钩子进程才还在等。
+    static let answerMargin: TimeInterval = 0.02
+
+    /// WindowShade 此刻回话时，钩子进程是否还在等。决定回话之前、之后各查一次：
+    /// 决定回话时要读别的应用程序的标题栏（每次最多 0.3 秒），决定之后钩子进程可能已经放行，这时不能再收起
+    /// （2026-10-20 代码审查：系统缩放了窗口，WindowShade 又把它收起）。
+    static func answerInTime(_ request: TapRequest, now: CFAbsoluteTime) -> Bool {
+        now >= request.sentAt && now < request.answerBy - answerMargin
     }
 }
 
@@ -81,25 +91,29 @@ struct TapRequest: Equatable, Sendable {
     var point: CGPoint
     var clicks: Int64
     var sentAt: CFAbsoluteTime
+    /// 钩子进程等回话等到这一刻（送出询问的时刻加上等回话的时间）；过了这一刻，点击已经放行给系统。
+    var answerBy: CFAbsoluteTime
 
-    /// 四个 Double：x、y、点击次数、时刻。
+    /// 五个 Double：x、y、点击次数、事件产生的时刻、钩子进程放行的时刻。
     func encoded() -> Data {
-        [Double(point.x), Double(point.y), Double(clicks), sentAt].withUnsafeBytes { Data($0) }
+        [Double(point.x), Double(point.y), Double(clicks), sentAt, answerBy].withUnsafeBytes { Data($0) }
     }
 
-    init(point: CGPoint, clicks: Int64, sentAt: CFAbsoluteTime) {
+    /// answerBy 没给时，按送出询问不花时间算：钩子进程最早在 sentAt + deadline - sendTimeout 放行。
+    init(point: CGPoint, clicks: Int64, sentAt: CFAbsoluteTime, answerBy: CFAbsoluteTime? = nil) {
         self.point = point
         self.clicks = clicks
         self.sentAt = sentAt
+        self.answerBy = answerBy ?? sentAt + TapProtocol.deadline - TapProtocol.sendTimeout
     }
 
     init?(_ data: Data) {
-        guard data.count == 4 * MemoryLayout<Double>.size else { return nil }
+        guard data.count == 5 * MemoryLayout<Double>.size else { return nil }
         let values: [Double] = data.withUnsafeBytes { raw in
-            (0..<4).map { raw.loadUnaligned(fromByteOffset: $0 * MemoryLayout<Double>.size, as: Double.self) }
+            (0..<5).map { raw.loadUnaligned(fromByteOffset: $0 * MemoryLayout<Double>.size, as: Double.self) }
         }
         guard values.allSatisfy(\.isFinite), values[2] >= 1, values[2] <= 1000 else { return nil }
-        self.init(point: CGPoint(x: values[0], y: values[1]), clicks: Int64(values[2]), sentAt: values[3])
+        self.init(point: CGPoint(x: values[0], y: values[1]), clicks: Int64(values[2]), sentAt: values[3], answerBy: values[4])
     }
 }
 
