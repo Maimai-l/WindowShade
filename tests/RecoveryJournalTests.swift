@@ -46,6 +46,40 @@ struct RecoveryJournalTests {
                  "放弃收起时删掉已经写下的恢复记录")
     precondition(owner.currentOperationState(abandoned) == .failed, "the fold is marked as failed")
 
+    // 拖动卷帘条、“把卷帘条放回原位”的动画：每一帧都报一次移动。恢复记录不在每一帧写盘（主线程上读、重写、fsync），
+    // 等卷帘条停下来写一次。
+    let moved: CGWindowID = 0x7FFF_FF35
+    let pid = getpid()
+    let strip2 = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 400, height: 28), styleMask: .borderless,
+                          backing: .buffered, defer: true)
+    strip2.isReleasedWhenClosed = false
+    owner.shaded[moved] = ShadeState(
+      element: AXUIElementCreateApplication(pid), sourceWindowID: moved, originalPosition: CGPoint(x: 40, y: 60),
+      originalSize: CGSize(width: 400, height: 300), sourceDisplayID: nil, sourceSpaceID: nil,
+      overlay: strip2, overlayID: nil, hide: .offscreen, pid: pid, bundleID: "test.recovery", appName: "test",
+      title: "test", appearanceMode: .nativeScreenshot, lifecycleStage: .folded, previewImage: nil,
+      quickLookReopenURL: nil, ignoreAppRevealUntil: .distantPast, observer: nil)
+    precondition(owner.recordShadeRecoveryIntent(id: moved, pid: pid, bundleID: "test.recovery", appName: "test",
+                                                 title: "", originalPosition: CGPoint(x: 40, y: 60),
+                                                 originalSize: CGSize(width: 400, height: 300),
+                                                 sourceDisplayID: nil, sourceSpaceID: nil),
+                 "the record of the folded window is written")
+    func recordedX() -> Double? {
+      owner.shadeJournalEntries().first { owner.journalID($0) == moved }.flatMap { owner.journalNumber($0, "originalX") }
+    }
+    for step in 0..<20 {
+      owner.noteUserMovedOverlay(id: moved, frame: NSRect(x: 220 + CGFloat(step), y: 200, width: 400, height: 28))
+    }
+    precondition(recordedX() == 40, "卷帘条移动途中的每一帧都不写恢复记录")
+    // 停下 0.3 秒后写一次；最多等 5 秒。
+    let settleDeadline = Date().addingTimeInterval(5)
+    while recordedX() == 40, Date() < settleDeadline {
+      _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    precondition(recordedX() == Double(axPosition(fromCocoaFrame: strip2.frame).x),
+                 "卷帘条停下来以后，恢复记录里是它现在的位置")
+    owner.shaded.removeValue(forKey: moved)
+
     // 退出：正在收起的窗口还不在 shaded 里，刚展开的窗口还在确认；这两种都要等，不能立刻退出。
     let quitting = AppDelegate()
     precondition(!quitting.mustWaitBeforeQuit, "nothing folded, folding or being unfolded: quit at once")
