@@ -809,7 +809,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // 装鼠标钩子需要辅助功能权限；权限可能在启动以后才给，所以每 2 秒查一次，有了再装。
     func setupEventTapWhenTrusted() {
         if setupEventTap() {
-            rescueOffscreenWindows(silent: true)
+            rescueOffscreenWindows()
             return
         }
         tapSetupTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] t in
@@ -817,7 +817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // 计时器本身留在闭包原来的隔离域里停掉，不送进主线程闭包。
             let installed = MainActor.assumeIsolated { () -> Bool in
                 guard self?.setupEventTap() == true else { return false }
-                self?.rescueOffscreenWindows(silent: true)
+                self?.rescueOffscreenWindows()
                 return true
             }
             if installed { t.invalidate() }

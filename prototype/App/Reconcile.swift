@@ -147,7 +147,7 @@ extension AppDelegate {
         // 别的窗口收起着时也按时找回：WindowShade 上次退出时留下的窗口，不能等到所有卷帘条都展开了才回来。
         if shouldRetryJournalRescue(now: now) {
             lastJournalRescueAttempt = now
-            rescueOffscreenWindows(silent: true)
+            rescueOffscreenWindows()
         }
         if shaded.isEmpty {
             axReadGate.setEnabled(true)

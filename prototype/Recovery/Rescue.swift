@@ -49,7 +49,7 @@ extension AppDelegate {
     }
 
     /// 在后台队列上跑：恢复记录由调用方先在主线程读好传进来。
-    nonisolated func collectJournalRescueActions(entries: [[String: Any]], targetTopLeft: CGPoint,
+    nonisolated func collectJournalRescueActions(entries: [[String: Any]], targetTopLeft: CGPoint, screens: ScreenSnapshot,
                                                  into result: inout JournalRescueResult) {
         guard !entries.isEmpty else { return }
         var rescued = 0
@@ -74,7 +74,7 @@ extension AppDelegate {
                 }), let id = journalID(entry) else { continue }
 
                 guard let pos = axPosition(win), let size = axSize(win) else { continue }
-                let windowOnScreen = windowIsVisible(pos: pos, size: size)
+                let windowOnScreen = screens.isVisible(pos: pos, size: size)
                 let appHidden = app.isHidden
                 let minimized = axBoolAttribute(win, kAXMinimizedAttribute as String)
                 let alpha = PrivateSLSWindowMover.shared.windowAlpha(id: id).map { Double($0) }
@@ -118,14 +118,14 @@ extension AppDelegate {
                     height: CGFloat(journalNumber(entry, "originalHeight") ?? Double(size.height))
                 )
                 let safeTarget: CGPoint
-                if windowIsVisible(pos: target, size: originalSize) {
+                if screens.isVisible(pos: target, size: originalSize) {
                     safeTarget = target
                 } else {
-                    let frame = cocoaFrame(fromAXPosition: target, size: originalSize)
+                    let frame = screens.cocoaFrame(fromAXPosition: target, size: originalSize)
                     // 优先放回收起时所在的显示器，避免多显示器布局变化后放错屏幕。
                     let displayID = journalNumber(entry, "displayID").map { CGDirectDisplayID($0) }
-                    safeTarget = axPosition(fromCocoaFrame: clampedFrame(frame, margin: 16,
-                                                                          preferredDisplayID: displayID))
+                    safeTarget = screens.axPosition(fromCocoaFrame: screens.clampedFrame(frame, margin: 16,
+                                                                                          preferredDisplayID: displayID))
                 }
                 result.actions.append(OffscreenRescueAction(id: id, win: win,
                                                             target: safeTarget, size: originalSize,
@@ -197,7 +197,7 @@ extension AppDelegate {
             wlog("journal: pruned \(entries.count - filtered.count) rescued entries")
         }
     }
-    nonisolated func collectParkedWindowRescueActions(targetTopLeft: CGPoint,
+    nonisolated func collectParkedWindowRescueActions(targetTopLeft: CGPoint, screens: ScreenSnapshot,
                                                   into actions: inout [OffscreenRescueAction]) -> Int {
         let allWindows = WindowListCache.shared.allWindows()
         var parkedPIDs: Set<pid_t> = []
@@ -219,7 +219,7 @@ extension AppDelegate {
                 guard let pos = axPosition(win), let size = axSize(win) else { continue }
                 // 只找回停在 WindowShade 停放位置附近、而且不在任何屏幕可见区域里的窗口。
                 guard isAtWindowShadeParkingSpot(pos) else { continue }
-                guard !windowIsVisible(pos: pos, size: size) else { continue }
+                guard !screens.isVisible(pos: pos, size: size) else { continue }
                 actions.append(OffscreenRescueAction(
                     id: 0,
                     win: win,
@@ -231,30 +231,28 @@ extension AppDelegate {
         }
         return rescued
     }
-    func rescueOffscreenWindows(silent: Bool) {
+    func rescueOffscreenWindows() {
         guard !isRescuingOffscreenWindows else {
             isRescueQueued = true
             return
         }
         isRescuingOffscreenWindows = true
-        // 屏幕几何在主线程取好（NSScreen 只在主线程访问）；AX 扫描在后台。
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+        // 屏幕在主线程取一份快照（NSScreen 只在主线程访问），后台扫描只用快照；辅助功能扫描在后台。
+        let screens = ScreenSnapshot.current()
+        guard let screen = screens.screens.first else {
             isRescuingOffscreenWindows = false
-            if !silent { quietNotice("没有可用屏幕", log: "rescue: no screen") }
+            wlog("rescue: no screen")
             return
         }
         let targetTopLeft = CGPoint(x: screen.visibleFrame.minX + 80,
-                                    y: coordinateBaselineY() - (screen.visibleFrame.maxY - 80))
-        let finish: @Sendable (String?) -> Void = { [weak self] notice in
+                                    y: screens.baselineY - (screen.visibleFrame.maxY - 80))
+        let finish: @Sendable () -> Void = { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.isRescuingOffscreenWindows = false
-                if let notice {
-                    self.quietNotice(notice, log: "rescue: \(notice)")
-                }
                 if self.isRescueQueued {
                     self.isRescueQueued = false
-                    self.rescueOffscreenWindows(silent: true)
+                    self.rescueOffscreenWindows()
                 }
             }
         }
@@ -268,14 +266,16 @@ extension AppDelegate {
             guard let self else { return }
             guard AXIsProcessTrusted() else {
                 DispatchQueue.main.async { self.showPermissionOnboardingIfNeeded(force: true) }
-                finish(silent ? nil : "要先允许辅助功能")
+                wlog("rescue: accessibility is not allowed")
+                finish()
                 return
             }
             var result = JournalRescueResult()
-            self.collectJournalRescueActions(entries: journalEntries.value, targetTopLeft: targetTopLeft, into: &result)
+            self.collectJournalRescueActions(entries: journalEntries.value, targetTopLeft: targetTopLeft, screens: screens,
+                                             into: &result)
             var rescued = result.actions.count + result.alphaRestores.count
             if rescued == 0, scansParkedWindows {
-                rescued += self.collectParkedWindowRescueActions(targetTopLeft: targetTopLeft,
+                rescued += self.collectParkedWindowRescueActions(targetTopLeft: targetTopLeft, screens: screens,
                                                                  into: &result.actions)
             }
             // 写回统一在主线程，逐条核对：扫描期间记录已经删掉、窗口正在收起、已收起或正在展开的，不再动它，
@@ -328,9 +328,8 @@ extension AppDelegate {
                 }
                 self.pruneRescuedJournalEntries(rescuedIDs: verifiedIDs)
                 wlog("rescueOffscreenWindows: rescued=\(rescued)")
-                let notice: String? = rescued == 0 && !silent ? "没有在屏幕外的窗口" : nil
                 guard !applied.isEmpty else {
-                    finish(notice)
+                    finish()
                     return
                 }
                 // 取消隐藏、解除最小化要过一会儿才生效，放回之后立刻看，窗口多半还看不见。等一秒再验证；
@@ -338,7 +337,7 @@ extension AppDelegate {
                 let held = HandOff(applied)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                     self?.settleRescueAttempts(held.value)
-                    finish(notice)
+                    finish()
                 }
             }
         }

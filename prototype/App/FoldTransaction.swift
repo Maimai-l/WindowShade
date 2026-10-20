@@ -878,7 +878,7 @@ extension AppDelegate {
             }
         }
         if displaysChanged, shaded.isEmpty {
-            rescueOffscreenWindows(silent: true)
+            rescueOffscreenWindows()
         }
     }
 
