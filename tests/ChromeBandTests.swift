@@ -55,6 +55,13 @@ struct ChromeBandTests {
         }, controls: [46...74]) == 80, "浏览器的标签条下面紧接着另一种底色的地址栏一排：两层都留在卷帘条里")
         t.expect(bottom(customTopBar, controls: [75...95]) == 60, "下沿下面隔了 15 点的控件是内容区的：不算顶部区域")
 
+        t.section("S1", "红绿灯在标准位置的窗口：找到下沿就裁到下沿")
+        // 缺陷回归（2026-10-19 用户看 CI 截图发现）：修复之前，Texpile 的标题栏 31 点，卷帘条按红绿灯推算裁到 34 点，下面多出一条白边。
+        t.expect(ChromeBand.standardWindowBar(standard: 34, found: 31, maxHeight: 96) == 31, "下沿比推算的浅：裁到下沿，不带白边")
+        t.expect(ChromeBand.standardWindowBar(standard: 28, found: 64, maxHeight: 96) == 64, "自己画的 64 点顶栏：裁到下沿")
+        t.expect(ChromeBand.standardWindowBar(standard: 28, found: nil, maxHeight: 96) == 28, "找不到下沿：裁推算的高度")
+        t.expect(ChromeBand.standardWindowBar(standard: 28, found: 120, maxHeight: 96) == 28, "下沿深过 96 点：裁推算的高度")
+
         t.section("S1", "分不出下沿时返回 nil（调用方改用简化标题栏）")
         t.expect(bottom { _, _ in toolbar } == nil, "顶部和内容区同一种底色、没有分隔线")
         t.expect(bottom { x, y in (UInt8(Int(x) % 256), UInt8(Int(y * 3) % 256), UInt8(Int(x + y) % 256), 255) } == nil,

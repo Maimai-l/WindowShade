@@ -40,6 +40,8 @@ struct WindowChromeProfile {
     var pixelBoundary = false
     /// 辅助功能读到的顶部控件的上下沿（点，从窗口顶边算），卷帘条的下沿不落在它们中间。
     var topControls: [ClosedRange<CGFloat>] = []
+    /// 红绿灯按钮的下沿（点，从窗口顶边算）；读不到按钮时为 nil。卷帘条的下沿不高于它。
+    var trafficLightBottom: CGFloat?
 
     var isQuickLook: Bool {
         trafficLights.style == .quickLook

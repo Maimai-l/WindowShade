@@ -372,5 +372,6 @@ private func resolveWindowChromeProfileUncached(win: AXUIElement,
                                axBarHeight: axBarH,
                                hitBarHeight: hitBarH,
                                pixelBoundary: pixelBoundary,
-                               topControls: topControls)
+                               topControls: topControls,
+                               trafficLightBottom: standardTrafficButtonFrames(of: win).map { $0.maxY - pos.y }.max())
 }

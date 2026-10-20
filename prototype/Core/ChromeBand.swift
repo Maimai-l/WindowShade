@@ -113,6 +113,14 @@ enum ChromeBand {
         return nil
     }
 
+    /// 红绿灯在标准位置的窗口裁多高。标准标题栏的高度由红绿灯推算，自己画的标题栏不一定这么高：
+    /// 截图里找到下沿、又不深过 maxHeight 时裁到下沿，比推算的浅也用（Texpile 的标题栏 31 点，推算是 34 点，
+    /// 多出的 3 点是下面的白色内容区）；找不到时裁推算的高度。
+    static func standardWindowBar(standard: CGFloat, found: CGFloat?, maxHeight: CGFloat) -> CGFloat {
+        guard let found, found <= maxHeight else { return standard }
+        return found
+    }
+
     private static func median(_ values: [Int]) -> Int {
         values.sorted()[values.count / 2]
     }

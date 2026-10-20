@@ -495,7 +495,8 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
     if fixedBarH == nil && profile.preciseChrome {
         visualBarH = preciseVisualChromeHeight(of: full, scale: scale, minimum: minimumBarH)
     } else if fixedBarH == nil && profile.pixelBoundary, let top = topPixels(of: full, points: 140, scale: scale) {
-        visualBarH = ChromeBand.bottom(of: top, scale: scale, floor: max(12, profile.trafficLightHeight ?? 0),
+        visualBarH = ChromeBand.bottom(of: top, scale: scale,
+                                       floor: max(12, profile.trafficLightBottom.map { $0 + 2 } ?? profile.trafficLightHeight ?? 0),
                                        controls: profile.topControls)
     } else {
         visualBarH = nil
@@ -508,14 +509,14 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
     if profile.isQuickLook {
         barH = min(quickLookOriginalTitleBarHeight, logicalSize.height)
     } else if profile.standardTitleBarOnly {
-        // 红绿灯在标准位置的窗口：截图里找到的下沿比标准标题栏深、又不深过 maxPixelBoundaryHeight（自己画的顶栏）时裁到那里，否则裁标准标题栏。
-        barH = visualBarH.map { $0 > standardBarH + 1 && $0 <= maxPixelBoundaryHeight ? $0 : standardBarH } ?? standardBarH
+        // 红绿灯在标准位置的窗口：截图里找到下沿、又不深过 maxPixelBoundaryHeight 时裁到那里，否则裁标准标题栏。
+        barH = ChromeBand.standardWindowBar(standard: standardBarH, found: visualBarH, maxHeight: maxPixelBoundaryHeight)
     } else {
         barH = min(visualBarH ?? fallbackBarH, min(logicalSize.height, 300))
     }
     let cropHeight = max(1, Int(ceil(barH * scale)))
     let boundary = fixedBarH != nil ? "fixed"
-        : profile.standardTitleBarOnly && barH > standardBarH ? "pixel"
+        : profile.standardTitleBarOnly && barH != standardBarH ? "pixel"
         : profile.pixelBoundary && visualBarH == nil ? "AX" : profile.boundaryName
     guard let rawStrip = full.cropping(to: CGRect(x: 0, y: 0, width: full.width, height: cropHeight)) else {
         return NativeStripPreparation(barH: barH, boundary: boundary, strip: nil,

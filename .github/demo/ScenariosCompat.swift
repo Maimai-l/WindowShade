@@ -36,7 +36,8 @@ func axHasAttribute(_ element: AXUIElement, _ attribute: String) -> Bool {
     return AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success && value != nil
 }
 
-/// 记下一个应用程序所有窗口的信息和截图，再双击最大那扇窗口的顶部，看 WindowShade 怎么处理。
+/// 记下一个应用程序所有窗口的信息和截图，再双击最大那扇窗口的顶部，看 WindowShade 怎么处理；收起了的话，
+/// 再换成简化标题栏收起一次，两种样子都截图。
 func compatDump(_ name: String, appPath: String, _ h: Harness) async {
     guard let bundleID = Bundle(path: appPath)?.bundleIdentifier else {
         h.result.notes["skipped"] = "\(appPath) is not installed"
@@ -84,20 +85,35 @@ func compatDump(_ name: String, appPath: String, _ h: Harness) async {
                                           < (axFrame($1)?.width ?? 0) * (axFrame($1)?.height ?? 0) }),
           let frame = axFrame(window) else { h.result.notes["fold"] = "no AX window"; return }
     let point = emptyTitleBarPoint(CGPoint(x: frame.midX, y: frame.minY + 12), minX: frame.minX + 80, maxX: frame.maxX - 80)
-    let before = Set(compatStripWindows().map(\.id))
-    await glide(to: point, duration: 0.3)
-    await pause(0.3)
-    await doubleClick(at: point)
-    await pause(3)
-    let after = compatStripWindows().filter { !before.contains($0.id) }
-    let movedTo = axFrame(window)
-    h.result.notes["fold"] = "clicked=\(Int(point.x)),\(Int(point.y)) window=\(frame) after=\(movedTo.map { "\($0)" } ?? "-") "
-        + "newWindowShadeWindows=\(after.map { "\($0.id):\($0.bounds)" })"
-    log("\(name): fold \(h.result.notes["fold"] ?? "")")
-    run("/usr/sbin/screencapture", ["-x", "\(Suite.outputDir)/compat-\(name)-folded.png"], timeout: 10)
-    if let strip = after.first {
+    // 收起一次：截全屏和卷帘条一带的特写（compat-名字-样子-strip.png），再双击卷帘条展开。返回有没有收起。
+    func foldOnce(_ look: String) async -> Bool {
+        let before = Set(compatStripWindows().map(\.id))
+        await glide(to: point, duration: 0.3)
+        await pause(0.3)
+        await doubleClick(at: point)
+        await pause(3)
+        let after = compatStripWindows().filter { !before.contains($0.id) }
+        let movedTo = axFrame(window)
+        h.result.notes["fold-\(look)"] = "clicked=\(Int(point.x)),\(Int(point.y)) window=\(frame) after=\(movedTo.map { "\($0)" } ?? "-") "
+            + "newWindowShadeWindows=\(after.map { "\($0.id):\($0.bounds)" })"
+        log("\(name): fold \(look) \(h.result.notes["fold-\(look)"] ?? "")")
+        run("/usr/sbin/screencapture", ["-x", "\(Suite.outputDir)/compat-\(name)-\(look)-folded.png"], timeout: 10)
+        guard let strip = after.first else { return false }
+        let area = strip.bounds.insetBy(dx: -12, dy: -12).offsetBy(dx: 0, dy: 20)
+        run("/usr/sbin/screencapture", ["-x", "-R\(Int(area.minX)),\(Int(area.minY)),\(Int(area.width)),\(Int(area.height))",
+                                        "\(Suite.outputDir)/compat-\(name)-\(look)-strip.png"], timeout: 10)
         await doubleClick(at: CGPoint(x: strip.bounds.midX, y: strip.bounds.minY + min(10, strip.bounds.height / 2)))
         await pause(2)
+        return true
+    }
+    // 先按默认的“原标题栏”收起，再换成“简化标题栏”收起一次，两种样子放在一起比。
+    if await foldOnce("native") {
+        _ = await relaunchWindowShade([["ShadeAppearanceMode", "-string", "proxyTitleBar"]])
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        await pause(1)
+        _ = await foldOnce("simplified")
+        _ = await relaunchWindowShade()
     }
     kill(pid, SIGTERM)
     await pause(2)
@@ -117,13 +133,13 @@ func compatStripWindows() -> [(id: Int, bounds: CGRect)] {
 }
 
 let compatScenarios: [Scenario] = [
-    Scenario(id: "COMPAT-texpile", title: "Texpile：记下窗口顶部，双击顶部看结果", options: [], group: "compat") { _, h in
+    Scenario(id: "COMPAT-texpile", title: "Texpile：记下窗口顶部，双击顶部看结果", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("texpile", appPath: "/Applications/Texpile.app", h)
     },
-    Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，双击顶部看结果", options: [], group: "compat") { _, h in
+    Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，双击顶部看结果", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("netease", appPath: "/Applications/NeteaseMusic.app", h)
     },
-    Scenario(id: "COMPAT-quickrecorder", title: "QuickRecorder：记下各个面板，双击最大那扇的顶部", options: [], group: "compat") { _, h in
+    Scenario(id: "COMPAT-quickrecorder", title: "QuickRecorder：记下各个面板，双击最大那扇的顶部", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("quickrecorder", appPath: "/Applications/QuickRecorder.app", h)
     },
 ]
