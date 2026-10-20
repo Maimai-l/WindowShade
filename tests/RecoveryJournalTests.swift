@@ -46,6 +46,17 @@ struct RecoveryJournalTests {
                  "放弃收起时删掉已经写下的恢复记录")
     precondition(owner.currentOperationState(abandoned) == .failed, "the fold is marked as failed")
 
+    // 退出：正在收起的窗口还不在 shaded 里，刚展开的窗口还在确认；这两种都要等，不能立刻退出。
+    let quitting = AppDelegate()
+    precondition(!quitting.mustWaitBeforeQuit, "nothing folded, folding or being unfolded: quit at once")
+    precondition(quitting.transitionOperationState(id: 0x7FFF_FF33, to: .capturing, reason: "test"), "a fold starts")
+    precondition(quitting.mustWaitBeforeQuit,
+                 "退出时有窗口正在收起：等它收起完再展开，不能让它在 WindowShade 退出后一直藏着")
+    let unfolding = AppDelegate()
+    unfolding.restoreVerificationTokens[0x7FFF_FF34] = UUID()
+    precondition(unfolding.mustWaitBeforeQuit,
+                 "退出时有窗口刚展开、还在确认：等确认做完、恢复记录删掉再退出")
+
     print("PASS RecoveryJournalTests")
   }
 }
