@@ -160,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let pixelAnalysisQueue = DispatchQueue(label: "WindowShade.pixels", qos: .userInitiated)
     // 找回屏幕外窗口用的后台队列：逐个应用程序枚举辅助功能窗口、全量扫描停放位置，
     // 遇到忙的应用程序可能要等好几秒，不能放在主线程上。窗口位置统一在主线程写回，
-    // 写回前再查一次 shaded 是否为空，避免和正在进行的收起交错。
+    // 写回前再逐条核对，跳过正在收起、已收起或正在展开的窗口（windowsInUse），避免和正在进行的操作交错。
     let rescueWorkQueue = DispatchQueue(label: "WindowShade.rescue", qos: .utility)
     var isRescuingOffscreenWindows = false
     var isRescueQueued = false
@@ -666,6 +666,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func currentOperationState(_ id: CGWindowID) -> WindowShadeState {
         operationStates[id] ?? .normal
+    }
+
+    /// WindowShade 这次运行里正在管的窗口：已收起的；正在收起的（截图、写恢复记录、移开原窗口还没做完，
+    /// 这期间它已经不在 shadeOperationIDs 里、也还不在 shaded 里）；刚展开、还在放回或确认的。
+    /// 恢复记录里这些窗口的条目属于正在进行的操作，后台找回不能动它们。
+    var windowsInUse: Set<CGWindowID> {
+        var ids = Set(shaded.keys).union(shadeOperationIDs)
+        ids.formUnion(operationStates.compactMap { $0.value == .capturing ? $0.key : nil })
+        ids.formUnion(restoreVerificationTokens.keys)
+        ids.formUnion(restoreFocusTokens.keys)
+        return ids
     }
 
     // 状态机唯一入口：非法转换拒绝并记日志，避免窗口状态损坏。

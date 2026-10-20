@@ -24,7 +24,9 @@ extension AppDelegate {
         }
     }
     func shouldRetryJournalRescue(now: Date) -> Bool {
-        guard !shadeJournalEntries().isEmpty else { return false }
+        // 只看不属于正在进行的操作的记录：收起着的窗口有自己的记录，那些不用找回。
+        let journalIDs = shadeJournalEntries().compactMap { journalID($0) }
+        guard journalHasOrphanEntries(journalIDs: journalIDs, inUse: windowsInUse) else { return false }
         guard let last = lastJournalRescueAttempt else { return true }
         return now.timeIntervalSince(last) >= journalRescueRetryInterval
     }
@@ -142,11 +144,12 @@ extension AppDelegate {
         }
 
         let now = Date()
+        // 别的窗口收起着时也按时找回：WindowShade 上次退出时留下的窗口，不能等到所有卷帘条都展开了才回来。
+        if shouldRetryJournalRescue(now: now) {
+            lastJournalRescueAttempt = now
+            rescueOffscreenWindows(silent: true)
+        }
         if shaded.isEmpty {
-            if shouldRetryJournalRescue(now: now) {
-                lastJournalRescueAttempt = now
-                rescueOffscreenWindows(silent: true)
-            }
             axReadGate.setEnabled(true)
             axReadGate.replaceWanted([pid_t]())
             updateReconcileTimer()

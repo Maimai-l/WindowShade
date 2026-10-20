@@ -106,6 +106,21 @@ struct RescueRulesTests {
                                                createdAt: created, windowExists: nil),
                      "the launch time or the window lookup is unknown: keep")
 
+        suite.section("R5", "别的窗口收起着时，上次退出留下的记录照样找回；收起着、正在收起的窗口的记录不动")
+        let folded: UInt32 = 30, foldingNow: UInt32 = 31, leftOver: UInt32 = 32
+        let inUse: Set<UInt32> = [folded, foldingNow]
+        suite.expect(journalHasOrphanEntries(journalIDs: [folded, leftOver], inUse: inUse),
+                     "a record left by the last run is due even while another window is folded")
+        suite.expect(!journalHasOrphanEntries(journalIDs: [folded, foldingNow], inUse: inUse),
+                     "records of windows folded right now are not rescued")
+        suite.expect(rescueActionStillApplies(id: leftOver, liveJournalIDs: [folded, leftOver], inFlightIDs: inUse),
+                     "the rescue of the left-over window is applied although a fold happened during the scan")
+        suite.expect(!rescueActionStillApplies(id: foldingNow, liveJournalIDs: [foldingNow], inFlightIDs: inUse),
+                     "a window being folded is not moved back")
+        suite.expect(!parkedWindowScanAllowed(inUse: inUse),
+                     "windows parked without a record are not touched while anything is folded")
+        suite.expect(parkedWindowScanAllowed(inUse: []), "with nothing folded the parked-window scan runs")
+
         suite.finish()
     }
 }

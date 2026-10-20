@@ -33,3 +33,16 @@ func journalEntryCanStillMatch(processRunning: Bool, processLaunchedAt: Double?,
     if let createdAt, let processLaunchedAt, createdAt < processLaunchedAt - 1 { return false }
     return windowExists != false
 }
+
+/// 恢复记录里有没有不属于正在进行的操作的条目（WindowShade 上次退出时留下的，或展开后一直没能确认的）。
+/// inUse 是已收起、正在收起、正在展开的窗口。有这样的条目就要按时找回，不管现在有没有别的窗口收起着：
+/// 收起着的卷帘条可能一放好几天，只在没有卷帘条时才找回，那些窗口就一直回不来。
+func journalHasOrphanEntries(journalIDs: [UInt32], inUse: Set<UInt32>) -> Bool {
+    journalIDs.contains { !inUse.contains($0) }
+}
+
+/// 扫描停在停放位置上、没有恢复记录对应的窗口：只在没有任何窗口收起着、正在收起或展开时做。
+/// 收起着的窗口也停在停放位置，扫描分不出哪扇是 WindowShade 现在藏着的。
+func parkedWindowScanAllowed(inUse: Set<UInt32>) -> Bool {
+    inUse.isEmpty
+}

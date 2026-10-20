@@ -154,11 +154,11 @@ extension AppDelegate {
 
     /// 找回做过一秒以后：窗口已经看得见就删掉记录；还看不见就记下试过几次，到次数就删掉记录、不再试。
     func settleRescueAttempts(_ actions: [OffscreenRescueAction]) {
-        let liveJournalIDs = Set(shadeJournalEntries().compactMap { journalID($0) }.map { UInt32($0) })
-        let inFlightIDs = Set(shadeOperationIDs.map { UInt32($0) })
+        let liveJournalIDs = Set(shadeJournalEntries().compactMap { journalID($0) })
+        let inFlightIDs = windowsInUse
         var settledIDs: Set<CGWindowID> = []
         for action in actions {
-            guard rescueActionStillApplies(id: UInt32(action.id), liveJournalIDs: liveJournalIDs,
+            guard rescueActionStillApplies(id: action.id, liveJournalIDs: liveJournalIDs,
                                            inFlightIDs: inFlightIDs) else { continue }
             if rescueActionVerified(action) {
                 settledIDs.insert(action.id)
@@ -258,7 +258,12 @@ extension AppDelegate {
                 }
             }
         }
-        let journalEntries = HandOff(shadeJournalEntries())
+        // 正在收起、已收起、正在展开的窗口的记录属于正在进行的操作，不交给扫描。
+        let inUseAtStart = windowsInUse
+        let journalEntries = HandOff(shadeJournalEntries().filter { entry in
+            journalID(entry).map { !inUseAtStart.contains($0) } ?? false
+        })
+        let scansParkedWindows = parkedWindowScanAllowed(inUse: inUseAtStart)
         rescueWorkQueue.async { [weak self] in
             guard let self else { return }
             guard AXIsProcessTrusted() else {
@@ -269,30 +274,32 @@ extension AppDelegate {
             var result = JournalRescueResult()
             self.collectJournalRescueActions(entries: journalEntries.value, targetTopLeft: targetTopLeft, into: &result)
             var rescued = result.actions.count + result.alphaRestores.count
-            if rescued == 0 {
+            if rescued == 0, scansParkedWindows {
                 rescued += self.collectParkedWindowRescueActions(targetTopLeft: targetTopLeft,
                                                                  into: &result.actions)
             }
-            // 写回统一在主线程：扫描期间用户收起了窗口（shaded 不为空）时，放弃这一批写回，
-            // 免得把刚移开的窗口又放回可见区；删除记录也在主线程做，避免和收起时写记录冲突。
+            // 写回统一在主线程，逐条核对：扫描期间记录已经删掉、窗口正在收起、已收起或正在展开的，不再动它，
+            // 别的条目照常写回（扫描期间用户收起了别的窗口，也不放弃整批）。删除记录也在主线程做，避免和收起时写记录冲突。
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if !self.shaded.isEmpty {
-                    wlog("rescue: shaded windows appeared during scan; skip applying \(result.actions.count) actions")
-                    finish(nil)
-                    return
-                }
                 self.pruneShadeJournal(reason: "rescue")
-                // 扫描期间记录已经删掉或窗口正在收起的，不再动它（见 PreparingIntent.swift 的 rescueActionStillApplies）；id 为 0 的动作不核对。
-                let liveJournalIDs = Set(self.shadeJournalEntries().compactMap { self.journalID($0) }.map { UInt32($0) })
-                let inFlightIDs = Set(self.shadeOperationIDs.map { UInt32($0) })
+                // 见 PreparingIntent.swift 的 rescueActionStillApplies。
+                let liveJournalIDs = Set(self.shadeJournalEntries().compactMap { self.journalID($0) })
+                let inFlightIDs = self.windowsInUse
                 // 先恢复、过一会儿逐条验证，再清理：验证失败的 entry 保留，下一轮重试，到次数就放弃。
-                var verifiedIDs = result.resolvedIDs
+                var verifiedIDs = result.resolvedIDs.filter {
+                    rescueActionStillApplies(id: $0, liveJournalIDs: liveJournalIDs, inFlightIDs: inFlightIDs)
+                }
                 var applied: [OffscreenRescueAction] = []
                 for action in result.actions {
                     if action.id != 0,
-                       !rescueActionStillApplies(id: UInt32(action.id), liveJournalIDs: liveJournalIDs, inFlightIDs: inFlightIDs) {
-                        wlog("rescue: skip id=\(action.id); its entry was removed or it is being folded")
+                       !rescueActionStillApplies(id: action.id, liveJournalIDs: liveJournalIDs, inFlightIDs: inFlightIDs) {
+                        wlog("rescue: skip id=\(action.id); its entry was removed or it is folded, being folded or being unfolded")
+                        continue
+                    }
+                    // 停放位置上没有记录的窗口：扫描期间有窗口收起了，分不出哪扇是现在藏着的，这一批都不动。
+                    if action.id == 0, !parkedWindowScanAllowed(inUse: inFlightIDs) {
+                        wlog("rescue: skip a parked window; a window was folded during the scan")
                         continue
                     }
                     guard action.id != 0 else {

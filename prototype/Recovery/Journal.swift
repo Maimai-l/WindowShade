@@ -52,7 +52,7 @@ extension AppDelegate {
         let now = Date().timeIntervalSince1970
         let entries = shadeJournalEntries()
         // 正在收起或已经收起的窗口，它们的记录由收起和定时核对管，这里只按时间清理。
-        let inUse = Set(shaded.keys).union(shadeOperationIDs)
+        let inUse = windowsInUse
         var unmatchable: [CGWindowID] = []
         let filtered = entries.filter { entry in
             guard let id = journalID(entry) else { return false }
