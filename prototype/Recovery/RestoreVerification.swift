@@ -23,7 +23,9 @@ func observeRestoredWindow(_ window: WindowHandle, id: CGWindowID, pid: pid_t, e
     abs(frame.minX - expected.minX) <= 2 && abs(frame.minY - expected.minY) <= 2
       && abs(frame.width - expected.width) <= 2 && abs(frame.height - expected.height) <= 2
   }
-  return tolerates(ax) && tolerates(bounds) ? .visible : .pending
+  if tolerates(ax) && tolerates(bounds) { return .visible }
+  // 回到了屏幕上、用户看得见，只是位置或大小和记录的不一样。
+  return windowIsVisible(pos: actual, size: size) ? .shown : .pending
 }
 
 /// 原窗口回来以后，确认恢复记录可以删除。
@@ -60,7 +62,7 @@ extension AppDelegate {
         completion?(success)
         if !success {
           wlog(
-            "restore: window not visible; recovery record kept unless it was closed id=\(id)"
+            "restore: window not back at its place; recovery record kept only if it was never seen id=\(id)"
           )
         }
       }
