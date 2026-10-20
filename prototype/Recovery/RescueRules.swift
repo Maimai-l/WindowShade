@@ -21,3 +21,15 @@ let journalRescueMaxAttempts = 3
 func journalRescueGivesUp(attempts: Int) -> Bool {
     attempts >= journalRescueMaxAttempts
 }
+
+/// 恢复记录还可能对上那扇窗口吗（匹配条件见 Journal.swift 的 journalMatches）。对不上的记录不会再有用，
+/// 留着只会让定时检查一直开着、每 30 秒把所有应用程序的窗口问一遍，直到 14 天后过期。以下情况直接删掉：
+/// - 写记录的进程已经退出：窗口随进程一起没了；
+/// - 这个进程号的应用程序是记录写下之后才启动的（应用程序重新打开过，或进程号给了别的程序）；
+/// - 窗口服务器里已经查不到这扇窗口。隐藏、最小化、移到屏幕外的窗口都还查得到，查不到只能是关掉了；查询失败不算。
+func journalEntryCanStillMatch(processRunning: Bool, processLaunchedAt: Double?, createdAt: Double?,
+                               windowExists: Bool?) -> Bool {
+    guard processRunning else { return false }
+    if let createdAt, let processLaunchedAt, createdAt < processLaunchedAt - 1 { return false }
+    return windowExists != false
+}

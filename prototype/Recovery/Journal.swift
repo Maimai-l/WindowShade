@@ -51,15 +51,36 @@ extension AppDelegate {
     func pruneShadeJournal(reason: String) {
         let now = Date().timeIntervalSince1970
         let entries = shadeJournalEntries()
+        // 正在收起或已经收起的窗口，它们的记录由收起和定时核对管，这里只按时间清理。
+        let inUse = Set(shaded.keys).union(shadeOperationIDs)
+        var unmatchable: [CGWindowID] = []
         let filtered = entries.filter { entry in
-            guard journalID(entry) != nil else { return false }
+            guard let id = journalID(entry) else { return false }
             let created = journalNumber(entry, "createdAt") ?? journalNumber(entry, "updatedAt") ?? now
-            return now - created <= shadeJournalMaxAge
+            guard now - created <= shadeJournalMaxAge else { return false }
+            guard inUse.contains(id) || journalEntryStillMatchable(entry, id: id) else {
+                unmatchable.append(id)
+                return false
+            }
+            return true
         }
         if filtered.count != entries.count {
             saveShadeJournalEntries(filtered)
-            wlog("journal: pruned \(entries.count - filtered.count) stale entries reason=\(reason)")
+            wlog("journal: pruned \(entries.count - filtered.count) stale entries reason=\(reason)"
+                 + (unmatchable.isEmpty ? "" : " unmatchable=\(unmatchable)"))
         }
+    }
+
+    /// 这条记录还对得上一扇窗口吗（见 RescueRules.swift 的 journalEntryCanStillMatch）。
+    private func journalEntryStillMatchable(_ entry: [String: Any], id: CGWindowID) -> Bool {
+        let app = journalNumber(entry, "pid")
+            .flatMap { pid_t(exactly: $0) }
+            .flatMap { NSRunningApplication(processIdentifier: $0) }
+        let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]]
+        return journalEntryCanStillMatch(processRunning: app.map { !$0.isTerminated } ?? false,
+                                         processLaunchedAt: app?.launchDate?.timeIntervalSince1970,
+                                         createdAt: journalNumber(entry, "createdAt"),
+                                         windowExists: windows.map { !$0.isEmpty })
     }
 
     func recordShadeJournal(id: CGWindowID, win: AXUIElement, hide: HideMethod,
