@@ -119,6 +119,14 @@ extension AppDelegate {
             return .success(plan)
         }
     }
+    /// 恢复记录已经写下、还没移开原窗口时放弃这次收起：撤掉卷帘条，删掉这条记录。
+    /// 记录留着的话，之后的找回会把它当成收起途中退出留下的，用户自己隐藏的应用程序、最小化的窗口会被放回来（preparingIntentOutcome）。
+    func abandonFoldAfterIntent(id: CGWindowID, overlay: NSWindow, reason: String) {
+        dismissOverlay(overlay)
+        clearShadeJournal(id: id)
+        transitionOperationState(id: id, to: .failed, reason: reason)
+    }
+
     func resolvedSourceSpaceID(windowID id: CGWindowID,
                                        sourceDisplayID: CGDirectDisplayID?,
                                        profile: WindowChromeProfile) -> UInt64? {
@@ -311,7 +319,7 @@ extension AppDelegate {
             // 隐藏前再核对一次：窗口仍属于这个应用程序、窗口号没变、这次收起仍然有效。
             var finalPID: pid_t = 0
             if AXUIElementGetPid(win, &finalPID) != .success || finalPID != pid || windowID(of: win) != id || !admissionCurrent() {
-                dismissOverlay(overlay); transitionOperationState(id: id, to: .failed, reason: "changed-before-hide")
+                abandonFoldAfterIntent(id: id, overlay: overlay, reason: "changed-before-hide")
                 completeFold(success: false); return
             }
             /// 卷帘条记进自己的窗口表，并挪到原窗口所在的桌面。挪桌面会让窗口短暂消失，
