@@ -87,3 +87,73 @@ extension ScreenLayout {
         })
     }
 }
+
+/// 屏幕的快照：在主线程用 current() 取一次，交给后台队列用，后台不再读 NSScreen（NSScreen 只在主线程访问）。
+/// 找回屏幕外窗口的扫描在 rescueWorkQueue 上做，要判断窗口可见、换算坐标、把放回的位置挪进屏幕，用的就是这几项。
+/// 坐标和 NSScreen 一样是 Cocoa 的（主屏左下为原点）；各方法的算法和上面读 NSScreen 的同名函数相同。
+struct ScreenSnapshot: Sendable {
+    struct Screen: Sendable {
+        let displayID: CGDirectDisplayID?
+        let frame: CGRect
+        let visibleFrame: CGRect
+    }
+
+    /// 翻转基线，即主屏的高度（见 coordinateBaselineY）。
+    let baselineY: CGFloat
+    /// 第一项是主屏。
+    let screens: [Screen]
+
+    @MainActor
+    static func current() -> ScreenSnapshot {
+        ScreenSnapshot(baselineY: coordinateBaselineY(), screens: NSScreen.screens.map { screen in
+            Screen(displayID: displayID(for: screen), frame: screen.frame, visibleFrame: screen.visibleFrame)
+        })
+    }
+
+    func cocoaFrame(fromAXPosition p: CGPoint, size: CGSize) -> NSRect {
+        NSRect(x: p.x, y: baselineY - p.y - size.height, width: size.width, height: size.height)
+    }
+
+    func axPosition(fromCocoaFrame frame: NSRect) -> CGPoint {
+        CGPoint(x: frame.minX, y: baselineY - frame.maxY)
+    }
+
+    /// 同 windowIsVisible(pos:size:)：露出一块看得见的部分才算可见。
+    func isVisible(pos: CGPoint, size: CGSize) -> Bool {
+        rectIsVisible(cocoaFrame(fromAXPosition: pos, size: size), onScreens: screens.map(\.frame))
+    }
+
+    /// 同 screenForCocoaFrame(_:)：重叠面积最大的那块屏；都不重叠时取中心最近的一块。
+    func screen(for rect: NSRect) -> Screen? {
+        func area(_ screen: Screen) -> CGFloat {
+            let hit = screen.frame.intersection(rect)
+            return hit.isNull ? 0 : hit.width * hit.height
+        }
+        if let best = screens.max(by: { area($0) < area($1) }), area(best) > 0 { return best }
+        func distance(_ screen: Screen) -> CGFloat {
+            hypot(rect.midX - screen.frame.midX, rect.midY - screen.frame.midY)
+        }
+        return screens.min { distance($0) < distance($1) }
+    }
+
+    /// 同 AppDelegate.clampedFrame：把 frame 挪进屏幕的可用区域，四周留 margin；
+    /// 优先放进 preferredDisplayID 那块屏，找不到它时用 frame 所在的屏。
+    func clampedFrame(_ frame: NSRect, margin: CGFloat = 8, preferredDisplayID: CGDirectDisplayID? = nil) -> NSRect {
+        let preferred = preferredDisplayID.flatMap { id in screens.first { $0.displayID == id } }
+        let usable = (preferred ?? screen(for: frame))?.visibleFrame ?? frame
+        var visible = usable.insetBy(dx: margin, dy: margin)
+        if visible.width <= 1 || visible.height <= 1 { visible = usable }
+        var result = frame
+        if result.width <= visible.width {
+            result.origin.x = min(max(result.origin.x, visible.minX), visible.maxX - result.width)
+        } else {
+            result.origin.x = visible.minX
+        }
+        if result.height <= visible.height {
+            result.origin.y = min(max(result.origin.y, visible.minY), visible.maxY - result.height)
+        } else {
+            result.origin.y = visible.minY
+        }
+        return result
+    }
+}

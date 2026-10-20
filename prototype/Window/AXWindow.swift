@@ -285,13 +285,33 @@ func axChildren(_ el: AXUIElement) -> [AXUIElement] {
     return arr
 }
 
-// 在窗口里找工具栏（含浅层递归），用于量出真实的标题栏+工具栏高度
-func firstToolbar(_ el: AXUIElement, depth: Int = 0) -> AXUIElement? {
-    if depth > 2 { return nil }
-    // 工具栏几乎总在子列表最前，前缀截断只为挡住极端 AX 树（数千子节点的窗口）。
-    let kids = axChildren(el).prefix(axTraversalMaxChildrenPerNode)
-    for c in kids where axRole(c) == (kAXToolbarRole as String) { return c }
-    for c in kids { if let t = firstToolbar(c, depth: depth + 1) { return t } }
+// 在窗口里找工具栏（含浅层递归），用于量出真实的标题栏+工具栏高度。
+// 双击标题栏时它在主线程上跑，所以和其他遍历一样有节点预算：没有工具栏、每层几十个子节点的窗口，
+// 不设预算要读上万次角色。工具栏几乎总在子列表最前，每个节点只看前 axTraversalMaxChildrenPerNode 个子节点。
+func firstToolbar(_ el: AXUIElement) -> AXUIElement? {
+    var nodeBudget = axTraversalNodeBudget
+    return firstDescendant(of: el, maxDepth: 2, nodeBudget: &nodeBudget,
+                           children: { Array(axChildren($0).prefix(axTraversalMaxChildrenPerNode)) },
+                           matches: { axRole($0) == (kAXToolbarRole as String) })
+}
+
+/// 找第一个满足 matches 的后代：先看这一层的全部子节点，再逐个往下找，最多展开到第 maxDepth 层。
+/// 每看一个节点（matches 一次）扣一次预算，预算用完就停下，返回 nil。
+func firstDescendant<Node>(of root: Node, maxDepth: Int, depth: Int = 0, nodeBudget: inout Int,
+                           children: (Node) -> [Node], matches: (Node) -> Bool) -> Node? {
+    if depth > maxDepth || nodeBudget <= 0 { return nil }
+    let kids = children(root)
+    for kid in kids {
+        guard nodeBudget > 0 else { return nil }
+        nodeBudget -= 1
+        if matches(kid) { return kid }
+    }
+    for kid in kids {
+        if let found = firstDescendant(of: kid, maxDepth: maxDepth, depth: depth + 1, nodeBudget: &nodeBudget,
+                                       children: children, matches: matches) {
+            return found
+        }
+    }
     return nil
 }
 
@@ -391,17 +411,12 @@ func firstTopChromeControlCluster(of win: AXUIElement, winTop: CGFloat, winSize:
 // 自绘或没有工具栏的窗口，常把搜索框、标题、按钮放在 AXSplitGroup、AXGroup 里面。
 // 顶部确实有控件时，保留到控件底边，再补一段和顶部留白相当的下边距（4–28 点），不截断控件。
 func topChromeControlsHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize,
-                             titleBarBottom: CGFloat?,
-                             allowBelowTitleBar: Bool = false) -> CGFloat? {
+                             titleBarBottom: CGFloat?) -> CGFloat? {
     let ignored = standardTrafficButtonFrames(of: win)
     guard let e = firstTopChromeControlCluster(of: win, winTop: winTop, winSize: winSize,
                                                ignoredFrames: ignored) else { return nil }
-    if let titleBarBottom = titleBarBottom, !allowBelowTitleBar, e.minTop >= titleBarBottom - 2 {
+    if let titleBarBottom = titleBarBottom, e.minTop >= titleBarBottom - 2 {
         return nil
-    }
-    if allowBelowTitleBar, let titleBarBottom = titleBarBottom {
-        let maxChromeStart = max(titleBarBottom + 44, CGFloat(76))
-        if e.minTop > maxChromeStart { return nil }
     }
     return paddedChromeHeight(for: e, containerTop: 0)
 }
@@ -476,12 +491,6 @@ func chromeHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize? = nil, 
 
     var h = titleBarHeight
     if let bh = trafficH { h = max(h, bh) }
-    if let winSize = winSize, let pid = pid, needsControlPaddedChrome(pid: pid),
-       let controlsH = topChromeControlsHeight(of: win, winTop: winTop, winSize: winSize,
-                                               titleBarBottom: trafficH,
-                                               allowBelowTitleBar: true) {
-        return min(max(h, controlsH), min(winSize.height, 300))
-    }
 
     let toolbar = firstToolbar(win)
     if let tb = toolbar, let tp = axPosition(tb), let ts = axSize(tb) {
@@ -489,21 +498,27 @@ func chromeHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize? = nil, 
     }
     if toolbar == nil, let winSize = winSize,
        let controlsH = topChromeControlsHeight(of: win, winTop: winTop, winSize: winSize,
-                                               titleBarBottom: trafficH,
-                                               allowBelowTitleBar: pid.map { isElpass(pid: $0) } ?? false) {
+                                               titleBarBottom: trafficH) {
         h = max(h, controlsH)
     }
     return min(h, 300)
 }
 
+/// 双击判定用的标题栏高度。收起时解析过的外形、或 2 秒内量过的命中高度还新鲜时直接用（按元素身份和窗口尺寸校验）；
+/// 否则当场量一次（双击时在主线程上，几十次辅助功能请求），量出的高度存进缓存，
+/// 随后收起时的外形解析和接着的双击都不用再量。cache、measure 只为测试注入。
 func titlebarHitHeight(of win: AXUIElement, id: CGWindowID,
-                       winTop: CGFloat, winSize: CGSize, pid: pid_t) -> CGFloat {
-    // 双击判定的第一下已解析过完整 profile 的话，第二下直接取缓存，不再重跑
-    // 整棵 AX 子树的 chrome 计算（cache 按元素身份 + 窗口尺寸校验新鲜度）。
-    if let cached = ChromeProfileCache.shared.cachedHitBarHeight(id: id, win: win, size: winSize) {
+                       winTop: CGFloat, winSize: CGSize, pid: pid_t,
+                       cache: ChromeProfileCache = .shared,
+                       measure: (AXUIElement, CGFloat, CGSize, pid_t) -> CGFloat = {
+                           measuredTitlebarHitHeight(of: $0, winTop: $1, winSize: $2, pid: $3)
+                       }) -> CGFloat {
+    if let cached = cache.cachedHitBarHeight(id: id, win: win, size: winSize) {
         return cached
     }
-    return measuredTitlebarHitHeight(of: win, winTop: winTop, winSize: winSize, pid: pid)
+    let measured = measure(win, winTop, winSize, pid)
+    cache.storeHitBarHeight(measured, id: id, win: win, size: winSize)
+    return measured
 }
 
 /// 不看缓存、当场量。只有辅助功能查询，不读写 ChromeProfileCache，可以在后台线程上做。

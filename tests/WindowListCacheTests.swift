@@ -136,6 +136,28 @@ struct WindowListCacheTests {
                      "the Dock and transparent windows are skipped")
         precondition(ordinaryWindowOwner(at: CGPoint(x: 1000, y: 700), in: [dock, probeWindow, textEdit]) == nil,
                      "no ordinary window under the point")
-        print("PASS: WindowListCache — 12 concurrent callers, one refresh, independent kinds, TTL, indexes, bounded wait, live order")
+
+        // 缺陷回归（2026-10-20 代码审查发现）：appWindows 对每扇窗口判断是不是桌面小组件，
+        // 以前每扇都单独问一次窗口服务器（收起时在主线程上，应用程序有 15 扇窗口就问 15 次）。
+        // 现在层级在共用的全部窗口列表里查，列表里没有的窗口才单独问。
+        let widgetLayer = -2147483601
+        let layered = Provider()
+        layered.set(.all, (1...15).map { placed(UInt32(100 + $0), 50, CGRect(x: 0, y: 0, width: 400, height: 300)) }
+                    + [placed(200, 60, CGRect(x: 0, y: 0, width: 160, height: 160), layer: widgetLayer)])
+        let shared = WindowListCache(ttl: 10, provider: layered.read)
+        var liveQueries = 0
+        let live: (CGWindowID) -> [String: Any]? = { id in
+            liveQueries += 1
+            return id == 300 ? placed(300, 60, CGRect(x: 0, y: 0, width: 160, height: 160), layer: widgetLayer) : nil
+        }
+        for id in 101...115 {
+            precondition(!isDesktopWidgetWindow(id: CGWindowID(id), cache: shared, liveInfo: live), "an ordinary window is not a widget")
+        }
+        precondition(isDesktopWidgetWindow(id: 200, cache: shared, liveInfo: live), "a widget in the list is recognized")
+        precondition(liveQueries == 0, "windows in the list need no query of their own (made \(liveQueries))")
+        precondition(layered.count(.all) == 1, "one list query serves every window")
+        precondition(isDesktopWidgetWindow(id: 300, cache: shared, liveInfo: live) && liveQueries == 1,
+                     "a window missing from the list is asked about directly")
+        print("PASS: WindowListCache — 12 concurrent callers, one refresh, independent kinds, TTL, indexes, bounded wait, live order, widget layer")
     }
 }

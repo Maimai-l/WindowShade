@@ -29,10 +29,16 @@ enum FastCapture {
 
     /// 整扇窗口，满分辨率，不含阴影；窗口被别的窗口挡住也照样截得到它自己。
     static func window(_ id: CGWindowID) -> CGImage? {
+        guard let image = rawWindow(id), hasContent(image) else { return nil }
+        return image
+    }
+
+    /// 同 window(_:)，但不检查有没有画面：先缩小再检查的调用方（quickWindowPreviewCGImage）用。
+    static func rawWindow(_ id: CGWindowID) -> CGImage? {
         guard !disabled, let createImage,
               let image = createImage(.null, .optionIncludingWindow, id,
                                       [.boundsIgnoreFraming, .bestResolution])?.takeRetainedValue(),
-              image.width > 1, image.height > 1, hasContent(image) else { return nil }
+              image.width > 1, image.height > 1 else { return nil }
         return image
     }
 

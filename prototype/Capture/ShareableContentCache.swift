@@ -6,7 +6,7 @@ import ScreenCaptureKit
 // SCShareableContent.current 每次都要枚举全系统的窗口，有的机器上要几百毫秒到几秒。
 // 每次收起截图前都要等它，双击后的等待主要来自它（超时还会让卷帘条改用简化标题栏）。
 // 有了短时缓存，再加上点标题栏时提前取一次，双击的第二下到来时内容通常已经准备好。
-// 缓存里没有目标窗口时强制刷新，所以结果不受缓存时长影响（新建的窗口一定会触发强制刷新）。
+// 缓存里没有目标窗口、或窗口大小对不上时强制刷新，所以结果不受缓存时长影响（新建的窗口一定会触发强制刷新）。
 /// 系统一次性产出的只读快照：只在后台枚举任务里生成，交给主 actor 一次，之后谁都不改它。
 /// SCShareableContent 没标 Sendable，只用这个本文件私有的壳子跨这一次边界，不对整个类型担保。
 private struct ShareableSnapshot: @unchecked Sendable {
@@ -31,19 +31,30 @@ final class ShareableContentCache {
         cached != nil && CFAbsoluteTimeGetCurrent() - fetchedAt < ttl
     }
 
-    func content(requiring windowID: CGWindowID) async -> SCShareableContent? {
-        if isFresh(), let cached, cached.windows.contains(where: { $0.windowID == windowID }) {
+    /// size：调用方刚读到的窗口大小。快照里这扇窗口的大小和它对不上时（快照之后窗口被缩放过），也重新枚举：
+    /// 截图的像素尺寸取自快照里的窗口大小，旧的大小会把画面拉变形，卷帘条也裁在错的高度。
+    func content(requiring windowID: CGWindowID, size: CGSize? = nil) async -> SCShareableContent? {
+        func usable(_ content: SCShareableContent) -> Bool {
+            guard let window = content.windows.first(where: { $0.windowID == windowID }) else { return false }
+            return Self.sizeMatches(window.frame.size, expected: size)
+        }
+        if isFresh(), let cached, usable(cached) {
             return cached
         }
-        if let inFlight, let content = try? await inFlight.value.content,
-           content.windows.contains(where: { $0.windowID == windowID }) {
+        if let inFlight, let content = try? await inFlight.value.content, usable(content) {
             return content
         }
-        // 等到的在途快照仍不含目标窗口（典型场景：窗口在枚举开始之后才创建）。
+        // 等到的在途快照仍不含目标窗口（典型场景：窗口在枚举开始之后才创建），或窗口大小对不上。
         // 旧任务此刻已经跑完，再 await 它只会拿到同一份过期快照；必须发起新枚举。
         // refresh() 会覆盖 inFlight，配合刷新序号，旧任务收尾时不会误清掉
         // 新任务的“正在刷新”标记（见 refresh() 的 refreshGeneration）。
         return await refresh()
+    }
+
+    /// 快照里的窗口大小和刚读到的大小，宽、高都相差不到 4 点才算对得上；没给大小时不比。
+    nonisolated static func sizeMatches(_ snapshot: CGSize, expected: CGSize?) -> Bool {
+        guard let expected else { return true }
+        return abs(snapshot.width - expected.width) < 4 && abs(snapshot.height - expected.height) < 4
     }
 
     // 点标题栏按下鼠标时提前取一次。命中新鲜缓存或已有在途请求都直接跳过；无录屏权限或

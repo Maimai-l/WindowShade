@@ -711,7 +711,7 @@ extension AppDelegate {
     }
     func captureWindow(id: CGWindowID, axPos: CGPoint, size: CGSize,
                                maxPixelSize: CGSize? = nil) async -> CGImage? {
-        guard let content = await ShareableContentCache.shared.content(requiring: id),
+        guard let content = await ShareableContentCache.shared.content(requiring: id, size: size),
               let scWindow = content.windows.first(where: { $0.windowID == id }) else { return nil }
         let filter = SCContentFilter(desktopIndependentWindow: scWindow)
         // 画面长宽比必须取自窗口自身：调用方传来的 AX 尺寸可能是上一轮读到的，
