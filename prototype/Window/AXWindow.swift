@@ -342,16 +342,26 @@ func stealsTitlebarDoubleClick(_ role: String?) -> Bool {
 struct TopChromeControlSample {
     let minTop: CGFloat
     let maxBottom: CGFloat
+    /// 不是控件，是内容里的文字（includeContent 为 true 时才收）。
+    var isContent = false
+}
+
+/// 窗口内容里的文字：计算器的显示屏这类，和标题栏同一种底色，但不属于顶部区域。
+func isTopContentRole(_ role: String?) -> Bool {
+    role == "AXStaticText" || role == "AXTextArea"
 }
 
 func collectTopChromeControlSamples(_ el: AXUIElement, winTop: CGFloat, winSize: CGSize,
                                     ignoredFrames: [CGRect] = [],
                                     depth: Int = 0, scanLimit: CGFloat = 120,
+                                    includeContent: Bool = false,
                                     nodeBudget: inout Int,
                                     into samples: inout [TopChromeControlSample]) {
     if depth > 6 || nodeBudget <= 0 { return }
     nodeBudget -= 1
-    if isChromeControlRole(axRole(el)), let p = axPosition(el), let s = axSize(el) {
+    let role = axRole(el)
+    let isContent = includeContent && isTopContentRole(role)
+    if isChromeControlRole(role) || isContent, let p = axPosition(el), let s = axSize(el) {
         let relTop = p.y - winTop
         let relBottom = relTop + s.height
         let frame = CGRect(origin: p, size: s)
@@ -359,7 +369,7 @@ func collectTopChromeControlSamples(_ el: AXUIElement, winTop: CGFloat, winSize:
         let sane = s.width >= 4 && s.width <= winSize.width + 8 && s.height >= 4 && s.height <= 80 &&
                    relTop >= -4 && relTop <= scanLimit && relBottom <= scanLimit + 40
         if sane && !ignored {
-            samples.append(TopChromeControlSample(minTop: max(0, relTop), maxBottom: relBottom))
+            samples.append(TopChromeControlSample(minTop: max(0, relTop), maxBottom: relBottom, isContent: isContent))
         }
     }
 
@@ -369,6 +379,7 @@ func collectTopChromeControlSamples(_ el: AXUIElement, winTop: CGFloat, winSize:
         collectTopChromeControlSamples(c, winTop: winTop, winSize: winSize,
                                        ignoredFrames: ignoredFrames,
                                        depth: depth + 1, scanLimit: scanLimit,
+                                       includeContent: includeContent,
                                        nodeBudget: &nodeBudget,
                                        into: &samples)
     }

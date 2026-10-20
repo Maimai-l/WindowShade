@@ -90,23 +90,20 @@ struct RescueRulesTests {
         suite.expect(!journalRescueGivesUp(attempts: 2), "the second unverified attempt is retried")
         suite.expect(journalRescueGivesUp(attempts: 3), "after the third the record is dropped")
 
-        suite.section("R4", "对不上的恢复记录直接删掉，不留到 14 天后过期：进程已退出、应用程序在记录之后重新打开过、窗口已经关掉")
+        suite.section("R4", "对不上的恢复记录直接删掉，不留到 14 天后过期：进程已退出、应用程序在记录之后重新打开过")
         let created = 1_000_000.0
         suite.expect(journalEntryCanStillMatch(processRunning: true, processLaunchedAt: created - 3600,
-                                               createdAt: created, windowExists: true),
-                     "the app that wrote the record still runs and the window exists: keep")
+                                               createdAt: created),
+                     "the app in the record still runs: keep, even when the window server does not list its hidden window")
         suite.expect(!journalEntryCanStillMatch(processRunning: false, processLaunchedAt: nil,
-                                                createdAt: created, windowExists: nil),
+                                                createdAt: created),
                      "the process that wrote the record has quit (or the Mac restarted): drop")
         suite.expect(!journalEntryCanStillMatch(processRunning: true, processLaunchedAt: created + 60,
-                                                createdAt: created, windowExists: true),
+                                                createdAt: created),
                      "the process id now belongs to an app launched after the record: drop")
-        suite.expect(!journalEntryCanStillMatch(processRunning: true, processLaunchedAt: created - 3600,
-                                                createdAt: created, windowExists: false),
-                     "the window server no longer has the window: drop")
         suite.expect(journalEntryCanStillMatch(processRunning: true, processLaunchedAt: nil,
-                                               createdAt: created, windowExists: nil),
-                     "the launch time or the window lookup is unknown: keep")
+                                               createdAt: created),
+                     "the launch time is unknown: keep")
 
         suite.section("R5", "别的窗口收起着时，上次退出留下的记录照样找回；收起着、正在收起的窗口的记录不动")
         let folded: UInt32 = 30, foldingNow: UInt32 = 31, leftOver: UInt32 = 32

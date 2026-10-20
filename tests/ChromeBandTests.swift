@@ -61,6 +61,16 @@ struct ChromeBandTests {
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 64, maxHeight: 96) == 64, "自己画的 64 点顶栏：裁到下沿")
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: nil, maxHeight: 96) == 28, "找不到下沿：裁到推算的高度")
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 120, maxHeight: 96) == 28, "下沿深过 96 点：裁到推算的高度")
+        // 缺陷回归（用户的 macOS 14.5 本机运行，122d6fa，场景 A33-Calculator）：计算器的显示屏和标题栏同一种底色，
+        // 修复之前卷帘条裁到 81 点，把显示屏也裁了进去。
+        t.expect(ChromeBand.standardWindowBar(standard: 28, found: 81, maxHeight: 96, content: [36...76]) == 28,
+                 "推算的高度和下沿之间有内容文字（计算器的显示屏）：裁到推算的高度")
+        t.expect(ChromeBand.standardWindowBar(standard: 28, found: 64, maxHeight: 96, content: [6...20, 64...400]) == 64,
+                 "标题栏里的标题、下沿下面的正文不算：自己画的顶栏照样裁到下沿")
+        t.expect(ChromeBand.standardWindowBar(standard: 28, found: 60, maxHeight: 96, content: [36...50], controls: [32...56]) == 60,
+                 "那一段里还有按钮、搜索框：是自己画的顶栏，裁到下沿")
+        t.expect(ChromeBand.standardWindowBar(standard: 34, found: 31, maxHeight: 96, content: [32...300]) == 31,
+                 "下沿比推算的浅：不看内容文字")
 
         t.section("S1", "分不出下沿时返回 nil（调用方改用简化标题栏）")
         t.expect(bottom { _, _ in toolbar } == nil, "顶部和内容区同一种底色、没有分隔线")

@@ -40,6 +40,8 @@ struct WindowChromeProfile {
     var pixelBoundary = false
     /// 辅助功能读到的顶部控件的上下沿（点，从窗口顶边算），卷帘条的下沿不落在它们中间。
     var topControls: [ClosedRange<CGFloat>] = []
+    /// 辅助功能读到的顶部内容文字（AXStaticText、AXTextArea）的上下沿，见 ChromeBand.standardWindowBar。
+    var topContent: [ClosedRange<CGFloat>] = []
     /// 红绿灯按钮的下沿（点，从窗口顶边算）；读不到按钮时为 nil。截图里从它往下 2 点开始找卷帘条的下沿。
     var trafficLightBottom: CGFloat?
 

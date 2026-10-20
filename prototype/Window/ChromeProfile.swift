@@ -334,12 +334,14 @@ private func resolveWindowChromeProfileUncached(win: AXUIElement,
     let pixelBoundary = !hasToolbar && !usesStandardTitleBarOnly(pid: pid) && !preciseChrome && localChromeHeight == nil
         && adobeProfile.kind == .none && trafficLights.style != .quickLook
     var topControls: [ClosedRange<CGFloat>] = []
+    var topContent: [ClosedRange<CGFloat>] = []
     if pixelBoundary {
         var samples: [TopChromeControlSample] = []
         var budget = axTraversalNodeBudget
         collectTopChromeControlSamples(win, winTop: pos.y, winSize: size, ignoredFrames: standardTrafficButtonFrames(of: win),
-                                       scanLimit: 140, nodeBudget: &budget, into: &samples)
-        topControls = samples.map { $0.minTop...max($0.minTop, $0.maxBottom) }
+                                       scanLimit: 140, includeContent: true, nodeBudget: &budget, into: &samples)
+        topControls = samples.filter { !$0.isContent }.map { $0.minTop...max($0.minTop, $0.maxBottom) }
+        topContent = samples.filter(\.isContent).map { $0.minTop...max($0.minTop, $0.maxBottom) }
     }
     return WindowChromeProfile(hasToolbar: hasToolbar,
                                trafficLightHeight: trafficH,
@@ -354,5 +356,6 @@ private func resolveWindowChromeProfileUncached(win: AXUIElement,
                                hitBarHeight: hitBarH,
                                pixelBoundary: pixelBoundary,
                                topControls: topControls,
+                               topContent: topContent,
                                trafficLightBottom: standardTrafficButtonFrames(of: win).map { $0.maxY - pos.y }.max())
 }

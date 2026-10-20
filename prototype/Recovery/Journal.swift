@@ -73,14 +73,18 @@ extension AppDelegate {
 
     /// 这条记录还对得上一扇窗口吗（见 RescueRules.swift 的 journalEntryCanStillMatch）。
     private func journalEntryStillMatchable(_ entry: [String: Any], id: CGWindowID) -> Bool {
-        let app = journalNumber(entry, "pid")
-            .flatMap { pid_t(exactly: $0) }
-            .flatMap { NSRunningApplication(processIdentifier: $0) }
-        let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]]
-        return journalEntryCanStillMatch(processRunning: app.map { !$0.isTerminated } ?? false,
-                                         processLaunchedAt: app?.launchDate?.timeIntervalSince1970,
-                                         createdAt: journalNumber(entry, "createdAt"),
-                                         windowExists: windows.map { !$0.isEmpty })
+        guard let pid = journalNumber(entry, "pid").flatMap({ pid_t(exactly: $0) }) else { return true }
+        // 进程在不在用 kill(pid, 0) 判断：不是每个进程都查得到 NSRunningApplication。
+        let running = kill(pid, 0) == 0 || errno == EPERM
+        let app = NSRunningApplication(processIdentifier: pid)
+        let launchedAt = app?.launchDate?.timeIntervalSince1970
+        let matches = journalEntryCanStillMatch(processRunning: running, processLaunchedAt: launchedAt,
+                                                createdAt: journalNumber(entry, "createdAt"))
+        if !matches {
+            wlog("journal: unmatchable id=\(id) pid=\(pid) running=\(running) launchedAt=\(launchedAt.map { "\(Int($0))" } ?? "-")"
+                 + " createdAt=\(journalNumber(entry, "createdAt").map { "\(Int($0))" } ?? "-")")
+        }
+        return matches
     }
 
     func recordShadeJournal(id: CGWindowID, win: AXUIElement, hide: HideMethod,

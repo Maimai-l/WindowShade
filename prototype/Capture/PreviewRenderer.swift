@@ -404,7 +404,8 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
         barH = min(quickLookOriginalTitleBarHeight, logicalSize.height)
     } else if profile.standardTitleBarOnly {
         // 红绿灯在标准位置的窗口：规则见 ChromeBand.standardWindowBar。
-        barH = ChromeBand.standardWindowBar(standard: standardBarH, found: visualBarH, maxHeight: maxPixelBoundaryHeight)
+        barH = ChromeBand.standardWindowBar(standard: standardBarH, found: visualBarH, maxHeight: maxPixelBoundaryHeight,
+                                            content: profile.topContent, controls: profile.topControls)
     } else {
         barH = min(visualBarH ?? fallbackBarH, min(logicalSize.height, 300))
     }
