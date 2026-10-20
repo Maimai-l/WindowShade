@@ -24,7 +24,7 @@ enum WelcomeCopy {
 
 @MainActor
 struct WelcomeContent: View {
-    static let size = CGSize(width: 520, height: 400)
+    static let size = CGSize(width: 520, height: 340)
 
     @ObservedObject var status: PermissionStatus
     let isAdmin: Bool
@@ -32,15 +32,9 @@ struct WelcomeContent: View {
     let onLater: () -> Void
 
     var body: some View {
+        // 从上到下：标题和一句说明、两项授权、按钮。表单不另画底色，和窗口是同一块背景。
         VStack(alignment: .leading, spacing: 0) {
-            Form {
-                Section { PermissionRows(status: status) }
-            }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-            .frame(height: 156)
-
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(WelcomeCopy.title)
                     .font(.title.weight(.semibold))
                 Text(isAdmin ? WelcomeCopy.lede : WelcomeCopy.lede + "\n" + WelcomeCopy.standardAccount)
@@ -48,8 +42,14 @@ struct WelcomeContent: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 20)
+            .padding(.top, 40)
 
-            Spacer(minLength: 16)
+            Form {
+                Section { PermissionRows(status: status) }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .scrollDisabled(true)
 
             HStack {
                 Spacer()
@@ -62,9 +62,8 @@ struct WelcomeContent: View {
                     .disabled(!status.allGranted)
             }
             .controlSize(.large)
-            .padding(20)
+            .padding([.horizontal, .bottom], 20)
         }
-        .padding(.top, 28)
         .frame(width: Self.size.width, height: Self.size.height)
         .background(Color(nsColor: .windowBackgroundColor))
     }

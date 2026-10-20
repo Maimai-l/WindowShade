@@ -37,16 +37,12 @@ enum SettingsCopy {
     static let launchUnavailable = "这个版本不能在登录时启动"
     static let launchFailed = "无法修改登录时自动启动"
 
-    static let shadedWindows = "已收起的窗口"
-    static let arrangeNote = "把卷帘条排到屏幕一侧，再按一次放回原位"
+    /// 和系统设置“键盘快捷键”一页顶上的那句说明一样。
+    static let shortcutHint = "若要更改快捷键，请连按它，然后按下新的组合键。"
     static let numbered = "按编号展开"
-    static let numberedNote = "加数字 1 至 9，展开菜单里对应的窗口"
     static let resetShortcuts = "恢复默认"
-    static let notSet = "未设置"
-    static let record = "录制"
+    static let noShortcut = "无"
     static let recording = "按下快捷键"
-    static let cancel = "取消"
-    static let clear = "清除"
     static let needsControlOrOption = "组合里要有 Control 或 Option"
     static let reservedBySystem = "系统已占用这个组合"
     static func usedBy(_ name: String) -> String { "已用于：\(name)" }
@@ -55,19 +51,22 @@ enum SettingsCopy {
     static let diagnostics = "诊断日志"
     static let open = "打开"
 
+    /// 测试用：开关和授权行下面那一行小字。只说会发生什么，不写“不……”。
+    static var notes: [String] { [glanceNote, accessibilityNote, screenRecordingNote] }
+
     /// 测试用：设置窗口里出现的全部固定文案。
     static var all: [String] {
         [doubleClick, glance, glanceNote, appearance, appearanceMode, floating,
          stripTranslucency, thumbnailTranslucency, sound, playSound, foldSound, unfoldSound,
          permissions, accessibility, accessibilityNote, screenRecording, screenRecordingNote, granted, grant,
          launchAtLogin, launchNeedsApproval, launchUnavailable, launchFailed,
-         shadedWindows, arrangeNote, numbered, numberedNote, resetShortcuts,
-         notSet, record, recording, cancel, clear, needsControlOrOption, reservedBySystem, usedBy(""),
+         shortcutHint, numbered, resetShortcuts,
+         noShortcut, recording, needsControlOrOption, reservedBySystem, usedBy(""),
          welcomeWindow, diagnostics, open]
             + appearanceChoices.map { $0.title }
             + WindowShadeSettingsSection.allCases.map { $0.title }
             + GlobalShortcut.allCases.map { $0.title }
-            + [UpdateCopy.settingsGroup, UpdateCopy.autoCheck, UpdateCopy.autoCheckDetail, UpdateCopy.checkButton]
+            + [UpdateCopy.settingsGroup, UpdateCopy.autoCheck, UpdateCopy.checkButton]
             + shadeSoundChoices.map { $0.label }
     }
 }
@@ -252,17 +251,23 @@ private struct ShortcutSettings: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
+        // 照系统设置的“键盘快捷键”：每行一个勾选框、名字和右边的组合，连按组合就改。
         Section {
-            ShortcutRow(model: model, shortcut: .toggleShade, note: nil)
-        }
-        Section {
-            ShortcutRow(model: model, shortcut: .arrange, note: SettingsCopy.arrangeNote)
-            Toggle(isOn: $model.numbered) {
+            ShortcutRow(model: model, shortcut: .toggleShade)
+            ShortcutRow(model: model, shortcut: .arrange)
+            HStack(spacing: 10) {
+                Toggle(SettingsCopy.numbered, isOn: $model.numbered)
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
                 Text(SettingsCopy.numbered)
-                Text("\(KeyCaps.text(HotKey.modifierCaps(GlobalShortcutSettings.numberedModifiers))) \(SettingsCopy.numberedNote)")
+                Spacer()
+                Text("\(KeyCaps.text(HotKey.modifierCaps(GlobalShortcutSettings.numberedModifiers)))1–9")
+                    .foregroundStyle(model.numbered ? .primary : .secondary)
             }
         } header: {
-            Text(SettingsCopy.shadedWindows)
+            Text(SettingsCopy.shortcutHint)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         } footer: {
             // 放在分组下面，不单独占一张卡片。
             HStack {
@@ -289,11 +294,8 @@ private struct PermissionSettings: View {
             }
         }
         Section(UpdateCopy.settingsGroup) {
-            Toggle(isOn: $model.autoCheck) {
-                Text(UpdateCopy.autoCheck)
-                Text(UpdateCopy.autoCheckDetail)
-            }
-            .disabled(!model.updaterAvailable)
+            Toggle(UpdateCopy.autoCheck, isOn: $model.autoCheck)
+                .disabled(!model.updaterAvailable)
             LabeledContent(UpdateCopy.currentVersionRow(model.version)) {
                 Button(UpdateCopy.checkButton) { UpdaterController.shared.checkForUpdates(nil) }
                     .disabled(!model.updaterAvailable)
@@ -371,35 +373,47 @@ enum KeyCaps {
     }
 }
 
-/// 一行全局快捷键：当前组合（或提示），“录制”和“清除”。录制时只在这一行接收按键，不装全局监听。
+/// 一行全局快捷键，照系统设置：勾选框、名字、右边的组合。连按组合开始录制，按下新的组合就换上，Esc 取消。
+/// 取消勾选时关掉这个快捷键，组合留着灰色显示，再勾上时用回它；没设过组合时勾上就开始录制。
+/// 录制时只在这一行接收按键，不装全局监听。
 @MainActor
 private struct ShortcutRow: View {
     @ObservedObject var model: SettingsModel
     let shortcut: GlobalShortcut
-    let note: String?
     @State private var recording = false
     @State private var message: String?
 
-    var body: some View {
-        LabeledContent {
-            HStack(spacing: 8) {
-                current
-                    .frame(minWidth: 96, alignment: .trailing)
-                Button(recording ? SettingsCopy.cancel : SettingsCopy.record) {
-                    message = nil
-                    recording.toggle()
-                }
-                Button(SettingsCopy.clear) {
-                    recording = false
-                    model.setShortcut(nil, for: shortcut)
-                }
-                .disabled(model.hotKeys[shortcut] == nil)
+    private var enabled: Binding<Bool> {
+        Binding(get: { model.hotKeys[shortcut] != nil }, set: { on in
+            message = nil
+            if on, let last = GlobalShortcutSettings.lastHotKey(for: shortcut) {
+                model.setShortcut(last, for: shortcut)
+            } else if on {
+                recording = true
+            } else {
+                recording = false
+                model.setShortcut(nil, for: shortcut)
             }
-            .background(KeyCapture(isActive: $recording, onKey: capture))
-        } label: {
+        })
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Toggle(shortcut.title, isOn: enabled)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
             Text(shortcut.title)
-            if let note { Text(note) }
+            Spacer()
+            current
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    message = nil
+                    recording = true
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { recording = true }
         }
+        .background(KeyCapture(isActive: $recording, onKey: capture))
         .task(id: message) {
             // 录到不能用的组合：说明原因，1.8 秒后回到当前组合。
             guard message != nil else { return }
@@ -416,8 +430,12 @@ private struct ShortcutRow: View {
         } else if let hotKey = model.hotKeys[shortcut] {
             KeyCaps.text(HotKey.keyCaps(for: hotKey))
                 .accessibilityLabel(HotKey.displayName(for: hotKey))
+        } else if let last = GlobalShortcutSettings.lastHotKey(for: shortcut) {
+            KeyCaps.text(HotKey.keyCaps(for: last))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(HotKey.displayName(for: last))
         } else {
-            Text(SettingsCopy.notSet).foregroundStyle(.secondary)
+            Text(SettingsCopy.noShortcut).foregroundStyle(.secondary)
         }
     }
 

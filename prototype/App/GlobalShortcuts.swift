@@ -39,6 +39,8 @@ enum GlobalShortcut: String, CaseIterable {
     }
 
     fileprivate var defaultsKey: String { "GlobalShortcut.\(rawValue)" }
+    /// 最近一次用过的组合（关掉以后还记得，再勾上时用回）。不用 GlobalShortcut. 开头：那个前缀是判断老安装的依据（InstallHistory）。
+    fileprivate var lastKey: String { "ShortcutLast.\(rawValue)" }
 }
 
 enum GlobalShortcutSettings {
@@ -70,7 +72,17 @@ enum GlobalShortcutSettings {
         return HotKey(keyCode: UInt32(stored[0]), modifiers: UInt32(stored[1]))
     }
 
+    /// 取消勾选后灰着显示、再勾上时用回的组合：当前组合，没有时是最近一次用过的，再没有就是 1.0.15 及以前的出厂组合。
+    static func lastHotKey(for shortcut: GlobalShortcut) -> HotKey? {
+        if let current = hotKey(for: shortcut) { return current }
+        if let stored = defaults.array(forKey: shortcut.lastKey) as? [Int], stored.count == 2 {
+            return HotKey(keyCode: UInt32(stored[0]), modifiers: UInt32(stored[1]))
+        }
+        return shortcut.factoryHotKey(for: .shipped)
+    }
+
     static func setHotKey(_ hotKey: HotKey?, for shortcut: GlobalShortcut) {
+        if let hotKey { defaults.set([Int(hotKey.keyCode), Int(hotKey.modifiers)], forKey: shortcut.lastKey) }
         if hotKey == defaultHotKey(for: shortcut) {
             defaults.removeObject(forKey: shortcut.defaultsKey)
         } else if let hotKey {

@@ -80,8 +80,13 @@ struct SettingsNavigationTests {
       precondition(text.rangeOfCharacter(from: glyphs) == nil, "Use SF Symbols instead of glyph characters: \(text)")
       precondition(!["还差", "已就绪", "bundle"].contains(where: text.contains), "No narration or jargon: \(text)")
     }
-    for text in SettingsCopy.all {
+    for text in SettingsCopy.all where text != SettingsCopy.shortcutHint {
       precondition(!text.hasSuffix("。"), "Settings show no explanatory sentences: \(text)")
+    }
+    // 开关下面的小字只说会发生什么，不写“不……”（docs/copy-guide.md 第 8 条；用户 2026-10-20 指出
+    // “有新版本时提示，不自动安装”）。
+    for text in SettingsCopy.notes {
+      precondition(!text.contains("不"), "A note says what happens, not what does not: \(text)")
     }
 
     // 浅色、深色各截一张图，留在 CI 产物里看。

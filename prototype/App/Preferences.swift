@@ -250,7 +250,14 @@ extension AppDelegate {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
+        clearInitialFocus(window)
         updateOnboardingRefresh()
+    }
+
+    /// 窗口刚打开时不把焦点放在任何控件上：打开了“键盘导航”时，系统会给第一个按钮或开关画一圈蓝色的焦点框。
+    /// 和系统设置一样，按 Tab 以后才出现。SwiftUI 在下一轮运行循环里才放焦点，所以在那之后清掉。
+    @MainActor func clearInitialFocus(_ window: NSWindow) {
+        DispatchQueue.main.async { window.makeFirstResponder(nil) }
     }
 
     /// 授权的刷新：在系统设置里打开了，这里马上显示“已允许”。只在窗口看得见、还没全部授权时每秒查一次。

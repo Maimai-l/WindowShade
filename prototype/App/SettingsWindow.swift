@@ -167,6 +167,8 @@ final class SettingsTabController: NSTabViewController {
   override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
     super.tabView(tabView, didSelect: tabViewItem)
     if let tabViewItem { onSelect?(tabView.indexOfTabViewItem(tabViewItem)) }
+    // 换页后也不把焦点放在新页的第一个控件上（见 AppDelegate.clearInitialFocus）。
+    if let window = view.window { DispatchQueue.main.async { window.makeFirstResponder(nil) } }
   }
 }
 
@@ -190,5 +192,6 @@ extension AppDelegate {
     settingsWindow?.window?.makeKeyAndOrderFront(nil)
     if let section { settingsWindow?.select(section: section) }
     NSApp.activate()
+    if let window = settingsWindow?.window { clearInitialFocus(window) }
   }
 }

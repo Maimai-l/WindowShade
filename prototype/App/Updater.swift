@@ -11,7 +11,6 @@ enum UpdateCopy {
     static let menuTitle = "检查更新…"
     static let settingsGroup = "更新"
     static let autoCheck = "自动检查更新"
-    static let autoCheckDetail = "有新版本时提示，不自动安装"
     static let checkButton = "检查更新"
     static func currentVersionRow(_ version: String) -> String { "当前版本 \(version)" }
 }

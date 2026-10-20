@@ -143,3 +143,56 @@ let compatScenarios: [Scenario] = [
         await compatDump("quickrecorder", appPath: "/Applications/QuickRecorder.app", h)
     },
 ]
+
+/// 给用户看“收起后显示：缩略图”是什么样：文本编辑和测试窗口各收起一次，再整理、放回，每一步截一张全屏图
+/// （show-thumbnail-1-before.png 到 show-thumbnail-5-restored.png）。不检查什么，只留截图。
+let showScenarios: [Scenario] = [
+    Scenario(id: "SHOW-thumbnail", title: "缩略图：收起两扇窗口、整理、放回，每一步截图", options: [],
+             changesSettings: true, group: "compat") { probe, h in
+        _ = await relaunchWindowShade([["ShadeAppearanceMode", "-string", "thumbnail"]])
+        func shot(_ step: String) {
+            run("/usr/sbin/screencapture", ["-x", "\(Suite.outputDir)/show-thumbnail-\(step).png"], timeout: 10)
+        }
+        guard let text = await standardWindow(of: "com.apple.TextEdit", launch: ["-a", "TextEdit"]),
+              let window = probe.window() else { h.result.notes["skipped"] = "no window"; return }
+        place(text, origin: CGPoint(x: 80, y: 80), size: CGSize(width: 560, height: 380))
+        place(window, origin: CGPoint(x: 420, y: 300), size: CGSize(width: 520, height: 360))
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit").first?.activate()
+        AXUIElementPerformAction(text, kAXRaiseAction as CFString)
+        await pause(0.6)
+        await probe.bringToFront()
+        await pause(0.8)
+        shot("1-before")
+        for (target, isTextEdit) in [(window, false), (text, true)] {
+            guard let frame = axFrame(target) else { continue }
+            if isTextEdit {
+                NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit").first?.activate()
+                AXUIElementPerformAction(text, kAXRaiseAction as CFString)
+                await pause(0.6)
+            }
+            let point = emptyTitleBarPoint(CGPoint(x: frame.minX + frame.width * 0.6, y: frame.minY + 14),
+                                           minX: frame.minX + 80, maxX: frame.maxX - 20)
+            await glide(to: point, duration: 0.3)
+            await doubleClick(at: point)
+            await glide(to: h.neutral, duration: 0.2)
+            await pause(2)
+        }
+        shot("2-folded")
+        _ = await pressWindowShadeMenu("整理缩略图")
+        await pause(2)
+        shot("3-arranged")
+        _ = await pressWindowShadeMenu("把缩略图放回原位")
+        await pause(2)
+        shot("4-back")
+        // 双击每一张缩略图展开：缩略图是 WindowShade 的小窗口，比原窗口小。
+        for thumbnail in compatStripWindows().filter({ $0.bounds.width > 60 && $0.bounds.height > 40 && $0.bounds.width < 500 }) {
+            let center = CGPoint(x: thumbnail.bounds.midX, y: thumbnail.bounds.midY)
+            await glide(to: center, duration: 0.3)
+            await doubleClick(at: center)
+            await pause(1.5)
+        }
+        await glide(to: h.neutral, duration: 0.2)
+        shot("5-restored")
+        _ = await relaunchWindowShade()
+    },
+]
