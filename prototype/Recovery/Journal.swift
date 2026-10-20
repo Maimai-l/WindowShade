@@ -74,7 +74,7 @@ extension AppDelegate {
     /// 这条记录还对得上一扇窗口吗（见 RescueRules.swift 的 journalEntryCanStillMatch）。
     private func journalEntryStillMatchable(_ entry: [String: Any], id: CGWindowID) -> Bool {
         guard let pid = journalNumber(entry, "pid").flatMap({ pid_t(exactly: $0) }) else { return true }
-        // 用 kill(pid, 0) 判断进程是否还在：不是每个进程都查得到 NSRunningApplication；返回 EPERM 说明进程在，只是没有权限发信号。
+        // 用 kill(pid, 0) 判断进程是否还在：不是每个进程都查得到 NSRunningApplication；errno 为 EPERM 时进程还在，只是没有权限给它发信号。
         let running = kill(pid, 0) == 0 || errno == EPERM
         let app = NSRunningApplication(processIdentifier: pid)
         let launchedAt = app?.launchDate?.timeIntervalSince1970

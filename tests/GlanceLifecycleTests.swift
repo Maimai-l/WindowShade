@@ -82,8 +82,8 @@ extension GlanceController {
         controller.takeOverUnhiddenSessions(for: active.pid) { restored.append($0) }
         precondition(restored == [id], "User takeover restores exactly once")
 
-        // 缺陷回归（2026-10-20 CI 场景 C18，127faba、6b2d7cd）：前台是邮件时，看一眼取消隐藏原应用程序，
-        // 约 0.2 秒后系统把它换到前台；以前这次激活被当成用户切回原应用程序，窗口被展开。
+        // 缺陷回归（2026-10-20 CI 场景 C18，127faba、6b2d7cd）：前台是邮件，看一眼显示时，WindowShade 临时取消隐藏原应用程序，
+        // 约 0.2 秒后系统把它换到前台；修复之前，WindowShade 把这次激活当成用户切回原应用程序，展开了窗口。
         let justUnhidden = install()
         justUnhidden.stage = .shown
         justUnhidden.frontmostBeforeUnhide = 999
@@ -97,7 +97,7 @@ extension GlanceController {
         precondition(restored.isEmpty && controller.sessions[id] === justUnhidden,
                      "An activation right after the unhide is not a user switch: keep the fold")
         precondition(reactivated == [999], "The app that was frontmost before the unhide gets the focus back")
-        // 同样的时刻，用户按着 Command 用 ⌘Tab 切过去：照常展开。
+        // 同一时刻，用户按着 Command 用 ⌘Tab 切换到原应用程序：照常展开。
         controller.userIsSwitchingApps = { true }
         controller.takeOverUnhiddenSessions(for: justUnhidden.pid) { restored.append($0) }
         precondition(restored == [id], "A user switch right after the unhide still unfolds")

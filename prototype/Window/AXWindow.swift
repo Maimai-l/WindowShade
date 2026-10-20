@@ -347,7 +347,7 @@ struct TopChromeControlSample {
 }
 
 /// 不是控件的界面元素（文字、分组、滚动区域等）。顶部区域以下的这类元素是窗口内容，例如计算器的显示屏，
-/// 见 ChromeBand.standardWindowBar。窗口本身和工具栏不算。
+/// 见 ChromeBand.standardWindowBar。窗口本身、工具栏和读不出角色的元素（AXUnknown 或没有角色）不算。
 func isTopContentRole(_ role: String?) -> Bool {
     guard let role, !role.isEmpty, !isChromeControlRole(role) else { return false }
     return role != "AXWindow" && role != "AXToolbar" && role != "AXUnknown"

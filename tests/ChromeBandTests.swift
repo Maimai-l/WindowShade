@@ -55,7 +55,7 @@ struct ChromeBandTests {
         }, controls: [46...74]) == 80, "浏览器的标签条下面紧接着另一种底色的地址栏一排：两层都留在卷帘条里")
         t.expect(bottom(customTopBar, controls: [75...95]) == 60, "下沿下面隔了 15 点的控件是内容区的：不算顶部区域")
 
-        t.section("S1", "红绿灯在标准位置的窗口：找到下沿就裁到下沿，下沿以上只有内容元素时裁到推算的高度")
+        t.section("S1", "红绿灯在标准位置的窗口：找到下沿就裁到下沿，推算的高度和下沿之间只有内容元素时裁到推算的高度")
         // 缺陷回归（2026-10-20 用户看 CI 截图发现）：修复之前，Texpile 的顶栏 31 点，卷帘条按红绿灯推算裁到 34 点，下面多出一条白边。
         t.expect(ChromeBand.standardWindowBar(standard: 34, found: 31, maxHeight: 96) == 31, "下沿比推算的浅：裁到下沿，不带白边")
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 64, maxHeight: 96) == 64, "自己画的 64 点顶栏：裁到下沿")
@@ -64,16 +64,16 @@ struct ChromeBandTests {
         // 缺陷回归（用户的 macOS 14.5 本机运行，122d6fa，场景 A33-Calculator）：计算器的显示屏和标题栏同一种底色，
         // 修复之前卷帘条裁到 81 点，把显示屏也裁了进去。
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 81, maxHeight: 96, content: [36...76]) == 28,
-                 "推算的高度和下沿之间有内容文字（计算器的显示屏）：裁到推算的高度")
+                 "推算的高度和下沿之间有内容元素（计算器的显示屏）：裁到推算的高度")
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 81, maxHeight: 96, content: [22...78, 5...21],
                                               controls: [80...129, 128...177]) == 28,
-                 "macOS 14.5 上计算器读到的值：显示屏 22 至 78 点，上沿伸进标题栏；按键在下沿下面")
+                 "macOS 14.5 上计算器读到的值：显示屏 22 至 78 点，上沿伸进标题栏；按键从 80 点起，和下沿只差 1 点，不算在那一段里")
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 64, maxHeight: 96, content: [6...20, 64...400]) == 64,
                  "标题栏里的标题、下沿下面的正文不算：自己画的顶栏照样裁到下沿")
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 60, maxHeight: 96, content: [36...50], controls: [32...56]) == 60,
                  "那一段里还有按钮、搜索框：是自己画的顶栏，裁到下沿")
         t.expect(ChromeBand.standardWindowBar(standard: 34, found: 31, maxHeight: 96, content: [32...300]) == 31,
-                 "下沿比推算的浅：不看内容文字")
+                 "下沿比推算的浅：不看内容元素")
 
         t.section("S1", "分不出下沿时返回 nil（调用方改用简化标题栏）")
         t.expect(bottom { _, _ in toolbar } == nil, "顶部和内容区同一种底色、没有分隔线")

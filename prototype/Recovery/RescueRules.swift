@@ -28,7 +28,7 @@ func journalRescueGivesUp(attempts: Int) -> Bool {
 /// 留着只会让定时检查一直开着、每 30 秒查询一遍所有应用程序的窗口，直到 14 天后过期。以下情况直接删掉：
 /// - 记录里的进程已经退出：窗口随进程一起没了；
 /// - 这个进程号的应用程序是记录写下之后才启动的（应用程序重新打开过，或进程号给了别的程序）。
-/// 窗口服务器查不到这扇窗口时不删：随应用程序一起隐藏的窗口，窗口服务器可能查不到；删掉记录以后，
+/// 窗口服务器查不到这扇窗口时不删：随应用程序一起隐藏的窗口，窗口服务器可能查不到；记录删掉了，
 /// WindowShade 崩溃后重新启动时就找不回这扇窗口（场景 L02，macOS 14.5）。
 func journalEntryCanStillMatch(processRunning: Bool, processLaunchedAt: Double?, createdAt: Double?) -> Bool {
     guard processRunning else { return false }

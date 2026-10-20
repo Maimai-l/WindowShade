@@ -116,10 +116,10 @@ enum ChromeBand {
     /// 红绿灯在标准位置的窗口裁多高。standard 是按红绿灯推算的高度，自己画的顶栏不一定这么高。
     /// found 不深过 maxHeight 时裁到 found，比 standard 浅也一样（例外见下）；found 为 nil 或深过 maxHeight 时裁到 standard。
     /// 例如 Texpile 的顶栏 31 点，推算是 34 点，裁到 34 点会带上 3 点白色内容区。
-    /// content、controls 是辅助功能读到的内容元素和顶部控件的上下沿（点，从窗口顶边算）。found 比 standard 深、
-    /// 和 standard 到 found 这一段重叠的只有内容元素、没有控件时，那一段虽然和标题栏同一种底色，却是窗口内容，裁到 standard。
+    /// content、controls 是辅助功能读到的内容元素和顶部控件的上下沿（点，从窗口顶边算）。found 比 standard 深，
+    /// 并且和 standard 到 found 这一段重叠的只有内容元素、没有控件时，那一段虽然和标题栏同一种底色，却是窗口内容，裁到 standard。
     /// 例如计算器的显示屏（22 至 78 点，上沿伸进了标题栏）和标题栏同一种底色，截图里找到的下沿在 81 点，
-    /// 会把显示屏裁进卷帘条（场景 A33-Calculator）。
+    /// 裁到那里会把显示屏裁进卷帘条（场景 A33-Calculator）。
     /// 那一段里有按钮、搜索框这类控件时，是应用程序自己画的顶栏，裁到 found。
     static func standardWindowBar(standard: CGFloat, found: CGFloat?, maxHeight: CGFloat,
                                   content: [ClosedRange<CGFloat>] = [],
