@@ -63,7 +63,7 @@ Roll up, and a window stays where it was. Glance, and you see it without unrolli
 
 ## Shortcuts
 
-From 1.0.16, a new installation of WindowShade presets no shortcuts. In Settings → Shortcuts you can record one for “Roll up or unroll the current window” and “Line up the bars”, and turn on “Unroll by number” (Control-Command-1 to 9). Installations upgraded from 1.0.15 or earlier keep the shortcuts below.
+From 1.0.16, a new installation of WindowShade presets no shortcuts. In Settings → Shortcuts, tick “Roll up or unroll the current window”, “Line up the bars” and “Unroll by number” (Control-Command-1 to 9 by default); double-click a combination to change it. Installations upgraded from 1.0.15 or earlier keep the shortcuts below.
 
 | Kept after upgrading | What it does |
 | --- | --- |

@@ -39,7 +39,7 @@ enum GlobalShortcut: String, CaseIterable {
     }
 
     fileprivate var defaultsKey: String { "GlobalShortcut.\(rawValue)" }
-    /// 最近一次用过的组合（关掉以后还记得，再勾上时用回）。不用 GlobalShortcut. 开头：那个前缀是判断老安装的依据（InstallHistory）。
+    /// 最近一次用过的组合（关掉以后还记得，再勾选时恢复使用）。不用 GlobalShortcut. 开头：那个前缀是判断是不是从旧版本升级的依据（InstallHistory）。
     fileprivate var lastKey: String { "ShortcutLast.\(rawValue)" }
 }
 
@@ -89,7 +89,7 @@ enum GlobalShortcutSettings {
         return HotKey(keyCode: UInt32(stored[0]), modifiers: UInt32(stored[1]))
     }
 
-    /// 取消勾选后灰着显示、再勾上时用回的组合：当前组合，没有时是最近一次用过的，再没有就是 1.0.15 及以前的出厂组合。
+    /// 取消勾选后显示为灰色、再勾选时恢复使用的组合：当前组合，没有时是最近一次用过的，再没有就是 1.0.15 及以前的出厂组合。
     static func lastHotKey(for shortcut: GlobalShortcut) -> HotKey? {
         if let current = hotKey(for: shortcut) { return current }
         if let stored = defaults.array(forKey: shortcut.lastKey) as? [Int], stored.count == 2 {
@@ -109,7 +109,7 @@ enum GlobalShortcutSettings {
         }
     }
 
-    /// Control-Command-1 至 9 没改过时是否打开：和别的 Control-Command 组合一样，新安装时关闭，升级的保持打开。
+    /// “按编号展开”没改过时是否打开：和别的 Control-Command 组合一样，新安装时关闭，升级的保持打开。
     static var numberedExpandDefault: Bool { history.hadFactoryShortcuts }
 
     static var numberedExpandEnabled: Bool {
@@ -176,8 +176,8 @@ enum GlobalShortcutSettings {
         HotKey.displayName(for: HotKey(keyCode: UInt32(kVK_ANSI_1), modifiers: numberedModifiers)) + " 至 9"
     }
 
-    /// 给“按编号展开”录修饰键：按住修饰键再按任意一个键，取这一组修饰键。规则和单个快捷键一样：
-    /// 要有 Control 或 Option，不能和系统或别的快捷键撞上（用 1 至 9 每一个都查一遍）。
+    /// 给“按编号展开”录修饰键：按住修饰键再按一个键（界面上让用户按数字，按别的键也一样），取这一组修饰键。
+    /// 规则和单个快捷键一样：要有 Control 或 Option，不能和系统或别的快捷键冲突（用 1 至 9 每一个都查一遍）。
     enum NumberedVerdict: Equatable {
         case keepWaiting
         case cancel
@@ -245,7 +245,7 @@ enum InstallHistory: Int, Sendable {
         "ShadeOnboardingShown", "ShadeJournalEntries", "ShadeAppearanceMode", "ShadeFloatingOnTop", "ShadeTranslucent",
         "ShadeTitlebarDoubleClickEnabled", "ShadeSoundEnabled", "ShadeFoldSound", "ShadeUnfoldSound",
     ]
-    /// 改过任何一个快捷键（录过、清掉过、关掉 ⌃⌘1…9）也是老安装。
+    /// 改过任何一个快捷键（录过、取消勾选过、关掉或换过“按编号展开”的修饰键）也是老安装。
     static let shippedPrefix = "GlobalShortcut."
 
     /// 看现有的设置认一次，不写。

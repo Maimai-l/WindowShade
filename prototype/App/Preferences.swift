@@ -167,7 +167,7 @@ extension AppDelegate {
         refreshPreferencesWindowIfOpen()
     }
 
-    /// 换“按编号展开”的修饰键；有一个数字注册不上（被别的应用占了）就换回原来的。
+    /// 换“按编号展开”的修饰键；有一个数字注册失败（被别的 App 占用）时恢复原来的修饰键。
     func setNumberedModifiers(_ modifiers: UInt32) {
         let previous = GlobalShortcutSettings.numberedModifiers
         guard modifiers != previous else { return }

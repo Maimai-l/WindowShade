@@ -8,7 +8,7 @@ import SwiftUI
 enum SettingsCopy {
     static let doubleClick = "双击标题栏收起窗口"
     /// “看一眼”这个功能的开关：名字直接说它做什么，不另加小字（docs/copy-guide.md 规则 1）。
-    static let glance = "指针停在卷帘条上时显示窗口"
+    static let glance = "指针悬停在卷帘条上时显示窗口"
 
     static let appearance = "外观"
     static let appearanceMode = "收起后显示"
@@ -26,23 +26,34 @@ enum SettingsCopy {
 
     static let permissions = "权限"
     static let accessibility = "辅助功能"
-    static let screenRecording = "屏幕录制"
+    /// macOS 26 或更新。用旧 SDK 编译时，macOS 26 报给程序的版本号是 16，所以按主版本号不小于 16 判断。
+    static var isMacOS26OrLater: Bool { ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 16 }
+
+    /// 和“系统设置”里那一项同名：macOS 26 叫“录屏与系统录音”，更早的版本叫“屏幕录制”。
+    static var screenRecording: String {
+        if SettingsCopy.isMacOS26OrLater { return "录屏与系统录音" }
+        return "屏幕录制"
+    }
     static let granted = "已允许"
     static let grant = "打开系统设置"
 
     static let launchAtLogin = "登录时自动启动"
-    static let launchNeedsApproval = "要在系统设置的“登录项”里允许"
+    /// 页名和“系统设置”一致：macOS 26 叫“登录项与扩展”，更早的版本叫“登录项”。
+    static var launchNeedsApproval: String {
+        if SettingsCopy.isMacOS26OrLater { return "请在“系统设置”的“登录项与扩展”中允许" }
+        return "请在“系统设置”的“登录项”中允许"
+    }
     static let launchUnavailable = "这个版本不能在登录时启动"
     static let launchFailed = "无法修改登录时自动启动"
 
     /// 和系统设置“键盘快捷键”一页顶上的那句说明一样。
-    static let shortcutHint = "若要更改快捷键，请连按它，然后按下新的组合键。"
+    static let shortcutHint = "若要更改快捷键，请连按组合键，然后键入新键。"
     static let numbered = "按编号展开"
     static let resetShortcuts = "恢复默认"
     static let noShortcut = "无"
-    static let recording = "按下快捷键"
-    /// “按编号展开”只换修饰键：按住修饰键，再按任意一个数字。
-    static let recordingModifiers = "按住修饰键，再按一个数字"
+    static let recording = "现在按下按键"
+    /// “按编号展开”只换修饰键：按住修饰键再按一个键，界面上提示按数字。
+    static let recordingModifiers = "按住修饰键并按下数字键"
     static let needsControlOrOption = "组合里要有 Control 或 Option"
     static let reservedBySystem = "系统已占用这个组合"
     static func usedBy(_ name: String) -> String { "已用于：\(name)" }
@@ -250,7 +261,7 @@ private struct ShortcutSettings: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        // 照系统设置的“键盘快捷键”：每行一个勾选框、名字和右边的组合，连按组合就改。
+        // 照系统设置的“键盘快捷键”：每行一个复选框、名字和右边的组合，连按组合就改。
         Section {
             ShortcutRow(model: model, shortcut: .toggleShade)
             ShortcutRow(model: model, shortcut: .arrange)
@@ -359,8 +370,8 @@ enum KeyCaps {
     }
 }
 
-/// 一行全局快捷键，照系统设置：勾选框、名字、右边的组合。连按组合开始录制，按下新的组合就换上，Esc 取消。
-/// 取消勾选时关掉这个快捷键，组合留着灰色显示，再勾上时用回它；没设过组合时勾上就开始录制。
+/// 一行全局快捷键，照系统设置：复选框、名字、右边的组合。连按组合开始录制，按下新的组合就换上，Esc 取消。
+/// 取消勾选时关掉这个快捷键，组合显示为灰色，再勾选时恢复使用；没设过组合时勾上就开始录制。
 /// 录制时只在这一行接收按键，不装全局监听。
 @MainActor
 private struct ShortcutRow: View {
@@ -451,7 +462,7 @@ private struct ShortcutRow: View {
     }
 }
 
-/// “按编号展开”一行：勾选框、名字、右边的修饰键加“1–9”。连按右边的组合，按住新的修饰键再按一个数字，
+/// “按编号展开”一行：复选框、名字、右边的修饰键加“1–9”。连按右边的组合，按住新的修饰键再按一个数字，
 /// 换掉这一组的修饰键；数字 1 至 9 跟着菜单里的顺序，不能改。规则和别的快捷键一样（GlobalShortcutSettings.numberedVerdict）。
 @MainActor
 private struct NumberedShortcutRow: View {

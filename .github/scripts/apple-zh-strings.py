@@ -1,4 +1,4 @@
-"""Collect the Simplified Chinese interface text of macOS's own apps and System Settings panes.
+"""Collect the Simplified Chinese interface text of macOS apps and System Settings panes (the copy reference keeps the panes and Finder).
 
 Usage: python3 apple-zh-strings.py <output.tsv>  (run by the Test runners job in .github/workflows/ci.yml)
 Writes one line per string: bundle<TAB>table<TAB>key<TAB>text. Reads .strings, .stringsdict and
