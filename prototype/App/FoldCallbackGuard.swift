@@ -33,17 +33,17 @@ extension AppDelegate {
     }
 
     /// 只问还是不是同一次收起，不看时间和呈现编号。给过期的收起验证收尾用（见 resolveExpiredFoldVerification），
-    /// 也给用户叫回应用程序以后的复查用（见 foldRevealIsSameFold）。
+    /// 也给用户唤回应用程序以后的复查用（见 foldRevealIsSameFold）。
     func foldCallbackIsSameFold(_ expected: FoldCallbackStamp) -> Bool {
         guard let state = shaded[expected.window], state.sourceWindowID == expected.window,
               state.lifecycleStage == .folded else { return false }
         return expected.sameFold(as: foldCallbackStamp(id: expected.window, state: state))
     }
 
-    /// 用户把收起时隐藏的应用程序叫回来以后，复查和重试用的核对：只问还是不是同一次收起，不看时间和呈现编号。
-    /// 叫回来常常伴随切桌面（Command-Tab 到窗口在别的桌面上的应用程序，系统切过去），复查最长要等两秒左右；
-    /// 按 foldCallbackIsCurrent 核对，切了桌面或等久了就丢掉，卷帘条要盖到定期核对才撤。展开之前还会重新读应用程序是否隐藏。
-    /// 丢掉时记一行日志。
+    /// 用户把收起时隐藏的应用程序唤回以后，复查和重试用的核对：只问还是不是同一次收起，不看时间和呈现编号。
+    /// 唤回常常伴随切桌面（窗口在别的桌面上时，按 Command-Tab 切到这个应用程序，系统会切过去），复查最长要等两秒左右。
+    /// 如果按 foldCallbackIsCurrent 核对，切了桌面或超过 2 秒就不再复查，卷帘条要等定时核对才撤。展开之前还会重新读应用程序是否隐藏。
+    /// 不再复查时记一行日志。
     func foldRevealIsSameFold(_ expected: FoldCallbackStamp, step: String) -> Bool {
         let same = foldCallbackIsSameFold(expected)
         if !same { wlog("reveal: \(step) dropped; no longer the same fold id=\(expected.window)") }

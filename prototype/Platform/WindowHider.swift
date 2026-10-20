@@ -150,8 +150,8 @@ final class WindowHider: @unchecked Sendable {
         return .minimized
     }
 
-    /// 先移到屏幕外的两种策略也守 fallbackHide 里的规矩：当前桌面上没有窗口能接手焦点、原窗口又是应用程序唯一的窗口时
-    /// 直接最小化。移到屏幕外以后应用程序仍在前台，键盘输入落进看不见的窗口，点程序坞图标也不会让它回来。
+    /// 先移到屏幕外的两种策略也照 fallbackHide 的做法：当前桌面上没有窗口能接手焦点、原窗口又是应用程序唯一的窗口时
+    /// 直接最小化。移到屏幕外以后应用程序仍在前台，键盘输入发到看不见的窗口，点程序坞图标也不会让它回来。
     /// 不是这种情况时返回 nil，照策略往下试。
     private func minimizeWithoutFocusHeir(_ request: HideRequest) -> HideMethod? {
         guard request.noFocusHeir else { return nil }

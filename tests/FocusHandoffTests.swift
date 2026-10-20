@@ -163,10 +163,11 @@ struct FocusHandoffTests {
             t.expect(!control.focused.contains(2), "焦点没有给窗口 2")
         }
 
-        t.section("F4", "别的应用程序已被收起、停在屏幕角落的窗口：不交给它，也不激活那个应用程序（场景 A37 的跨应用程序情形）")
+        t.section("F4", "别的应用程序已收起、停在屏幕角落的窗口：不交给它，也不激活那个应用程序（场景 A37 的跨应用程序情形）")
         do {
-            // 访达的窗口收起后停在屏幕角落，还露出 1 像素，算在屏幕上、范围仍是整扇窗口。交给它、激活访达，
-            // 访达到前台时它的当前窗口正是这扇，WindowShade 就把它展开了（unshadeParkedWindowOnActivation）。
+            // 访达的窗口收起后停在屏幕角落，还露出 1 像素，仍算在屏幕上，窗口列表里的范围也仍是整扇窗口的大小，
+            // 不会被当成过小的窗口跳过。交给它、激活访达，访达到前台时它的当前窗口正是这扇，
+            // WindowShade 会把它展开（unshadeParkedWindowOnActivation）。
             let control = FakeFocusControl()
             control.appWindows[appPID] = [original]
             let parkedFrame = CGRect(x: 1439, y: 899, width: 600, height: 400)

@@ -53,7 +53,7 @@ extension AppDelegate {
         guard let installed = shaded[id] else { return }
         let expected = foldCallbackStamp(id: id, state: installed)
         // 每一步都按 foldVerificationIsCurrent 核对，不看呈现编号：途中切了桌面（最小化本身就可能让系统切桌面）
-        // 也照常等到第二次读，不提前读、读到“还没藏好”就回滚。
+        // 也照常等到第二次再读；不会因此提前读，也不会因为读到“还没藏好”就回滚。
         FoldVerifier(
             schedule: { delay, action in runOnMainQueue(after: delay, action) },
             isCurrent: { [weak self] in

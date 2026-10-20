@@ -169,8 +169,8 @@ struct WindowHiderTests {
 
         t.section("R2", "先移到屏幕外的策略（Safari、Codex）也一样：没有窗口能接手焦点、只有这一扇窗口时最小化，不移到屏幕外")
         do {
-            // 移到屏幕外以后应用程序仍在前台，键盘输入落进看不见的窗口，点程序坞图标也不会让它回来
-            // （没有录屏权限、外观改为简化标题栏时，焦点不会先交给卷帘条，每次都走到这里）。
+            // 移到屏幕外以后应用程序仍在前台，键盘输入发到看不见的窗口，点程序坞图标也不会让它回来
+            //（“收起后显示”不是原标题栏时，例如没有屏幕录制权限，焦点不会先交给卷帘条，每次都会走到这里）。
             for policy in [ShadePolicy.offscreenThenFallback(allowAppHide: true), .offscreenForLivePreview] {
                 let control = FakeWindowControl(position: start, size: size, allowedOrigins: anywhere)
                 let hider = WindowHider(control: control)

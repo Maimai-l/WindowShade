@@ -451,8 +451,8 @@ extension AppDelegate {
                 completeFold(success: true, transaction: state.foldTransactionID)
             } else {
                 wlog("shade: hide not yet verified; deferring overlay reveal id=\(id) hide=\(hide)")
-                // 隐藏途中切了桌面或显示器变了（admissionCurrent 为假）也照样验证：窗口已经交给系统去藏，
-                // 不验证的话，藏好了卷帘条却不显示、等着这次收起的调用方被告知失败，没藏好也不回滚。
+                // 移开原窗口途中切了桌面或显示器有变化（admissionCurrent 为假），也照样验证：移开窗口的请求已经发出，
+                // 不验证的话，窗口藏好了卷帘条也不显示，等待这次收起的调用方会收到失败；没藏好也不会回滚。
                 scheduleFoldVerification(id: id)
             }
             hoverPreviewSuppressedUntil[id] = Date().addingTimeInterval(0.7)

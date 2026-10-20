@@ -112,7 +112,7 @@ struct FoldVerifierTests {
             t.expect(!installed.acceptsIgnoringPresentation(current: current, now: 12.5), "超过时限仍算过期，交给 onExpired")
             let another = FoldCallbackStamp(window: 7, pid: 9, transaction: UUID(), hide: "minimized",
                                             presentation: current.presentation, capturedAt: 10.1)
-            t.expect(!installed.acceptsIgnoringPresentation(current: another, now: 10.2), "已经是另一次收起：不算")
+            t.expect(!installed.acceptsIgnoringPresentation(current: another, now: 10.2), "已经是另一次收起：不算当前的")
         }
         t.finish()
     }

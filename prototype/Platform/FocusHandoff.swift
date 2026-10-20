@@ -121,7 +121,7 @@ struct FocusHandoff: Sendable {
         }
 
         for info in onScreen {
-            // 别的应用程序已被收起、停在屏幕角落的窗口也跳过：交给它并激活那个应用程序，
+            // 别的应用程序已收起、停在屏幕角落的窗口也跳过：交给它并激活那个应用程序，
             // 它到前台时当前窗口正是停在角落的这扇，会被当成用户唤回而展开（场景 A37 的跨应用程序情形）。
             guard info.pid != request.pid, info.pid != request.selfPID,
                   info.layer == 0, info.alpha > 0,
