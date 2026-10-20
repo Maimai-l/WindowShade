@@ -975,7 +975,7 @@ let systemScenarios: [Scenario] = [
         guard let settings = await shadeSettingsWindow() else {
             h.result.violations.append("H01: the settings window did not open"); return
         }
-        for (name, key) in [("卷帘条置顶", "ShadeFloatingOnTop"), ("看一眼", "GlanceEnabled")] {
+        for (name, key) in [("卷帘条置顶", "ShadeFloatingOnTop"), ("指针停在卷帘条上时显示窗口", "GlanceEnabled")] {
             let before = readDefault(key)
             guard let element = toggle(settings, name) else {
                 h.result.violations.append("H01: no control named \(name)"); continue

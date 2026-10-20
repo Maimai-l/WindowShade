@@ -74,7 +74,7 @@ struct SettingsNavigationTests {
       precondition(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "Missing SF Symbol: \(name)")
     }
 
-    // 文案（docs/copy-guide.md 第 7 条）：不用字符画符号，设置里不写说明句，不写进度旁白和实现用语。
+    // 文案（docs/copy-guide.md）：按键组合由 KeyCaps 画，文案里不写字符画符号；设置里不写说明句，不写进度旁白和实现用语。
     let glyphs = CharacterSet(charactersIn: "✓✔●○•·⌃⌥⇧⌘←→↑↓↩⇥⌫⌦…")
     for text in SettingsCopy.all + WelcomeCopy.all {
       precondition(text.rangeOfCharacter(from: glyphs) == nil, "Use SF Symbols instead of glyph characters: \(text)")
@@ -83,9 +83,9 @@ struct SettingsNavigationTests {
     for text in SettingsCopy.all where text != SettingsCopy.shortcutHint {
       precondition(!text.hasSuffix("。"), "Settings show no explanatory sentences: \(text)")
     }
-    // 开关下面的小字只说会发生什么，不写“不……”（docs/copy-guide.md 第 8 条；用户 2026-10-20 指出
-    // “有新版本时提示，不自动安装”）。
-    for text in SettingsCopy.notes {
+    // 小字里不写“不……”（docs/copy-guide.md 规则 2；用户 2026-10-20 指出“有新版本时提示，不自动安装”）。
+    // “这个版本不能在登录时启动”是出问题时的说明，不是说明不会发生什么，不算。
+    for text in SettingsCopy.notes where text != SettingsCopy.launchUnavailable {
       precondition(!text.contains("不"), "A note says what happens, not what does not: \(text)")
     }
 

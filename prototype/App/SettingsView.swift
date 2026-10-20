@@ -7,8 +7,8 @@ import SwiftUI
 
 enum SettingsCopy {
     static let doubleClick = "双击标题栏收起窗口"
-    static let glance = "看一眼"
-    static let glanceNote = "指针停在卷帘条上时显示窗口"
+    /// “看一眼”这个功能的开关：名字直接说它做什么，不另加小字（docs/copy-guide.md 规则 1）。
+    static let glance = "指针停在卷帘条上时显示窗口"
 
     static let appearance = "外观"
     static let appearanceMode = "收起后显示"
@@ -26,9 +26,7 @@ enum SettingsCopy {
 
     static let permissions = "权限"
     static let accessibility = "辅助功能"
-    static let accessibilityNote = "找到、移动、收起和展开窗口"
     static let screenRecording = "屏幕录制"
-    static let screenRecordingNote = "原标题栏和看一眼要用窗口画面"
     static let granted = "已允许"
     static let grant = "打开系统设置"
 
@@ -51,14 +49,14 @@ enum SettingsCopy {
     static let diagnostics = "诊断日志"
     static let open = "打开"
 
-    /// 测试用：开关和授权行下面那一行小字。只说会发生什么，不写“不……”。
-    static var notes: [String] { [glanceNote, accessibilityNote, screenRecordingNote] }
+    /// 测试用：设置里可能出现的小字，只有随系统设置变化的状态和出问题时的办法（docs/copy-guide.md 规则 1、2）。
+    static var notes: [String] { [launchNeedsApproval, launchUnavailable, launchFailed, "三击标题栏会缩放窗口", "三击标题栏会最小化窗口"] }
 
     /// 测试用：设置窗口里出现的全部固定文案。
     static var all: [String] {
-        [doubleClick, glance, glanceNote, appearance, appearanceMode, floating,
+        [doubleClick, glance, appearance, appearanceMode, floating,
          stripTranslucency, thumbnailTranslucency, sound, playSound, foldSound, unfoldSound,
-         permissions, accessibility, accessibilityNote, screenRecording, screenRecordingNote, granted, grant,
+         permissions, accessibility, screenRecording, granted, grant,
          launchAtLogin, launchNeedsApproval, launchUnavailable, launchFailed,
          shortcutHint, numbered, resetShortcuts,
          noShortcut, recording, needsControlOrOption, reservedBySystem, usedBy(""),
@@ -203,10 +201,7 @@ private struct ShadeSettings: View {
                 Text(SettingsCopy.doubleClick)
                 if let note = model.tripleClickNote { Text(note) }
             }
-            Toggle(isOn: $model.glance) {
-                Text(SettingsCopy.glance)
-                Text(SettingsCopy.glanceNote)
-            }
+            Toggle(SettingsCopy.glance, isOn: $model.glance)
         }
         Section(SettingsCopy.appearance) {
             Picker(SettingsCopy.appearanceMode, selection: $model.appearance) {
@@ -330,14 +325,12 @@ struct PermissionRows: View {
     @ObservedObject var status: PermissionStatus
 
     var body: some View {
-        row(SettingsCopy.accessibility, SettingsCopy.accessibilityNote,
-            granted: status.accessibility, open: openAccessibilityPrivacySettings)
-        row(SettingsCopy.screenRecording, SettingsCopy.screenRecordingNote,
-            granted: status.screenRecording, open: openScreenRecordingPrivacySettings)
+        row(SettingsCopy.accessibility, granted: status.accessibility, open: openAccessibilityPrivacySettings)
+        row(SettingsCopy.screenRecording, granted: status.screenRecording, open: openScreenRecordingPrivacySettings)
     }
 
-    private func row(_ title: String, _ note: String, granted: Bool, open: @escaping () -> Void) -> some View {
-        LabeledContent {
+    private func row(_ title: String, granted: Bool, open: @escaping () -> Void) -> some View {
+        LabeledContent(title) {
             if granted {
                 Label(SettingsCopy.granted, systemImage: "checkmark.circle.fill")
                     .labelStyle(GrantedLabelStyle())
@@ -345,9 +338,6 @@ struct PermissionRows: View {
                 Button(SettingsCopy.grant, action: open)
                     .accessibilityLabel(title + "，" + SettingsCopy.grant)
             }
-        } label: {
-            Text(title)
-            Text(note)
         }
     }
 }

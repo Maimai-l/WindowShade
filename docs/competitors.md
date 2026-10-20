@@ -1,6 +1,6 @@
 # 竞品调研：DockDoor / DockMate / Swish / WindowMizer
 
-更新于 2026-09-29。Wins 单独写在 [竞品调研：Wins](competitive-analysis.md)。这一份补上 Aaron 9/27 深夜点名的另外四家，以及我们对应要补的缺口。
+更新于 2026-09-29。Wins 单独写在 [竞品调研：Wins](competitive-analysis.md)。这一份补上 9/27 加进来的另外四家，以及我们对应要补的缺口。
 
 功能清单只取各家自己的页面、仓库和商店页，没有下载试用；取不到一手来源的照写“取不到”，不靠二手描述补。
 

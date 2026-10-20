@@ -294,7 +294,7 @@ cd prototype
 
 ### 更新签名的密钥
 
-- EdDSA 私钥只在 Aaron 的登录钥匙串里（账户名 `windowshade`），另有一份加密的离线备份，永不进仓库、不导出到别处。
+- 现在的 `SUPublicEDKey` 是上游仓库的公钥，对应的 EdDSA 私钥在上游维护者那里，这个仓库没有。发布更新之前，要用 Sparkle 的 `generate_keys` 生成自己的密钥对，换掉下面的公钥和 `build.sh` 的 `EXPECTED_ED_KEY`。私钥只放在发布者的钥匙串里，不进仓库。
   `sign_update` 从钥匙串读它；Sparkle 的命令行工具在 Sparkle 2.10.0 发布包的 `bin/` 里（`sign_update`、`generate_appcast`）。
 - 公钥 `D/MZytH+oxawqKQsskoXBdwbvoPentrqfaj7Tj2pnkw=` 写在 `prototype/Info.plist` 的 `SUPublicEDKey`，`build.sh` 的 `EXPECTED_ED_KEY`
   也记了一份，`--stage` 时比对。

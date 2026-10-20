@@ -305,7 +305,7 @@ IOKit 在 release 时过释放——`"Invalid dispatch state" ← IOHIDManagerEx
 103.1（判“盖子开着”→ 停效果），桌面效果 3 秒里每 0.3–0.7 秒起停一次，屏幕上就是一层反复出现的模糊倾斜。
 现在精细格式的机器上，推送角度变了才立刻做一次精细读并交出去，交给下游的永远是同一种刻度；
 盖子不动时只剩 1Hz 看门狗那一读（约 0.09% 单核）。同格式的机器（推送本身就是整度、feature 读也是整度）照旧直接用推送。
-修后同一操作再测：开合几次，效果每次只起停一次，Aaron 目测“不抖了，也没闪”。
+修后同一操作再测：开合几次，效果每次只起停一次，目测不抖了，也没闪。
 另：同一台机器上 `LidReport.detect` 有时判精细、有时判整度（第一次精细读失败就退回整度），这是老行为，两种情况现在都一致。
 
 **22. 定时器间隔没变就别重排。**（功能已删除，只作记录）
@@ -317,7 +317,7 @@ IOKit 在 release 时过释放——`"Invalid dispatch state" ← IOHIDManagerEx
 **观察（未改）：内建屏熄灭那一下的主线程等待。**（功能已删除，只作记录）合盖到内建屏熄灭时，三次都有一次 0.3–0.6 秒的主线程卡顿，
 每次停在不同的 WindowServer 调用上：`MTKView.currentDrawable`（还在往正在熄灭的屏画最后一帧，347/308ms）、
 `orderOut` 里的 `_updateWMWindowPresentationMode`（444ms）、屏幕参数变化回调里的 `isOnActiveSpace`（482ms）。
-这是 WindowServer 重排显示器期间任何同步调用都会等，不是单点 bug；那一刻内建屏已黑，在外接屏上 Aaron 没有察觉到停顿，暂不处理。
+这是 WindowServer 重排显示器期间任何同步调用都会等，不是单点 bug；那一刻内建屏已黑，在外接屏上察觉不到停顿，暂不处理。
 
 ## 四、两次“凭直觉的优化”反而变慢
 
@@ -427,7 +427,7 @@ let hideVerifiedNow = hideTookEffect(  必须出现在  didVerifyFold(  之前
 
 （功能已删除，只作记录）
 
-**测量**（Aaron 日常用的 build 16，他正在用电脑，`top -l 31 -s 1 -stats cpu,idlew,power`）：CPU 平均 2.16%，
+**测量**（日常用的 build 16，电脑正在使用，`top -l 31 -s 1 -stats cpu,idlew,power`）：CPU 平均 2.16%，
 **空闲唤醒约 4549 次/秒**，物理占用 140 MB。5 秒 `sample`：主线程几乎都在等事件；`com.windowshade.activities.sources`
 队列占 86 毫秒（约一个核的 1.7%），全在 `NotchActivitySources.poll()` 里读 CoreAudio。
 **没人碰电脑时（空闲 36 秒起量 30 秒）一样：CPU 3.31%、空闲唤醒约 4551 次/秒**，所以唤醒不是输入带来的。10 秒 `sample`
