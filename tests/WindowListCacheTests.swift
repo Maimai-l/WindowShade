@@ -136,6 +136,27 @@ struct WindowListCacheTests {
                      "the Dock and transparent windows are skipped")
         precondition(ordinaryWindowOwner(at: CGPoint(x: 1000, y: 700), in: [dock, probeWindow, textEdit]) == nil,
                      "no ordinary window under the point")
-        print("PASS: WindowListCache — 12 concurrent callers, one refresh, independent kinds, TTL, indexes, bounded wait, live order")
+
+        // 双击标题栏的预过滤只看点击所在的那扇窗口（最前面包含这个点的普通窗口）。
+        // 缺陷回归（2026-10-20 代码审查）：浏览器铺满屏幕，后面一扇访达窗口的顶部在点下面；
+        // 在浏览器内容区里双击选词，也被当成可能的标题栏双击，去问浏览器做辅助功能命中测试，全系统的输入等着它。
+        let browser = placed(50, 50, CGRect(x: 0, y: 25, width: 1440, height: 875))
+        let finderBehind = placed(51, 51, CGRect(x: 100, y: 200, width: 800, height: 500))
+        let ownPID: pid_t = 99
+        precondition(!titlebarBandMayContain(CGPoint(x: 300, y: 450), in: [browser, finderBehind], ownPID: ownPID),
+                     "a double click in the front window's content is not near a title bar, whatever lies behind it")
+        precondition(titlebarBandMayContain(CGPoint(x: 300, y: 40), in: [browser, finderBehind], ownPID: ownPID),
+                     "a double click near the top of the front window may be on its title bar")
+        precondition(titlebarBandMayContain(CGPoint(x: 300, y: 450), in: [dock, finderBehind, browser], ownPID: ownPID),
+                     "the Dock is skipped; the window the click lands on decides")
+        // WindowShade 自己的窗口（卷帘条的投影等）不挡后面的窗口；点在它的顶部带里照样算。
+        let ownShadow = placed(60, ownPID, CGRect(x: 0, y: 25, width: 1440, height: 875))
+        precondition(!titlebarBandMayContain(CGPoint(x: 300, y: 450), in: [ownShadow, browser, finderBehind], ownPID: ownPID),
+                     "WindowShade's own window does not decide for the window behind it")
+        precondition(titlebarBandMayContain(CGPoint(x: 300, y: 40), in: [ownShadow, browser], ownPID: ownPID),
+                     "a double click near the top of WindowShade's own window may be on its title bar")
+        precondition(!titlebarBandMayContain(CGPoint(x: 300, y: 40), in: [dock], ownPID: ownPID),
+                     "no ordinary window under the point: not a title bar")
+        print("PASS: WindowListCache — 12 concurrent callers, one refresh, independent kinds, TTL, indexes, bounded wait, live order, title-bar band")
     }
 }
