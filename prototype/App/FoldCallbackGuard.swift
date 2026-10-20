@@ -24,6 +24,14 @@ extension AppDelegate {
             maximumAge: maximumAge)
     }
 
+    /// 收起验证每一步的核对：同一次收起、没超过时限，不看呈现编号（见 FoldCallbackStamp.acceptsIgnoringPresentation）。
+    func foldVerificationIsCurrent(_ expected: FoldCallbackStamp) -> Bool {
+        guard let state = shaded[expected.window], state.sourceWindowID == expected.window,
+              state.lifecycleStage == .folded else { return false }
+        let current = foldCallbackStamp(id: expected.window, state: state)
+        return expected.acceptsIgnoringPresentation(current: current, now: ProcessInfo.processInfo.systemUptime)
+    }
+
     /// 只问还是不是同一次收起，不看时间和呈现编号。给过期的收起验证收尾用（见 resolveExpiredFoldVerification）。
     func foldCallbackIsSameFold(_ expected: FoldCallbackStamp) -> Bool {
         guard let state = shaded[expected.window], state.sourceWindowID == expected.window,

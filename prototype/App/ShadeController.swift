@@ -451,12 +451,9 @@ extension AppDelegate {
                 completeFold(success: true, transaction: state.foldTransactionID)
             } else {
                 wlog("shade: hide not yet verified; deferring overlay reveal id=\(id) hide=\(hide)")
-                if admissionCurrent() { scheduleFoldVerification(id: id) }
-                else {
-                    MainActor.assumeIsolated {
-                        settleFoldWaiters(id: id, transaction: transactionID, success: false)
-                    }
-                }
+                // 隐藏途中切了桌面或显示器变了（admissionCurrent 为假）也照样验证：窗口已经交给系统去藏，
+                // 不验证的话，藏好了卷帘条却不显示、等着这次收起的调用方被告知失败，没藏好也不回滚。
+                scheduleFoldVerification(id: id)
             }
             hoverPreviewSuppressedUntil[id] = Date().addingTimeInterval(0.7)
             if options.rebuildMenuAfterInstall {

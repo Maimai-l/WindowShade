@@ -52,37 +52,39 @@ extension AppDelegate {
     func scheduleFoldVerification(id: CGWindowID) {
         guard let installed = shaded[id] else { return }
         let expected = foldCallbackStamp(id: id, state: installed)
+        // 每一步都按 foldVerificationIsCurrent 核对，不看呈现编号：途中切了桌面（最小化本身就可能让系统切桌面）
+        // 也照常等到第二次读，不提前读、读到“还没藏好”就回滚。
         FoldVerifier(
             schedule: { delay, action in runOnMainQueue(after: delay, action) },
             isCurrent: { [weak self] in
                 guard let self else { return false }
-                let current = self.foldCallbackIsCurrent(expected)
+                let current = self.foldVerificationIsCurrent(expected)
                 if !current { wlog("shade: hide verification dropped as stale id=\(id)") }
                 return current
             },
             observation: { [weak self] in
-                guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return .unknown }
+                guard let self, self.foldVerificationIsCurrent(expected), let state = self.shaded[id] else { return .unknown }
                 return self.observeFoldHide(state.hide, win: state.element, pid: state.pid, id: id)
             },
             salvage: { [weak self] in
-                guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id],
+                guard let self, self.foldVerificationIsCurrent(expected), let state = self.shaded[id],
                       state.hide == .minimized, windowID(of: state.element) == id else { return false }
                 var pid: pid_t = 0
                 guard AXUIElementGetPid(state.element, &pid) == .success, pid == state.pid,
-                      self.foldCallbackIsCurrent(expected) else { return false }
+                      self.foldVerificationIsCurrent(expected) else { return false }
                 // 只重试同一种方式。从隐藏、移到屏幕外、透明改成最小化，就要为两次改动都留恢复记录。
                 setAXMinimized(state.element, true)
                 return true
             },
             salvagedObservation: { [weak self] in
-                guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return .unknown }
+                guard let self, self.foldVerificationIsCurrent(expected), let state = self.shaded[id] else { return .unknown }
                 return self.observeFoldHide(.minimized, win: state.element, pid: state.pid, id: id)
             },
             onExpired: { [weak self] in
                 self?.resolveExpiredFoldVerification(id: id, expected: expected)
             },
             result: { [weak self] result in
-                guard let self, self.foldCallbackIsCurrent(expected), let state = self.shaded[id] else { return }
+                guard let self, self.foldVerificationIsCurrent(expected), let state = self.shaded[id] else { return }
                 wlog("shade: hide verification id=\(id) hide=\(state.hide) result=\(result)")
                 switch result {
                 case .hidden:
