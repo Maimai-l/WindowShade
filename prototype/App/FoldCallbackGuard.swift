@@ -92,10 +92,10 @@ extension AppDelegate {
         settleFoldWaiters(id: id, transaction: state.foldTransactionID, success: false)
         if let overlay = state.overlay,
            enforceOverlaySpaceInvariant(id: id, state: state, reason: "hide-unconfirmed") {
-            overlay.contentView?.toolTip = "窗口可能未收起，双击展开"
+            overlay.contentView?.toolTip = "窗口可能没有收起，双击展开"
             revealPreparedOverlay(overlay)
         }
-        quietNotice("窗口可能未收起，双击展开", log: "shade: observation unknown id=\(id); recovery retained")
+        quietNotice("窗口可能没有收起，双击展开", log: "shade: observation unknown id=\(id); recovery retained")
     }
 
     /// AX 观察器装在主 run loop 上，C 回调会核对这一点；

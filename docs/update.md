@@ -9,7 +9,7 @@ WindowShade 使用 Sparkle 2.10.0 的标准更新流程和标准界面：检查�
 | 位置 | 内容 |
 |---|---|
 | `prototype/App/Updater.swift` | `UpdaterController`：创建 `SPUStandardUpdaterController`，提供菜单项和自动检查开关；`UpdateCopy`：界面文字 |
-| `prototype/App/SettingsView.swift` 中的 `Section(UpdateCopy.settingsGroup)` | 设置窗口“权限与更新”页的“更新”一组 |
+| `prototype/App/SettingsView.swift` 中的 `Section(UpdateCopy.settingsGroup)` | 设置窗口“通用”页的“更新”一组 |
 | `prototype/App/MenuBarController.swift` | 菜单栏菜单中按住 ⌥ 显示的“检查更新…” |
 | `prototype/Info.plist` | `SU*` 设置键和公钥 |
 | `prototype/Vendor/Sparkle.framework` | Sparkle 2.10.0，已删除 XPCServices |
@@ -41,7 +41,7 @@ WindowShade 使用 Sparkle 2.10.0 的标准更新流程和标准界面：检查�
 ## 用户看到的界面
 
 - 菜单栏菜单：按住 ⌥ 时显示“检查更新…”。
-- 设置窗口“权限与更新”页，“更新”一组：“自动检查更新”开关（不带说明），“当前版本 x.y.z”和“检查更新”按钮。
+- 设置窗口“通用”页，“更新”一组：“自动检查更新”开关（不带说明），“当前版本 x.y.z”和“检查更新”按钮。
 - 发现新版本、下载、安装、出错时的窗口都是 Sparkle 的标准窗口，使用 Sparkle 自带的简体中文。
 
 ## 检查时发出的网络请求

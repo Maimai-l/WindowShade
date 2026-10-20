@@ -292,7 +292,8 @@ WWDC25 356、WWDC23 10158 和 HIG 是其他讲者或文档给的补充来源。�
 | 网格 | `rectangle.split.3x3` |
 | 调度中心 / 窗口浏览 | `rectangle.3.group` / `rectangle.on.rectangle` |
 | 快捷键 | `command` |
-| 权限与更新 | `lock.shield` |
+| 通用 | `gearshape` |
+| 权限 | `lock.shield` |
 | 高级 | `gearshape.2` |
 | 已授权 | `checkmark.circle.fill`（绿色） |
 | 按键 | `control` / `option` / `shift` / `command`；`arrow.left` 等方向键、`return`、`delete.left`、`delete.right`、`escape`、`arrow.right.to.line`（Tab）、`space` |

@@ -84,7 +84,7 @@ enum FoldRejection: Error, Equatable, Sendable {
 
     var notice: String {
         switch self {
-        case .offSpace: return "窗口不在当前桌面，不能收起"
+        case .offSpace: return "窗口在屏幕外，不能收起"
         case .fullScreen: return "全屏时不能收起"
         case .minimized: return "已最小化的窗口不能收起"
         case .hasSheet: return "请先关闭窗口上的对话框"

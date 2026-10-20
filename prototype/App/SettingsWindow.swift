@@ -24,14 +24,14 @@ enum WindowShadeSettingsSection: Int, CaseIterable {
     switch self {
     case .shade: return "通用"
     case .shortcuts: return "快捷键"
-    case .permissions: return "权限与更新"
+    case .permissions: return "权限"
     case .advanced: return "高级"
     }
   }
 
   var symbolName: String {
     switch self {
-    case .shade: return "rectangle.compress.vertical"
+    case .shade: return "gearshape"
     case .shortcuts: return "command"
     case .permissions: return "lock.shield"
     case .advanced: return "gearshape.2"

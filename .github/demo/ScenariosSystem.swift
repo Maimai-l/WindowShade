@@ -38,13 +38,13 @@ func windowShadeWindow(_ title: String) -> AXUIElement? {
     return (value as? [AXUIElement] ?? []).first { axString($0, kAXTitleAttribute as String).contains(title) }
 }
 
-/// 找到设置窗口（最多等 4 秒）并切到“卷帘”页，找不到时返回 nil。窗口标题是当前那一页的名字，不是“设置”。
+/// 找到设置窗口（最多等 4 秒）并切到“通用”页，找不到时返回 nil。窗口标题是当前那一页的名字，不是“设置”。
 func shadeSettingsWindow() async -> AXUIElement? {
-    let pages = ["通用", "快捷键", "权限与更新", "高级"]
+    let pages = ["通用", "快捷键", "权限", "高级"]
     var window: AXUIElement?
     guard await eventually(4, { window = pages.lazy.compactMap(windowShadeWindow).first; return window != nil }),
           let window else { return nil }
-    // 工具栏上的分页按钮：标题等于“卷帘”。不用 control()：它按“含有”匹配，可能先找到当前页里含“卷帘”的文字。
+    // 工具栏上的分页按钮：标题等于“通用”。不用 control()：它按“含有”匹配，可能先找到当前页里含“通用”的文字。
     if axString(window, kAXTitleAttribute as String) != "通用",
        let tab = findElement(window, maxDepth: 8, { axString($0, kAXTitleAttribute as String) == "通用" }) {
         AXUIElementPerformAction(tab, kAXPressAction as CFString)

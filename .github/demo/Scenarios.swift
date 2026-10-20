@@ -506,7 +506,7 @@ let baselineDefaults: [[String]] = [
     ["ShadeAppearanceMode", "-string", "nativeScreenshot"],
     ["ShadeFloatingOnTop", "-bool", "true"],
     ["ShadeOnboardingShown", "-bool", "true"],
-    // 设置窗口打开上次看的那一页；1 是“卷帘”页，H01、H02 要改的开关都在这一页
+    // 设置窗口打开上次看的那一页；1 是“通用”页，H01、H02 要改的开关都在这一页
     // （2026-10-17 本机运行：用户的 Mac 上次看的是“快捷键”页，H01、H02 没找到设置窗口）。
     ["WindowShade.Settings.LastViewedSection", "-integer", "1"],
     // 换回默认：按系统完整性保护的实际状态判断（S6-carry-sip、S6-carry-finder-sip 改过）。

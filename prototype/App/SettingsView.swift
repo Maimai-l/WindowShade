@@ -54,8 +54,8 @@ enum SettingsCopy {
     static let recording = "现在按下按键"
     /// “按编号展开”只换修饰键：按住修饰键再按一个键，界面上提示按数字。
     static let recordingModifiers = "按住修饰键并按下数字键"
-    static let needsControlOrOption = "必须包含 Control 或 Option"
-    static let reservedBySystem = "快捷键已被系统使用"
+    static let needsControlOrOption = "组合键必须包含 Control 或 Option"
+    static let reservedBySystem = "快捷键已被系统保留"
     static func usedBy(_ name: String) -> String { "已用于：\(name)" }
 
     static let welcomeWindow = "欢迎使用 WindowShade"
@@ -253,6 +253,21 @@ private struct ShadeSettings: View {
             soundPicker(SettingsCopy.foldSound, $model.foldSound)
             soundPicker(SettingsCopy.unfoldSound, $model.unfoldSound)
         }
+        // 和系统设置的“通用”一样，登录时打开和更新放在这一页。
+        Section {
+            Toggle(isOn: $model.launchAtLogin) {
+                Text(SettingsCopy.launchAtLogin)
+                if let note = model.launchNote { Text(note) }
+            }
+        }
+        Section(UpdateCopy.settingsGroup) {
+            Toggle(UpdateCopy.autoCheck, isOn: $model.autoCheck)
+                .disabled(!model.updaterAvailable)
+            LabeledContent(UpdateCopy.currentVersionRow(model.version)) {
+                Button(UpdateCopy.checkButton) { UpdaterController.shared.checkForUpdates(nil) }
+                    .disabled(!model.updaterAvailable)
+            }
+        }
     }
 
     private func soundPicker(_ title: String, _ selection: Binding<String>) -> some View {
@@ -296,20 +311,6 @@ private struct PermissionSettings: View {
     var body: some View {
         Section(SettingsCopy.permissions) {
             PermissionRows(status: model.permissions)
-        }
-        Section {
-            Toggle(isOn: $model.launchAtLogin) {
-                Text(SettingsCopy.launchAtLogin)
-                if let note = model.launchNote { Text(note) }
-            }
-        }
-        Section(UpdateCopy.settingsGroup) {
-            Toggle(UpdateCopy.autoCheck, isOn: $model.autoCheck)
-                .disabled(!model.updaterAvailable)
-            LabeledContent(UpdateCopy.currentVersionRow(model.version)) {
-                Button(UpdateCopy.checkButton) { UpdaterController.shared.checkForUpdates(nil) }
-                    .disabled(!model.updaterAvailable)
-            }
         }
     }
 }
