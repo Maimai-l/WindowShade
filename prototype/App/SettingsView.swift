@@ -46,8 +46,8 @@ enum SettingsCopy {
     static let launchUnavailable = "这个版本不能在登录时启动"
     static let launchFailed = "无法修改登录时自动启动"
 
-    /// 和系统设置“键盘快捷键”一页顶上的那句说明一样。
-    static let shortcutHint = "若要更改快捷键，请连按组合键，然后键入新键。"
+    /// 照系统设置“键盘快捷键”一页顶上的那句说明写，“连按”换成全产品通用的“双击”。
+    static let shortcutHint = "若要更改快捷键，请双击组合键，然后按下新的组合键。"
     static let numbered = "按编号展开"
     static let resetShortcuts = "恢复默认"
     static let noShortcut = "无"
@@ -261,7 +261,7 @@ private struct ShortcutSettings: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        // 照系统设置的“键盘快捷键”：每行一个复选框、名字和右边的组合，连按组合就改。
+        // 照系统设置的“键盘快捷键”：每行一个复选框、名字和右边的组合，双击组合就改。
         Section {
             ShortcutRow(model: model, shortcut: .toggleShade)
             ShortcutRow(model: model, shortcut: .arrange)
@@ -370,7 +370,7 @@ enum KeyCaps {
     }
 }
 
-/// 一行全局快捷键，照系统设置：复选框、名字、右边的组合。连按组合开始录制，按下新的组合就换上，Esc 取消。
+/// 一行全局快捷键，照系统设置：复选框、名字、右边的组合。双击组合开始录制，按下新的组合就换上，Esc 取消。
 /// 取消勾选时关掉这个快捷键，组合显示为灰色，再勾选时恢复使用；没设过组合时勾上就开始录制。
 /// 录制时只在这一行接收按键，不装全局监听。
 @MainActor
@@ -462,7 +462,7 @@ private struct ShortcutRow: View {
     }
 }
 
-/// “按编号展开”一行：复选框、名字、右边的修饰键加“1–9”。连按右边的组合，按住新的修饰键再按一个数字，
+/// “按编号展开”一行：复选框、名字、右边的修饰键加“1–9”。双击右边的组合，按住新的修饰键再按一个数字，
 /// 换掉这一组的修饰键；数字 1 至 9 跟着菜单里的顺序，不能改。规则和别的快捷键一样（GlobalShortcutSettings.numberedVerdict）。
 @MainActor
 private struct NumberedShortcutRow: View {

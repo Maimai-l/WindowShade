@@ -396,7 +396,7 @@ final class ShadeThumbnailView: NSView {
         return CACurrentMediaTime() - pendingEntrance.at < Self.entranceWindow
     }
 
-    /// 截图动画还在播放：这时的单击（连按三下的最后一下）不算展开。
+    /// 截图动画还在播放：这时的单击（三击的最后一下）不算展开。
     var isArriving: Bool { entranceFlying }
 
     /// 收起时记下：第一次亮出来时截图从哪里缩进来（窗口原来的外框，Cocoa 坐标）。
