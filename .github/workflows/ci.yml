@@ -80,3 +80,17 @@ jobs:
           name: settings-screenshots
           path: .build/appkit-tests/settings-shots
           if-no-files-found: ignore
+      # 系统自带 App 和“系统设置”各页的简体中文界面文字，供 docs/copy-guide.md 和语言审查对照（几秒钟）。
+      - name: Collect macOS Simplified Chinese interface text
+        if: always()
+        run: |
+          mkdir -p .build/apple-strings
+          python3 .github/scripts/apple-zh-strings.py .build/apple-strings/apple-zh-strings.tsv
+          gzip -9f .build/apple-strings/apple-zh-strings.tsv
+      - name: Upload macOS interface text
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-zh-strings
+          path: .build/apple-strings
+          if-no-files-found: ignore

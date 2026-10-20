@@ -1,6 +1,6 @@
 """Collect the Simplified Chinese interface text of macOS's own apps and System Settings panes.
 
-Usage: python3 apple-zh-strings.py <output.tsv>
+Usage: python3 apple-zh-strings.py <output.tsv>  (run by the Test runners job in .github/workflows/ci.yml)
 Writes one line per string: bundle<TAB>table<TAB>key<TAB>text. Reads .strings, .stringsdict and
 .loctable files; .loctable holds every language, and only the zh_CN / zh-Hans part is kept.
 The result is reference material for docs/copy-guide.md: our wording follows Apple's.
