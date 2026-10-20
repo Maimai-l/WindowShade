@@ -168,7 +168,7 @@ func windowLooksToolbarlessStandardTitleBar(_ win: AXUIElement,
 // 都要重复一批耗时的辅助功能调用（找工具栏、量红绿灯高度、深度 6 的控件扫描）。
 // 双击判定量出的命中高度另存一份（hitHeights），收起时的外形解析直接拿来用。
 // 窗口号、辅助功能元素、窗口尺寸任一变了就重新计算。
-// entries 只在持有 lock 时读写，可以从任意线程调用；收起时在后台队列解析。
+// entries、hitHeights 只在持有 lock 时读写，可以从任意线程调用；收起时在后台队列解析。
 // 自己的窗口要读 AppKit 的几何信息，由调用方先在主线程用 localChromeHeight(id:pid:) 取好再传进来。
 final class ChromeProfileCache: @unchecked Sendable {
     static let shared = ChromeProfileCache()
