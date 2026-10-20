@@ -41,6 +41,8 @@ enum SettingsCopy {
     static let resetShortcuts = "恢复默认"
     static let noShortcut = "无"
     static let recording = "按下快捷键"
+    /// “按编号展开”只换修饰键：按住修饰键，再按任意一个数字。
+    static let recordingModifiers = "按住修饰键，再按一个数字"
     static let needsControlOrOption = "组合里要有 Control 或 Option"
     static let reservedBySystem = "系统已占用这个组合"
     static func usedBy(_ name: String) -> String { "已用于：\(name)" }
@@ -59,7 +61,7 @@ enum SettingsCopy {
          permissions, accessibility, screenRecording, granted, grant,
          launchAtLogin, launchNeedsApproval, launchUnavailable, launchFailed,
          shortcutHint, numbered, resetShortcuts,
-         noShortcut, recording, needsControlOrOption, reservedBySystem, usedBy(""),
+         noShortcut, recording, recordingModifiers, needsControlOrOption, reservedBySystem, usedBy(""),
          welcomeWindow, diagnostics, open]
             + appearanceChoices.map { $0.title }
             + WindowShadeSettingsSection.allCases.map { $0.title }
@@ -99,6 +101,7 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var version = ""
     @Published private(set) var hotKeys: [GlobalShortcut: HotKey] = [:]
     @Published private(set) var shortcutsAreDefault = true
+    @Published private(set) var numberedModifiers = GlobalShortcutSettings.defaultNumberedModifiers
 
     @Published var doubleClick = true { didSet { apply { $0.setTitlebarDoubleClick(self.doubleClick) } } }
     @Published var glance = true { didSet { apply { $0.setGlanceEnabled(self.glance) } } }
@@ -139,6 +142,7 @@ final class SettingsModel: ObservableObject {
         for shortcut in GlobalShortcut.allCases { keys[shortcut] = GlobalShortcutSettings.hotKey(for: shortcut) }
         hotKeys = keys
         numbered = GlobalShortcutSettings.numberedExpandEnabled
+        numberedModifiers = GlobalShortcutSettings.numberedModifiers
         shortcutsAreDefault = GlobalShortcutSettings.isAllDefault
         guard let app else { return }
         doubleClick = app.titlebarDoubleClickEnabled
@@ -250,15 +254,7 @@ private struct ShortcutSettings: View {
         Section {
             ShortcutRow(model: model, shortcut: .toggleShade)
             ShortcutRow(model: model, shortcut: .arrange)
-            HStack(spacing: 10) {
-                Toggle(SettingsCopy.numbered, isOn: $model.numbered)
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-                Text(SettingsCopy.numbered)
-                Spacer()
-                Text("\(KeyCaps.text(HotKey.modifierCaps(GlobalShortcutSettings.numberedModifiers)))1–9")
-                    .foregroundStyle(model.numbered ? .primary : .secondary)
-            }
+            NumberedShortcutRow(model: model)
         } header: {
             Text(SettingsCopy.shortcutHint)
                 .font(.callout)
@@ -442,6 +438,75 @@ private struct ShortcutRow: View {
         recording = false
         switch verdict {
         case .accept(let hotKey): model.setShortcut(hotKey, for: shortcut)
+        case .needsControlOrOption: reject(SettingsCopy.needsControlOrOption)
+        case .reservedBySystem: reject(SettingsCopy.reservedBySystem)
+        case .usedBy(let name): reject(SettingsCopy.usedBy(name))
+        case .keepWaiting, .cancel: break
+        }
+    }
+
+    private func reject(_ text: String) {
+        shadeSounds.beep()
+        message = text
+    }
+}
+
+/// “按编号展开”一行：勾选框、名字、右边的修饰键加“1–9”。连按右边的组合，按住新的修饰键再按一个数字，
+/// 换掉这一组的修饰键；数字 1 至 9 跟着菜单里的顺序，不能改。规则和别的快捷键一样（GlobalShortcutSettings.numberedVerdict）。
+@MainActor
+private struct NumberedShortcutRow: View {
+    @ObservedObject var model: SettingsModel
+    @State private var recording = false
+    @State private var message: String?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Toggle(SettingsCopy.numbered, isOn: $model.numbered)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+            Text(SettingsCopy.numbered)
+            Spacer()
+            current
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    message = nil
+                    recording = true
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { recording = true }
+        }
+        .background(KeyCapture(isActive: $recording, onKey: capture))
+        .task(id: message) {
+            guard message != nil else { return }
+            try? await Task.sleep(for: .seconds(1.8))
+            message = nil
+        }
+    }
+
+    @ViewBuilder private var current: some View {
+        if recording {
+            Text(SettingsCopy.recordingModifiers).foregroundStyle(.secondary)
+        } else if let message {
+            Text(message).foregroundStyle(.secondary)
+        } else {
+            Text("\(KeyCaps.text(HotKey.modifierCaps(model.numberedModifiers)))1–9")
+                .foregroundStyle(model.numbered ? .primary : .secondary)
+                .accessibilityLabel(GlobalShortcutSettings.numberedDisplayName)
+        }
+    }
+
+    private func capture(_ event: NSEvent) {
+        var modifiers: UInt32 = 0
+        let flags = event.modifierFlags
+        if flags.contains(.command) { modifiers |= HotKey.commandMask }
+        if flags.contains(.option) { modifiers |= HotKey.optionMask }
+        if flags.contains(.control) { modifiers |= HotKey.controlMask }
+        if flags.contains(.shift) { modifiers |= HotKey.shiftMask }
+        let verdict = GlobalShortcutSettings.numberedVerdict(keyCode: event.keyCode, modifiers: modifiers)
+        if verdict == .keepWaiting { return }
+        recording = false
+        switch verdict {
+        case .accept(let chosen): model.perform { $0.setNumberedModifiers(chosen) }
         case .needsControlOrOption: reject(SettingsCopy.needsControlOrOption)
         case .reservedBySystem: reject(SettingsCopy.reservedBySystem)
         case .usedBy(let name): reject(SettingsCopy.usedBy(name))

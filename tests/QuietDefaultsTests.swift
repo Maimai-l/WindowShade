@@ -39,6 +39,7 @@ struct QuietDefaultsTests {
         hotKeyPolicy()
         menuKeyEquivalents()
         captureVerdicts()
+        numberedModifiers()
         print(failures == 0 ? "all quiet-defaults tests passed" : "\(failures) quiet-defaults test(s) FAILED")
         exit(failures == 0 ? 0 : 1)
     }
@@ -200,6 +201,36 @@ struct QuietDefaultsTests {
         expect(!HotKey.isModifierOnlyKeyCode(UInt16(kVK_ANSI_K)), "a real key can be recorded")
         expect(!HotKey.isReserved(hotKey(kVK_ANSI_C, cmdKey | controlKey)),
                "the app's own ⌃⌘ combinations can be re-recorded; clashes are checked per setting")
+    }
+
+    /// “按编号展开”可以换修饰键（用户 2026-10-20：原来固定 ⌃⌘，设置里显示得像能改，其实改不了）。
+    static func numberedModifiers() {
+        typealias Verdict = GlobalShortcutSettings.NumberedVerdict
+        func press(_ keyCode: Int, _ modifiers: Int) -> Verdict {
+            GlobalShortcutSettings.numberedVerdict(keyCode: UInt16(keyCode), modifiers: UInt32(modifiers))
+        }
+        withDefaults { _ in
+            expect(GlobalShortcutSettings.numberedModifiers == UInt32(controlKey | cmdKey), "the number keys start with Control-Command")
+            expect(press(kVK_Option, optionKey | cmdKey) == .keepWaiting, "pressing only modifiers keeps waiting")
+            expect(press(kVK_Escape, optionKey | cmdKey) == .cancel, "Esc cancels")
+            expect(press(kVK_ANSI_5, optionKey | cmdKey) == .accept(UInt32(optionKey | cmdKey)),
+                   "Option-Command plus any number key takes Option-Command")
+            expect(press(kVK_ANSI_5, cmdKey) == .needsControlOrOption, "Command alone is rejected like any shortcut")
+            GlobalShortcutSettings.setHotKey(HotKey(keyCode: UInt32(kVK_ANSI_3), modifiers: UInt32(optionKey | cmdKey)), for: .arrange)
+            expect(press(kVK_ANSI_1, optionKey | cmdKey) == .usedBy(GlobalShortcut.arrange.title),
+                   "a set that would take a recorded shortcut (⌥⌘3) names it")
+            GlobalShortcutSettings.setHotKey(nil, for: .arrange)
+            GlobalShortcutSettings.numberedModifiers = UInt32(optionKey | cmdKey)
+            expect(GlobalShortcutSettings.numberedModifiers == UInt32(optionKey | cmdKey) && !GlobalShortcutSettings.isAllDefault,
+                   "the chosen modifiers are kept and count as a change")
+            expect(GlobalShortcutSettings.numberedDisplayName == "Option-Command-1 至 9", "notices name the new set")
+            GlobalShortcutSettings.numberedExpandEnabled = true
+            expect(GlobalShortcutSettings.conflictName(for: HotKey(keyCode: UInt32(kVK_ANSI_2), modifiers: UInt32(optionKey | cmdKey)),
+                                                       excluding: .toggleShade) == "按编号展开",
+                   "another shortcut cannot take one of the new number keys")
+            GlobalShortcutSettings.resetAll()
+            expect(GlobalShortcutSettings.numberedModifiers == UInt32(controlKey | cmdKey), "恢复默认 brings back Control-Command")
+        }
     }
 
     /// 录制快捷键时每一种按法的结果（docs/test-catalog.md H03、H04）。

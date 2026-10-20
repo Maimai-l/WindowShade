@@ -167,6 +167,20 @@ extension AppDelegate {
         refreshPreferencesWindowIfOpen()
     }
 
+    /// 换“按编号展开”的修饰键；有一个数字注册不上（被别的应用占了）就换回原来的。
+    func setNumberedModifiers(_ modifiers: UInt32) {
+        let previous = GlobalShortcutSettings.numberedModifiers
+        guard modifiers != previous else { return }
+        GlobalShortcutSettings.numberedModifiers = modifiers
+        registerGlobalShortcuts()
+        if GlobalShortcutSettings.numberedExpandEnabled, unavailableHotKeyIDs.contains(where: { $0 >= 101 }) {
+            GlobalShortcutSettings.numberedModifiers = previous
+            registerGlobalShortcuts()
+        }
+        rebuildMenu()
+        refreshPreferencesWindowIfOpen()
+    }
+
     func resetShortcuts() {
         GlobalShortcutSettings.resetAll()
         registerGlobalShortcuts()

@@ -45,8 +45,25 @@ enum GlobalShortcut: String, CaseIterable {
 
 enum GlobalShortcutSettings {
     static let numberedExpandKey = "GlobalShortcut.numberedExpand"
-    /// Control-Command-1 至 9 这一组的修饰键：编号和菜单顺序绑定，不单独改键，只能整组开关。
-    static let numberedModifiers = UInt32(controlKey | cmdKey)
+    /// “按编号展开”这一组的修饰键：数字 1 至 9 和菜单顺序绑定，只能改修饰键、整组开关。
+    static let defaultNumberedModifiers = UInt32(controlKey | cmdKey)
+    static let numberedModifiersKey = "GlobalShortcut.numberedModifiers"
+    static var numberedModifiers: UInt32 {
+        get { (defaults.object(forKey: numberedModifiersKey) as? Int).map(UInt32.init) ?? defaultNumberedModifiers }
+        set {
+            if newValue == defaultNumberedModifiers { defaults.removeObject(forKey: numberedModifiersKey) }
+            else { defaults.set(Int(newValue), forKey: numberedModifiersKey) }
+        }
+    }
+    /// 菜单项上显示的修饰键（和 numberedModifiers 同一组）。
+    static var numberedMenuModifiers: NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if numberedModifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if numberedModifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if numberedModifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if numberedModifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        return flags
+    }
     static let numberedKeyCodes: [UInt32] = [
         kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
         kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9
@@ -106,12 +123,14 @@ enum GlobalShortcutSettings {
     static var isAllDefault: Bool {
         GlobalShortcut.allCases.allSatisfy { hotKey(for: $0) == defaultHotKey(for: $0) }
             && numberedExpandEnabled == numberedExpandDefault
+            && numberedModifiers == defaultNumberedModifiers
     }
 
     /// 恢复默认：新安装的全部清空；升级的回到原来的出厂组合（不会因为这一版不再预设就把升级用户的组合也清掉）。
     static func resetAll() {
         for shortcut in GlobalShortcut.allCases { setHotKey(defaultHotKey(for: shortcut), for: shortcut) }
         numberedExpandEnabled = numberedExpandDefault
+        numberedModifiers = defaultNumberedModifiers
     }
 
     /// 这个组合已经被本应用的哪个动作占用（`excluding` 是正在录制的那一个）。
@@ -152,8 +171,36 @@ enum GlobalShortcutSettings {
         hotKey(for: shortcut).map(HotKey.displayName(for:))
     }
 
-    /// 提示文字里这一组的名字。
-    static let numberedDisplayName = "Control-Command-1 至 9"
+    /// 提示文字里这一组的名字，例如“Control-Command-1 至 9”。
+    static var numberedDisplayName: String {
+        HotKey.displayName(for: HotKey(keyCode: UInt32(kVK_ANSI_1), modifiers: numberedModifiers)) + " 至 9"
+    }
+
+    /// 给“按编号展开”录修饰键：按住修饰键再按任意一个键，取这一组修饰键。规则和单个快捷键一样：
+    /// 要有 Control 或 Option，不能和系统或别的快捷键撞上（用 1 至 9 每一个都查一遍）。
+    enum NumberedVerdict: Equatable {
+        case keepWaiting
+        case cancel
+        case accept(UInt32)
+        case needsControlOrOption
+        case reservedBySystem
+        case usedBy(String)
+    }
+
+    static func numberedVerdict(keyCode: UInt16, modifiers: UInt32) -> NumberedVerdict {
+        if keyCode == UInt16(kVK_Escape) { return .cancel }
+        if HotKey.isModifierOnlyKeyCode(keyCode) { return .keepWaiting }
+        for digit in numberedKeyCodes {
+            let candidate = HotKey(keyCode: digit, modifiers: modifiers)
+            if HotKey.isReserved(candidate) {
+                return modifiers & (HotKey.controlMask | HotKey.optionMask) != 0 ? .reservedBySystem : .needsControlOrOption
+            }
+            for shortcut in GlobalShortcut.allCases where hotKey(for: shortcut) == candidate {
+                return .usedBy(shortcut.title)
+            }
+        }
+        return .accept(modifiers)
+    }
 
     /// 菜单项上显示的按键：只处理单个字符的键；功能键等显示不了的返回 nil，
     /// 快捷键本身照常生效。

@@ -76,7 +76,7 @@ extension AppDelegate {
     if !menuState.foldedWindows.isEmpty {
       statusMenu.addItem(.separator())
       statusMenu.addItem(.sectionHeader(title: "已收起的窗口"))
-      // 前 9 扇直接列出，带 ⌃⌘1…9；其余放进“更多”子菜单（动作和图标相同）。
+      // 前 9 扇直接列出，带“按编号展开”的组合；其余放进“更多”子菜单（动作和图标相同）。
       let sections = StandardMenu.splitFoldedWindows(menuState.foldedWindows)
       for (index, entry) in sections.inline.enumerated() {
         statusMenu.addItem(foldedWindowMenuItem(entry, index: index))
@@ -213,7 +213,7 @@ extension AppDelegate {
     item.keyEquivalentModifierMask = equivalent.modifiers
   }
 
-  /// 单个已收起窗口的菜单项（直接列出时带 ⌃⌘1…9，子菜单里不带快捷键）。
+  /// 单个已收起窗口的菜单项（直接列出时带“按编号展开”的组合，子菜单里不带快捷键）。
   private func foldedWindowMenuItem(_ entry: (CGWindowID, ShadeState),
                                     index: Int?) -> NSMenuItem {
     let (id, state) = entry
@@ -225,7 +225,7 @@ extension AppDelegate {
     let itemTitle = key.isEmpty ? title : "\(key)  \(title)"
     let item = NSMenuItem(title: itemTitle, action: #selector(unshadeFromMenu(_:)),
                           keyEquivalent: key)
-    item.keyEquivalentModifierMask = key.isEmpty ? [] : [.control, .command]
+    item.keyEquivalentModifierMask = key.isEmpty ? [] : GlobalShortcutSettings.numberedMenuModifiers
     item.target = self
     item.representedObject = NSNumber(value: id)
     item.image = windowMenuIcon(for: state.pid)
