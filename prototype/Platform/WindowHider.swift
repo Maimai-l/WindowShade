@@ -90,6 +90,7 @@ final class WindowHider: @unchecked Sendable {
         case .hiddenIfSingleWindowElseMinimized(let allowAppHide):
             return fallbackHide(request, allowAppHide: allowAppHide && request.appHideSafe)
         case .offscreenForLivePreview:
+            if let hide = minimizeWithoutFocusHeir(request) { return hide }
             for spot in offscreenSpots(request.position) {
                 control.setPosition(request.window, spot)
                 if let moved = control.position(request.window), !request.layout.isVisible(pos: moved, size: request.size) {
@@ -106,6 +107,7 @@ final class WindowHider: @unchecked Sendable {
                 control.log("    single-window app → prefer hide fallback（pid=\(pid)）")
                 return fallbackHide(request, allowAppHide: true)
             }
+            if let hide = minimizeWithoutFocusHeir(request) { return hide }
             if let hide = offscreenHide(request) { return hide }
             // 被系统限制回可见区。不记成“这个应用程序移不出去”：能不能移出屏幕取决于窗口大小、
             // 位置和显示器布局，下次仍先试移到屏幕外——它比最小化更接近“收起”。
@@ -145,6 +147,18 @@ final class WindowHider: @unchecked Sendable {
         if let hide = cornerParkingHide(request) { return hide }
         control.setMinimized(request.window, true)
         control.log("    fallback → minimized（pid=\(pid), allowAppHide=\(allowAppHide), currentWindows=\(counts.visible), windows=\(counts.total)）")
+        return .minimized
+    }
+
+    /// 先移到屏幕外的两种策略也守 fallbackHide 里的规矩：当前桌面上没有窗口能接手焦点、原窗口又是应用程序唯一的窗口时
+    /// 直接最小化。移到屏幕外以后应用程序仍在前台，键盘输入落进看不见的窗口，点程序坞图标也不会让它回来。
+    /// 不是这种情况时返回 nil，照策略往下试。
+    private func minimizeWithoutFocusHeir(_ request: HideRequest) -> HideMethod? {
+        guard request.noFocusHeir else { return nil }
+        let counts = control.windowCounts(pid: request.pid, layout: request.layout)
+        guard counts.total <= 1 else { return nil }
+        control.setMinimized(request.window, true)
+        control.log("    no window on this desktop takes focus → minimized before moving offscreen（pid=\(request.pid), windows=\(counts.total)）")
         return .minimized
     }
 
