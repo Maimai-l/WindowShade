@@ -2,6 +2,7 @@
 // 只看窗口位置在屏幕上不够：隐藏应用程序、最小化窗口的请求可能在 WindowShade 退出前发出、退出后才生效，
 // 这时窗口位置在屏幕上，也要放回来。
 // 依据：2026-10-17 CI 场景 L03（dd40ef5），kill -9 之后测试应用程序才隐藏，重新启动后应用程序一直隐藏着。
+// J6：收起时用 SkyLight 把窗口设成透明，窗口留在原处，只看位置会当作完好，透明度一直不改回来。
 // J5 测 WindowShade 运行期间的后台扫描：写回之前再核对一次记录和正在收起的窗口。依据：2026-10-17 CI 场景 A07（54f1aa1）。
 
 @main
@@ -26,6 +27,14 @@ struct PreparingIntentTests {
         suite.section("J4", "窗口在屏幕外：放回原处")
         suite.expect(preparingIntentOutcome(windowOnScreen: false, appHidden: false, minimized: false) == .moveBack,
                      "a window parked off screen is moved back")
+
+        suite.section("J6", "窗口在原处、没隐藏也没最小化，但已经被设成透明：把透明度改回来，不当作完好")
+        suite.expect(preparingIntentOutcome(windowOnScreen: true, appHidden: false, minimized: false,
+                                            transparent: true) == .restoreAlpha,
+                     "a window left transparent by an interrupted fold gets its alpha back")
+        suite.expect(preparingIntentOutcome(windowOnScreen: true, appHidden: false, minimized: false,
+                                            transparent: false) == .intact,
+                     "an opaque window on screen is still left alone")
 
         suite.section("J5", "扫描开始后记录已经删掉或窗口正在收起：写回时不再动它（A07）")
         suite.expect(rescueActionStillApplies(id: 7, liveJournalIDs: [7], inFlightIDs: []),

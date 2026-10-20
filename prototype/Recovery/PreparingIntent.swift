@@ -14,12 +14,16 @@ enum PreparingIntentOutcome: Equatable {
     case unminimize
     /// 窗口在屏幕外：放回原处。
     case moveBack
+    /// 窗口在原处，但已经被设成透明（收起时用 SkyLight 设透明度，还没来得及改记录）：把透明度改回来。
+    case restoreAlpha
 }
 
-func preparingIntentOutcome(windowOnScreen: Bool, appHidden: Bool, minimized: Bool) -> PreparingIntentOutcome {
+func preparingIntentOutcome(windowOnScreen: Bool, appHidden: Bool, minimized: Bool,
+                            transparent: Bool = false) -> PreparingIntentOutcome {
     if appHidden { return .unhideApp }
     if minimized { return .unminimize }
-    return windowOnScreen ? .intact : .moveBack
+    if !windowOnScreen { return .moveBack }
+    return transparent ? .restoreAlpha : .intact
 }
 
 /// 后台扫描恢复记录得出的每个动作，回到主线程写回之前再核对一次：扫描开始后这条记录已经删掉（窗口已经展开），或这扇窗口正在收起，就不再动它。

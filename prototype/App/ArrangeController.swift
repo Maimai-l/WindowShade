@@ -68,18 +68,19 @@ extension AppDelegate {
         return arrangedOverlayFrames[id] ?? overlay.frame
     }
 
-    /// 用户拖动了卷帘条：记下新位置，它不再属于整理后的排列。
+    /// 用户拖动了卷帘条：它不再属于整理后的排列。新位置等卷帘条停下来再写进恢复记录（pullOverlayBackIntoReachAfterDrag）：
+    /// 拖动和“把卷帘条放回原位”的动画每一帧都会走到这里，每写一次都要在主线程上读文件、整个重写、fsync，
+    /// 几条卷帘条一起动时会卡顿。
     func noteUserMovedOverlay(id: CGWindowID, frame: NSRect) {
         guard !isProgrammaticOverlayArrangement else { return }
         let hadArrangedFrame = arrangedOverlayFrames[id] != nil
-        syncRestoreJournal(id: id, fromOverlayFrame: frame)
         arrangedOverlayFrames.removeValue(forKey: id)
         if hadArrangedFrame { rebuildMenu() }
         pullOverlayBackIntoReachAfterDrag(id: id)
     }
 
     /// 卷帘条被拖到屏幕外（例如拖过屏幕下边）：拖完后拉回能点到的位置（docs/test-catalog.md C02）。
-    /// 拖动过程中不拉回，以免和用户的拖动冲突；停下 0.3 秒、鼠标已松开才检查。
+    /// 拖动过程中不拉回，以免和用户的拖动冲突；停下 0.3 秒、鼠标已松开才检查。停下来时把位置写进恢复记录。
     func pullOverlayBackIntoReachAfterDrag(id: CGWindowID) {
         let token = UUID()
         overlayMoveSettleTokens[id] = token
@@ -90,8 +91,14 @@ extension AppDelegate {
                 return
             }
             self.overlayMoveSettleTokens.removeValue(forKey: id)
-            guard let state = self.shaded[id], let overlay = state.overlay,
-                  !overlayIsReachable(overlay.frame) else { return }
+            guard let state = self.shaded[id], let overlay = state.overlay else { return }
+            guard !overlayIsReachable(overlay.frame) else {
+                // 展开时窗口出现在卷帘条现在的位置。整理过的卷帘条，记录里留着整理前的位置，不改。
+                if self.arrangedOverlayFrames[id] == nil {
+                    self.syncRestoreJournal(id: id, fromOverlayFrame: overlay.frame)
+                }
+                return
+            }
             let newFrame = self.clampedFrame(overlay.frame, margin: 8, preferredDisplayID: state.sourceDisplayID)
             overlay.setFrame(newFrame, display: true)
             self.syncRestoreJournal(id: id, fromOverlayFrame: newFrame)
