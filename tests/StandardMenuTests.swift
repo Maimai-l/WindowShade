@@ -74,11 +74,11 @@ enum StandardMenuTests {
                "menu titles are trimmed before truncation")
 
         // “关于”窗口照 Ghostty：版本、构建、提交和仓库链接，不放版权、许可和宣传语（用户 2026-10-20 要求）。
-        let about = AboutContent(version: "1.0.16", build: "16", commit: "866b31b")
-        expect(about.rows.map(\.label) == ["版本", "构建", "提交"]
-                && about.rows.map(\.value) == ["1.0.16", "16", "866b31b"],
+        let aboutContent = AboutContent(version: "1.0.16", build: "16", commit: "866b31b")
+        expect(aboutContent.rows.map { $0.label } == ["版本", "构建", "提交"]
+                && aboutContent.rows.map { $0.value } == ["1.0.16", "16", "866b31b"],
                "the about window lists version, build and commit")
-        expect(about.rows.last?.link?.absoluteString == "https://github.com/Maimai-l/WindowShade/commit/866b31b",
+        expect(aboutContent.rows.last?.link?.absoluteString == "https://github.com/Maimai-l/WindowShade/commit/866b31b",
                "the commit links to that commit in the repository")
         expect(AboutContent(version: "1.0.16", build: "16", commit: nil).rows.count == 2,
                "without a commit the about window shows version and build only")
