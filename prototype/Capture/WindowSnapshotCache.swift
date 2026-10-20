@@ -6,7 +6,8 @@
 // 被带像素上限的请求拿去用，多占内存。
 //
 // 内存上限按 bytesPerRow × height 估算总成本，避免快速收起多个大窗口时
-// 产生瞬时内存尖峰。缓存只保留 500 毫秒。
+// 产生瞬时内存尖峰。缓存只保留 500 毫秒：每次存入后过 500 毫秒清一次过期的图，
+// 之后没有人再读、再存，完整 Retina 大图也不会一直占着内存。
 //
 // 只服务收起路径（captureWindowWithTimeout），不缓存悬停预览的按需截图，
 // 避免把隐藏窗口的错误快照复用进卷帘条。
@@ -73,7 +74,9 @@ final class WindowSnapshotCache: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private let ttl: TimeInterval = 0.5
+    private let ttl: TimeInterval
+    private let currentTime: @Sendable () -> CFAbsoluteTime
+    private let schedule: @Sendable (TimeInterval, @escaping @Sendable () -> Void) -> Void
     // 总内存上限：完整 Retina 窗口图每张可达 10–30 MB，96 MB 预算能覆盖
     // 快速连续收起几个大窗口，同时限制瞬时尖峰。
     private let maxTotalCost: Int = 96 * 1024 * 1024
@@ -83,6 +86,24 @@ final class WindowSnapshotCache: @unchecked Sendable {
     // 在途 capture 注册表：同一 key 只允许一个进行中的截图任务。
     private let inFlightLock = NSLock()
     private var inFlight: [WindowSnapshotKey: WindowSnapshotInFlightSlot] = [:]
+
+    /// currentTime、schedule 只为测试注入：默认读系统时钟，到期清理排到后台队列上。
+    init(ttl: TimeInterval = 0.5,
+         currentTime: @escaping @Sendable () -> CFAbsoluteTime = { CFAbsoluteTimeGetCurrent() },
+         schedule: @escaping @Sendable (TimeInterval, @escaping @Sendable () -> Void) -> Void = { delay, work in
+             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { work() }
+         }) {
+        self.ttl = ttl
+        self.currentTime = currentTime
+        self.schedule = schedule
+    }
+
+    /// 缓存里的图共占多少字节（估算）。
+    var totalCostInBytes: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return totalCost
+    }
 
     private func cost(of image: CGImage) -> Int {
         let rowBytes = Int(image.bytesPerRow)
@@ -94,7 +115,7 @@ final class WindowSnapshotCache: @unchecked Sendable {
     }
 
     func cachedImage(key: WindowSnapshotKey) -> CGImage? {
-        let now = CFAbsoluteTimeGetCurrent()
+        let now = currentTime()
         lock.lock()
         defer { lock.unlock() }
         guard let entry = entries[key], now - entry.capturedAt < ttl else {
@@ -112,9 +133,18 @@ final class WindowSnapshotCache: @unchecked Sendable {
         if let old = entries[key] {
             totalCost -= old.cost
         }
-        entries[key] = Entry(image: image, capturedAt: CFAbsoluteTimeGetCurrent(), cost: cost)
+        let now = currentTime()
+        entries[key] = Entry(image: image, capturedAt: now, cost: cost)
         totalCost += cost
-        evictIfNeeded(now: CFAbsoluteTimeGetCurrent())
+        evictIfNeeded(now: now)
+        lock.unlock()
+        schedule(ttl + 0.05) { [weak self] in self?.purgeExpired() }
+    }
+
+    /// 清掉过期的图。
+    func purgeExpired() {
+        lock.lock()
+        evictIfNeeded(now: currentTime())
         lock.unlock()
     }
 
