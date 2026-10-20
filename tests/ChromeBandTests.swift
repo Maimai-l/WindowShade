@@ -65,6 +65,9 @@ struct ChromeBandTests {
         // 修复之前卷帘条裁到 81 点，把显示屏也裁了进去。
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 81, maxHeight: 96, content: [36...76]) == 28,
                  "推算的高度和下沿之间有内容文字（计算器的显示屏）：裁到推算的高度")
+        t.expect(ChromeBand.standardWindowBar(standard: 28, found: 81, maxHeight: 96, content: [22...78, 5...21],
+                                              controls: [80...129, 128...177]) == 28,
+                 "macOS 14.5 上计算器读到的值：显示屏 22 至 78 点，上沿伸进标题栏；按键在下沿下面")
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 64, maxHeight: 96, content: [6...20, 64...400]) == 64,
                  "标题栏里的标题、下沿下面的正文不算：自己画的顶栏照样裁到下沿")
         t.expect(ChromeBand.standardWindowBar(standard: 28, found: 60, maxHeight: 96, content: [36...50], controls: [32...56]) == 60,
