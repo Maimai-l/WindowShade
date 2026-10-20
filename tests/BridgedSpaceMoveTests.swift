@@ -1,5 +1,5 @@
-// 需求：S6（docs/testing.md 第 3.2 节）。按住卷帘条切桌面时，用 SkyLight 的内部类把原窗口移过去（Private/BridgedSpaceMove.swift）。
-// 缺陷回归（2026-10-20 代码审查发现）：只查了类和内部函数在不在，没查类还认不认 initWithWindows:spaceID:。
+// 需求：S6（docs/testing.md 第 3.2 节）。按住卷帘条切换桌面时，用 SkyLight 的内部类把原窗口移过去（Private/BridgedSpaceMove.swift）。
+// 缺陷回归（2026-10-20 代码审查发现）：只查了类和内部函数在不在，没查类是否还响应 initWithWindows:spaceID:。
 // 以后的 macOS 去掉这个方法而保留类时，照样发这条消息会抛出“unrecognized selector”，WindowShade 崩溃。
 // 用运行时新建的类代替 SkyLight 的类，不移动任何窗口。
 
@@ -26,7 +26,7 @@ struct BridgedSpaceMoveTests {
     static func main() {
         var t = TestSuite("bridged-space-move")
 
-        t.section("S6", "类还在、却不认 initWithWindows:spaceID: 时不用这个办法，不发消息")
+        t.section("S6", "类还在、却不响应 initWithWindows:spaceID: 时不用这个办法，不发消息")
         t.expect(!BridgedSpaceMove.canInitialize(makeClass("WSTestMoveOperationWithoutInitializer", initializerTypes: nil)),
                  "a class without initWithWindows:spaceID: is not used")
         t.expect(!BridgedSpaceMove.canInitialize(NSObject.self), "NSObject does not answer initWithWindows:spaceID:")

@@ -24,7 +24,7 @@ extension AppDelegate {
         }
     }
     func shouldRetryJournalRescue(now: Date) -> Bool {
-        // 只看不属于正在进行的操作的记录：收起着的窗口有自己的记录，那些不用找回。
+        // 只看不属于正在进行的操作的记录：收起着、正在收起或正在展开的窗口，它们的记录由这些操作自己管，不用找回。
         let journalIDs = shadeJournalEntries().compactMap { journalID($0) }
         guard journalHasOrphanEntries(journalIDs: journalIDs, inUse: windowsInUse) else { return false }
         guard let last = lastJournalRescueAttempt else { return true }

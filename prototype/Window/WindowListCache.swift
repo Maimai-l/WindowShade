@@ -202,7 +202,7 @@ func ordinaryWindowOwner(at point: CGPoint, in windows: [[String: Any]]) -> pid_
 
 /// 双击标题栏的快速预过滤（App/EventTapCallback.swift 的 pointMayLieInTitlebarBand）：点是否可能落在标题栏上。
 /// 按窗口列表从前到后，找第一扇包含这个点的普通窗口（层级、不透明度的规则和 ordinaryWindowOwner 一样），
-/// 点在它顶部 maxBand 点（不超过窗口高度）之内才算；被它挡住的窗口不算，点击落不到它们上面。
+/// 这个点离它的顶边不超过 maxBand 点（也不超过窗口高度）才算；被它挡住的窗口不算，点击落不到它们上面。
 /// WindowShade 自己的窗口（ownPID）不挡：点在它的顶部带里算，不在就接着往后看（卷帘条的投影等不接点击的窗口会盖在别的窗口上）。
 /// 要看准前后顺序时传 onScreenWindowsNow()（场景 B16）。
 func titlebarBandMayContain(_ point: CGPoint, in windows: [[String: Any]], ownPID: pid_t, maxBand: CGFloat = 300) -> Bool {
@@ -240,7 +240,7 @@ func windowLayer(_ info: [String: Any]?) -> Int32? {
     return nil
 }
 
-/// 桌面小组件的窗口。appWindows 对应用程序的每扇窗口都问一次，收起时在主线程上：
+/// 桌面小组件的窗口。appWindows 对应用程序的每扇窗口都调用一次，收起时在主线程上：
 /// 层级先在共用的全部窗口列表里查，一次列表查询供所有窗口用；列表里没有这扇窗口时才单独问窗口服务器。
 /// cache、liveInfo 只为测试注入。
 func isDesktopWidgetWindow(id: CGWindowID, cache: WindowListCache = .shared,

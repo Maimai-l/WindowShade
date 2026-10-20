@@ -1,5 +1,5 @@
 #!/bin/bash
-# 按住卷帘条切桌面时用的 SkyLight 内部类：先确认它认初始化方法再发消息（prototype/Private/BridgedSpaceMove.swift）。纯逻辑，不移动窗口。
+# 按住卷帘条切换桌面时用的 SkyLight 内部类：先确认它响应这个初始化方法再发消息（prototype/Private/BridgedSpaceMove.swift）。纯逻辑，不移动窗口。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/bridged-space-move-tests

@@ -127,8 +127,8 @@ struct SettingsNavigationTests {
     precondition(!UpdaterController.shared.validateMenuItem(updateItem),
                  "Check for Updates must be disabled when the updater is not running")
 
-    // 缺陷回归（2026-10-20 代码审查发现）：录快捷键时，WindowShade 自己已经注册的全局快捷键先被系统拿走，
-    // 按下去执行的是那个动作（例如收起或展开当前窗口），组合录不进去，也提示不了“已用于：……”。
+    // 缺陷回归（2026-10-20 代码审查发现）：在设置里录快捷键，按下 WindowShade 自己已经注册的全局快捷键时，按键先被系统截下，
+    // 执行的是那个动作（例如收起或展开当前窗口），组合录不进去，也提示不了“已用于：……”。
     // 录制期间要先注销，录完再注册回来（需求 M3）。
     let shortcutSuite = "\(suiteName).shortcuts"
     let shortcutDefaults = UserDefaults(suiteName: shortcutSuite)!

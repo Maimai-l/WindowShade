@@ -11,7 +11,7 @@ import Cocoa
 // 内容区的双击因此不再做辅助功能查询。只看点击所在的那扇窗口（最前面包含这个点的普通窗口），
 // 不看它后面被挡住的窗口：后面的窗口顶部正好在点下面时，前面窗口内容区里的双击也会去问前面的应用程序（2026-10-20 代码审查）。
 // 缓存里的前后顺序最多晚 150 毫秒（一个窗口刚到前面时，缓存里前面还是原来那扇，场景 B16）：
-// 照缓存判断不在标题栏上时，再现查一次前后顺序确认，免得漏掉刚到前面的窗口标题栏上的双击。
+// 照缓存判断不在标题栏上时，再当场查一次前后顺序确认，免得漏掉刚到前面的窗口标题栏上的双击。
 func pointMayLieInTitlebarBand(_ point: CGPoint) -> Bool {
     if titlebarBandMayContain(point, in: WindowListCache.shared.onScreenWindows(), ownPID: getpid()) { return true }
     return titlebarBandMayContain(point, in: WindowListCache.shared.onScreenWindowsNow(), ownPID: getpid())

@@ -113,7 +113,7 @@ struct TapDecisionTests {
             t.expect(honoured > 0 && passed > 0, "both outcomes occurred (\(honoured) honoured, \(passed) passed)")
         }
 
-        // 缺陷回归（2026-10-20 代码审查）：WindowShade 自己的钩子（钩子进程用不了时的备用）没有安静期，
+        // 缺陷回归（2026-10-20 代码审查）：WindowShade 自己的钩子（钩子进程不可用时的备用）没有安静期，
         // 主线程停住时，每次双击都要等满时限，全系统的输入每次都被挡住这么久。时刻由测试传入。
         t.section("R6", "备用钩子：主线程一次没按时回话，安静期里的双击不问，直接放行")
         do {

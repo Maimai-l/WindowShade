@@ -1,6 +1,6 @@
 // 覆盖 R1 R5
 // 恢复记录（Recovery/）在 WindowShade 运行期间怎样处理：什么时候删、什么时候还要动窗口。
-// 原则：用户已经看见窗口以后，恢复记录不再移动、取消隐藏或拉回它；匹配不上的记录不一直重试。
+// 原则：用户已经看见窗口以后，找回不再按恢复记录移动它、取消隐藏或带到最前；匹配不上的记录不一直重试。
 
 import Foundation
 
@@ -67,7 +67,7 @@ struct RescueRulesTests {
         suite.expect(neverShown.results == [false] && neverShown.acknowledged == 0,
                      "a window that never came back keeps its record")
 
-        suite.section("R1", "记录停在已收起或展开中、用户已经看得见窗口：只删记录，不再移动、取消隐藏或升起")
+        suite.section("R1", "记录停在已收起或展开中、用户已经看得见窗口：只删记录，不再移动、取消隐藏或带到最前")
         suite.expect(windowUserVisible(windowOnScreen: true, appHidden: false, minimized: false, transparent: false),
                      "a window on screen, not hidden, not minimized and opaque is already back")
         suite.expect(!windowUserVisible(windowOnScreen: false, appHidden: false, minimized: false, transparent: false),

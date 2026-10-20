@@ -338,8 +338,8 @@ enum LegacyQuickCapture {
 
 }
 
-// 只到 CGImage 为止：截图与降采样都只碰 CoreGraphics，可在任意线程调用；包装成 NSImage 的那一步留给主线程的调用方。
-// 截图和收起用的快速截图是同一个接口（FastCapture）：设了 WINDOWSHADE_DISABLE_FAST_CAPTURE 时不截，
+// 只到 CGImage 为止：截图与缩小都只碰 CoreGraphics，可在任意线程调用；包装成 NSImage 的那一步留给主线程的调用方。
+// 这里的截图和收起用的快速截图用的是同一个接口（FastCapture）：设了 WINDOWSHADE_DISABLE_FAST_CAPTURE 时不截，
 // 窗口还没合成出画面（刚展开、刚打开，整张全透明）时返回 nil。收起时调用方据此在隐藏原窗口之前改用
 // ScreenCaptureKit 补截；把透明图当成截到了，卷帘条和菜单的预览就一直是空的。
 // capture 只为测试注入。

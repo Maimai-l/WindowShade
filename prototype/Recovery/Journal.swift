@@ -51,7 +51,7 @@ extension AppDelegate {
     func pruneShadeJournal(reason: String) {
         let now = Date().timeIntervalSince1970
         let entries = shadeJournalEntries()
-        // 正在收起或已经收起的窗口，它们的记录由收起和定时核对管，这里只按时间清理。
+        // 正在收起、已收起、正在展开的窗口（windowsInUse），它们的记录由这些操作自己管，这里只按时间清理。
         let inUse = windowsInUse
         var unmatchable: [CGWindowID] = []
         let filtered = entries.filter { entry in

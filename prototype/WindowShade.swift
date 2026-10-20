@@ -700,7 +700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
 
-    /// 正在收起的窗口：截图、写恢复记录、移开原窗口还没做完，还不在 shaded 里，restoreAll 照顾不到。
+    /// 有没有正在收起的窗口：截图、写恢复记录、移开原窗口还没做完，它们还不在 shaded 里，restoreAll 不会展开它们。
     var foldsInFlight: Bool {
         !shadeOperationIDs.isEmpty || operationStates.values.contains(.capturing)
     }
@@ -711,7 +711,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         !shaded.isEmpty || foldsInFlight || !restoreVerificationTokens.isEmpty
     }
 
-    /// 有窗口收起着时先展开全部，等各应用程序队列上排着的放回做完再退出，最多等 2 秒（应用程序没有响应时也能退出）。
+    /// 有收起着的、正在收起的，或刚展开还在确认的窗口时，先等收起做完（最多 1 秒）再展开全部，
+    /// 再等各应用程序队列上的放回做完（最多 2 秒）、展开后的确认做完（最多 1.6 秒）才退出；应用程序没有响应时也能退出。
     /// 不在主线程上等：放回的一部分要回到主线程做，主线程等着，就只能等满 2 秒
     /// （用户的 macOS 14.5 本机运行，8e7e5c1，场景 L01：退出时主线程停了 2026 毫秒）。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -722,7 +723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// 正在收起的窗口先等它收起完（最多 1 秒），再一起展开。不等的话，后台的移开在退出前做完，
     /// 窗口就停在隐藏、屏幕外或最小化的状态，下次启动 WindowShade 才回来。
-    /// 用主队列的延时任务轮询，不用计时器：回复 terminateLater 之后，主线程的运行循环只在 modal panel 模式下转。
+    /// 用主队列的延时任务轮询，不用计时器：回复 terminateLater 之后，主线程的运行循环只在模态面板运行模式（NSModalPanelRunLoopMode）下转。
     private func restoreAllWhenFoldsSettle(until deadline: Date) {
         if foldsInFlight, Date() < deadline {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -742,7 +743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// 等展开后的确认做完（RestoreVerifier 最多 1.5 秒），恢复记录删掉了再退出。
+    /// 等展开后的确认做完（RestoreVerifier 最多 1.5 秒），删掉恢复记录后再退出。
     private func replyToTerminateWhenRestoresVerified(until deadline: Date) {
         if !restoreVerificationTokens.isEmpty, Date() < deadline {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in

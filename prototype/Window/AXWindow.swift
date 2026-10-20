@@ -285,9 +285,9 @@ func axChildren(_ el: AXUIElement) -> [AXUIElement] {
     return arr
 }
 
-// 在窗口里找工具栏（含浅层递归），用于量出真实的标题栏+工具栏高度。
+// 在窗口里找工具栏（含浅层递归），用于量出真实的标题栏和工具栏的高度。
 // 双击标题栏时它在主线程上跑，所以和其他遍历一样有节点预算：没有工具栏、每层几十个子节点的窗口，
-// 不设预算要读上万次角色。工具栏几乎总在子列表最前，每个节点只看前 axTraversalMaxChildrenPerNode 个子节点。
+// 不设预算要读上万次角色。工具栏几乎总排在子节点列表的最前面，每个节点只看前 axTraversalMaxChildrenPerNode 个子节点。
 func firstToolbar(_ el: AXUIElement) -> AXUIElement? {
     var nodeBudget = axTraversalNodeBudget
     return firstDescendant(of: el, maxDepth: 2, nodeBudget: &nodeBudget,
@@ -504,7 +504,7 @@ func chromeHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize? = nil, 
     return min(h, 300)
 }
 
-/// 双击判定用的标题栏高度。收起时解析过的外形、或 2 秒内量过的命中高度还新鲜时直接用（按元素身份和窗口尺寸校验）；
+/// 双击判定用的标题栏高度。收起时解析过的外形或量过的命中高度不超过 2 秒时直接用（按元素身份和窗口尺寸校验）；
 /// 否则当场量一次（双击时在主线程上，几十次辅助功能请求），量出的高度存进缓存，
 /// 随后收起时的外形解析和接着的双击都不用再量。cache、measure 只为测试注入。
 func titlebarHitHeight(of win: AXUIElement, id: CGWindowID,

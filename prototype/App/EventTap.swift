@@ -92,7 +92,7 @@ extension AppDelegate {
         }
     }
 
-    /// 设置里开始录制快捷键：先注销 WindowShade 自己的全局快捷键。全局快捷键在按键送到任何窗口之前就被系统拿走，
+    /// 设置里开始录制快捷键：先注销 WindowShade 自己的全局快捷键。按下 WindowShade 注册的全局快捷键时，按键在送到任何窗口之前就被系统截下，交给 WindowShade 执行，
     /// WindowShade 自己的设置窗口也一样：不注销的话，录一个已经在用的组合（例如 ⌃⌘C）时执行的是那个动作，
     /// 组合录不进去，也提示不了“已用于：……”。
     func pauseGlobalShortcutsForRecording() {

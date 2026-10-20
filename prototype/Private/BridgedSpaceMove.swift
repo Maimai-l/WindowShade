@@ -28,7 +28,7 @@ enum BridgedSpaceMove {
         return unsafeBitCast(address, to: PerformFunction.self)
     }()
 
-    /// 这个类的实例认不认 initWithWindows:spaceID:，而且这个方法正好两个参数（连同 self 和 _cmd 共四个）。
+    /// 这个类的实例是否响应 initWithWindows:spaceID:，而且这个方法正好两个参数（连同 self 和 _cmd 共四个）。
     /// 下面用 objc_msgSend 直接发这条消息：以后的 macOS 去掉这个方法而保留类时，发出去会抛出“unrecognized selector”，
     /// WindowShade 崩溃；参数个数变了时，会按错的调用约定调用。
     static func canInitialize(_ cls: AnyClass) -> Bool {

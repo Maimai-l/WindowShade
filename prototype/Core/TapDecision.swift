@@ -56,9 +56,9 @@ final class TapDecision: @unchecked Sendable {
     }
 }
 
-// WindowShade 自己的钩子（钩子进程用不了时的备用）也照钩子进程的做法用 TapAskGate（Core/TapProtocol.swift）：
+// WindowShade 自己的钩子（钩子进程不可用时的备用）也照钩子进程的做法用 TapAskGate（Core/TapProtocol.swift）：
 // 主线程一次没按时回话，接下来 TapAskGate.quietPeriod 之内的双击、三击直接放行，不再问。
-// 不然主线程停在一个无响应的应用程序上时，每次双击都挡住全系统的输入 deadline 那么久，连着几次双击还要一次接一次地等。
+// 不然主线程停在一个无响应的应用程序上时，每次双击都要等满 TapDecision.deadline，全系统的输入每次都被挡住这么长时间，连着几次双击还要一次接一次地等。
 extension TapDecision {
     /// 钩子线程上，问主线程之前调用：在安静期里返回 nil，调用方直接放行；否则返回一次新的询问。
     static func ask(through gate: TapAskGate, now: CFAbsoluteTime) -> TapDecision? {

@@ -120,7 +120,7 @@ extension AppDelegate {
         }
     }
     /// 恢复记录已经写下、还没移开原窗口时放弃这次收起：撤掉卷帘条，删掉这条记录。
-    /// 记录留着的话，之后的找回会把它当成收起途中退出留下的，用户自己隐藏的应用程序、最小化的窗口会被放回来（preparingIntentOutcome）。
+    /// 记录留着的话，之后的找回会把它当成收起途中退出留下的，用户自己隐藏的应用程序会被取消隐藏，最小化的窗口会被解除最小化（preparingIntentOutcome）。
     func abandonFoldAfterIntent(id: CGWindowID, overlay: NSWindow, reason: String) {
         dismissOverlay(overlay)
         clearShadeJournal(id: id)

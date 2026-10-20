@@ -102,7 +102,7 @@ extension AppDelegate {
                     }
                 } else if windowUserVisible(windowOnScreen: windowOnScreen, appHidden: appHidden,
                                             minimized: minimized, transparent: transparent) {
-                    // 用户已经看得见这扇窗口：它已经回来了，只删掉记录，不再移动、取消隐藏或升起它。
+                    // 用户已经看得见这扇窗口：它已经回来了，只删掉记录，不再移动它、取消隐藏或带到最前。
                     result.resolvedIDs.insert(id)
                     wlog("journal: window already visible; record removed without moving it id=\(id) stage=\(journalString(entry, "stage"))")
                     continue
@@ -137,7 +137,7 @@ extension AppDelegate {
         }
     }
 
-    // 每个恢复动作单独验证：窗口的位置和大小读得到、窗口落在屏幕上、用户看得见；只有验证成功的 entry 才允许被清理。
+    // 每个恢复动作单独验证：窗口的位置和大小读得到、窗口落在屏幕上、用户看得见；只有验证通过的记录才删掉。
     // 不要求和记录的位置、大小完全一致：macOS 会把窗口限制在屏幕之内，用户也可能已经拖走了它，看得见就够了，
     // 否则记录一直留着，每轮找回都把窗口拉回原处。
     func rescueActionVerified(_ action: OffscreenRescueAction) -> Bool {
@@ -279,14 +279,14 @@ extension AppDelegate {
                                                                  into: &result.actions)
             }
             // 写回统一在主线程，逐条核对：扫描期间记录已经删掉、窗口正在收起、已收起或正在展开的，不再动它，
-            // 别的条目照常写回（扫描期间用户收起了别的窗口，也不放弃整批）。删除记录也在主线程做，避免和收起时写记录冲突。
+            // 别的记录照常写回（扫描期间用户收起了别的窗口，也不放弃整批）。删除记录也在主线程做，避免和收起时写记录冲突。
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.pruneShadeJournal(reason: "rescue")
                 // 见 PreparingIntent.swift 的 rescueActionStillApplies。
                 let liveJournalIDs = Set(self.shadeJournalEntries().compactMap { self.journalID($0) })
                 let inFlightIDs = self.windowsInUse
-                // 先恢复、过一会儿逐条验证，再清理：验证失败的 entry 保留，下一轮重试，到次数就放弃。
+                // 先恢复、过一会儿逐条验证，再清理：验证失败的记录保留，下一轮重试，到次数就放弃。
                 var verifiedIDs = result.resolvedIDs.filter {
                     rescueActionStillApplies(id: $0, liveJournalIDs: liveJournalIDs, inFlightIDs: inFlightIDs)
                 }

@@ -1,5 +1,5 @@
 // 找回窗口（Recovery/Rescue.swift）的判定：哪些恢复记录还要动窗口，哪些只删掉记录。
-// 原则：用户已经看得见的窗口，恢复记录不再移动、取消隐藏或拉回它；找回做了几次仍不见效就放弃，不一直重试。
+// 原则：用户已经看得见的窗口，找回不再按恢复记录移动它、取消隐藏或带到最前；找回做了几次仍不见效就放弃，不一直重试。
 
 import Foundation
 
@@ -16,7 +16,7 @@ func windowLooksTransparent(alpha: Double?) -> Bool {
     return alpha < 0.05
 }
 
-/// 找回做过之后窗口仍然看不见，最多再试这么多次（含第一次）。
+/// 找回最多做这么多次（含第一次），之后窗口仍然看不见就放弃。
 let journalRescueMaxAttempts = 3
 
 /// 第 attempts 次找回之后窗口仍然看不见：到次数就放弃，删掉记录，不再每 30 秒挪一次那扇窗口。
@@ -25,8 +25,8 @@ func journalRescueGivesUp(attempts: Int) -> Bool {
 }
 
 /// 恢复记录还可能对上那扇窗口吗（匹配条件见 Journal.swift 的 journalMatches）。对不上的记录不会再有用，
-/// 留着只会让定时检查一直开着、每 30 秒把所有应用程序的窗口问一遍，直到 14 天后过期。以下情况直接删掉：
-/// - 写记录的进程已经退出：窗口随进程一起没了；
+/// 留着只会让定时检查一直开着、每 30 秒查询一遍所有应用程序的窗口，直到 14 天后过期。以下情况直接删掉：
+/// - 记录里的进程已经退出：窗口随进程一起没了；
 /// - 这个进程号的应用程序是记录写下之后才启动的（应用程序重新打开过，或进程号给了别的程序）；
 /// - 窗口服务器里已经查不到这扇窗口。隐藏、最小化、移到屏幕外的窗口都还查得到，查不到只能是关掉了；查询失败不算。
 func journalEntryCanStillMatch(processRunning: Bool, processLaunchedAt: Double?, createdAt: Double?,
@@ -36,9 +36,9 @@ func journalEntryCanStillMatch(processRunning: Bool, processLaunchedAt: Double?,
     return windowExists != false
 }
 
-/// 恢复记录里有没有不属于正在进行的操作的条目（WindowShade 上次退出时留下的，或展开后一直没能确认的）。
-/// inUse 是已收起、正在收起、正在展开的窗口。有这样的条目就要按时找回，不管现在有没有别的窗口收起着：
-/// 收起着的卷帘条可能一放好几天，只在没有卷帘条时才找回，那些窗口就一直回不来。
+/// 恢复记录里有没有不属于正在进行的操作的记录（WindowShade 上次退出时留下的，或展开后一直没能确认的）。
+/// inUse 是已收起、正在收起、正在展开的窗口。有这样的记录就要按时找回，不管现在有没有别的窗口收起着：
+/// 窗口可能好几天都收起着，只在没有卷帘条时才找回，那些窗口就一直回不来。
 func journalHasOrphanEntries(journalIDs: [UInt32], inUse: Set<UInt32>) -> Bool {
     journalIDs.contains { !inUse.contains($0) }
 }
@@ -49,8 +49,8 @@ func parkedWindowScanAllowed(inUse: Set<UInt32>) -> Bool {
     inUse.isEmpty
 }
 
-/// 展开在应用程序的队列上做完、回到主线程时，这次展开还算不算数。应用程序慢的时候，窗口已经回来、
-/// 带到最前还没做完，用户可能已经又收起了它：之后的校正和确认都属于上一次展开，不能再做。
+/// 展开在应用程序的队列上做完、回到主线程时，这次展开是否仍然有效。应用程序慢时，窗口已经回来、
+/// 但带到最前还没做完，用户就可能又收起了它：之后的校正和确认都属于上一次展开，不能再做。
 /// 确认会把这扇窗口的恢复记录标成“展开中”、看到窗口还在原处就删掉，删的是新一次收起的记录。
 /// issued 是这次展开发出的令牌，current 是现在登记的令牌（收起一开始就清掉它）。
 func restoreCompletionStillCurrent(issued: UUID, current: UUID?, foldedOrFolding: Bool) -> Bool {
