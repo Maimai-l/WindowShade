@@ -345,9 +345,16 @@ final class ShadeThumbnailView: NSView {
         return picture.contains(local) || (!iconLayer.isHidden && icon.contains(local)) ? self : nil
     }
 
+    /// 事件那一刻指针所在的位置（Cocoa 屏幕坐标），取自事件本身：主线程正忙、事件处理晚了时，NSEvent.mouseLocation
+    /// 已经是又移开以后的位置，按它算抓点，缩略图会一路落后指针，松开后也不在松开的地方（卷帘条的同一个问题见 stripOrigin）。
+    /// 事件里取不到位置时才用 NSEvent.mouseLocation。
+    private func pointerLocation(of event: NSEvent) -> NSPoint {
+        stripOrigin(at: event, pressPoint: .zero) ?? NSEvent.mouseLocation
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
-        let mouse = NSEvent.mouseLocation
+        let mouse = pointerLocation(of: event)
         pressLocation = mouse
         dragOffset = CGPoint(x: mouse.x - window.frame.minX, y: mouse.y - window.frame.minY)
         dragging = false
@@ -355,7 +362,7 @@ final class ShadeThumbnailView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let window, let press = pressLocation, !isLaunching else { return }
-        let mouse = NSEvent.mouseLocation
+        let mouse = pointerLocation(of: event)
         if !dragging {
             // 手抖不算拖：挪过 3 点才开始挪。
             guard hypot(mouse.x - press.x, mouse.y - press.y) >= 3 else { return }
@@ -371,7 +378,12 @@ final class ShadeThumbnailView: NSView {
         pressLocation = nil
         dragging = false
         if wasDragging {
-            if let window { onMoveEnded?(window.frame) }
+            if let window {
+                // 松开时按松开事件的指针位置再放一次：最后一次拖动事件之后指针可能还动过。
+                let mouse = pointerLocation(of: event)
+                window.setFrameOrigin(NSPoint(x: mouse.x - dragOffset.x, y: mouse.y - dragOffset.y))
+                onMoveEnded?(window.frame)
+            }
             return
         }
         if wasPressed { onClick?() }
