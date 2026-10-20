@@ -4,6 +4,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/tap-decision-tests
 swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.0" \
-  prototype/Core/TapDecision.swift tests/support/TestSuite.swift tests/TapDecisionTests.swift \
+  prototype/Core/TapDecision.swift prototype/Core/TapProtocol.swift tests/support/TestSuite.swift tests/TapDecisionTests.swift \
   -o .build/tap-decision-tests/tap-decision
 .build/tap-decision-tests/tap-decision

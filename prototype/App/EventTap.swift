@@ -8,6 +8,9 @@ import Carbon.HIToolbox
 /// 这些值它已经读过，记下来不多花一次辅助功能查询。
 @MainActor var titlebarMissDetail = ""
 
+/// 设置里正在录制快捷键，WindowShade 自己的全局快捷键已经注销（见 pauseGlobalShortcutsForRecording），录完要注册回来。
+@MainActor private var globalShortcutsPausedForRecording = false
+
 extension AppDelegate {
     func registerHotKey() {
         installHotKeyHandler()
@@ -40,6 +43,7 @@ extension AppDelegate {
     /// 按当前设置（重新）注册全部全局快捷键。设置页改键后也走这里。
     /// 被其他应用占用的组合提示一次，并且不再显示在菜单里（按了没反应比没有更糟）。
     func registerGlobalShortcuts() {
+        globalShortcutsPausedForRecording = false
         for ref in hotKeyRefs.values { UnregisterEventHotKey(ref) }
         hotKeyRefs.removeAll()
         var failed: [UInt32: (name: String, status: OSStatus)] = [:]
@@ -86,6 +90,23 @@ extension AppDelegate {
                             + failed.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.status)" }
                                 .joined(separator: ","))
         }
+    }
+
+    /// 设置里开始录制快捷键：先注销 WindowShade 自己的全局快捷键。全局快捷键在按键送到任何窗口之前就被系统拿走，
+    /// WindowShade 自己的设置窗口也一样：不注销的话，录一个已经在用的组合（例如 ⌃⌘C）时执行的是那个动作，
+    /// 组合录不进去，也提示不了“已用于：……”。
+    func pauseGlobalShortcutsForRecording() {
+        guard !globalShortcutsPausedForRecording else { return }
+        for ref in hotKeyRefs.values { UnregisterEventHotKey(ref) }
+        hotKeyRefs.removeAll()
+        globalShortcutsPausedForRecording = true
+        wlog("hotkey: paused while a shortcut is being recorded")
+    }
+
+    /// 录制结束：注销的全局快捷键注册回来。录到新组合时 setShortcut 已经重新注册过，这里不再注册一遍。
+    func resumeGlobalShortcutsAfterRecording() {
+        guard globalShortcutsPausedForRecording else { return }
+        registerGlobalShortcuts()
     }
 
     /// 菜单项上要不要显示这个快捷键：设置里开着，而且注册没失败。

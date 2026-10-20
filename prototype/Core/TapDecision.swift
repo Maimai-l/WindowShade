@@ -4,7 +4,7 @@
 // 过了时限一律放行，不管主线程是还没开始，还是开始了没做完（主线程可能在等一个无响应的应用程序，
 // 那个应用程序又可能在等被钩子挡住的下一个鼠标事件；不设时限，全系统的输入就会停住）。
 // 放行之后主线程的结论作废：主线程问 begin() 得到 false 就不再处理；已经开始的，finish 的结果不再被读取。
-// 只依赖 Foundation，可单测（tests/TapDecisionTests.swift）。
+// 只依赖 Foundation 和 Core/TapProtocol.swift 的 TapAskGate，可单测（tests/TapDecisionTests.swift）。
 
 import Foundation
 
@@ -52,6 +52,25 @@ final class TapDecision: @unchecked Sendable {
         lock.withLock {
             if case .abandoned = state { return true }
             return false
+        }
+    }
+}
+
+// WindowShade 自己的钩子（钩子进程用不了时的备用）也照钩子进程的做法用 TapAskGate（Core/TapProtocol.swift）：
+// 主线程一次没按时回话，接下来 TapAskGate.quietPeriod 之内的双击、三击直接放行，不再问。
+// 不然主线程停在一个无响应的应用程序上时，每次双击都挡住全系统的输入 deadline 那么久，连着几次双击还要一次接一次地等。
+extension TapDecision {
+    /// 钩子线程上，问主线程之前调用：在安静期里返回 nil，调用方直接放行；否则返回一次新的询问。
+    static func ask(through gate: TapAskGate, now: CFAbsoluteTime) -> TapDecision? {
+        gate.shouldAsk(now: now) ? TapDecision() : nil
+    }
+
+    /// 钩子线程上，waitForSwallow 返回之后调用：没按时回话就开始安静期，按时回话了就结束安静期。
+    func record(in gate: inout TapAskGate, now: CFAbsoluteTime) {
+        if isAbandoned {
+            gate.recordUnanswered(now: now)
+        } else {
+            gate.recordAnswered()
         }
     }
 }

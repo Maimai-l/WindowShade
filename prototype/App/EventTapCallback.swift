@@ -4,21 +4,17 @@ import Cocoa
 
 // MARK: - 全局鼠标事件钩子（CGEventTap）
 
-// 钩子回调里的快速预过滤：只用窗口服务器的数据，判断点击位置是否可能落在某个屏幕上窗口的标题栏带内。
+// 钩子回调里的快速预过滤：只用窗口服务器的数据，判断点击位置是否可能落在点击所在窗口的标题栏带内。
 // 窗口服务器查询不依赖目标应用程序是否响应；辅助功能命中测试则是对目标应用程序的同步进程间调用，
 // 回调等待期间全系统的鼠标事件都在排队。
 // 带高取窗口高度和 300 点中较小的一个，宁可多放过（返回 true，走完整判断），也不漏掉标题栏上的双击；
-// 内容区的双击因此不再做辅助功能查询。
+// 内容区的双击因此不再做辅助功能查询。只看点击所在的那扇窗口（最前面包含这个点的普通窗口），
+// 不看它后面被挡住的窗口：后面的窗口顶部正好在点下面时，前面窗口内容区里的双击也会去问前面的应用程序（2026-10-20 代码审查）。
+// 缓存里的前后顺序最多晚 150 毫秒（一个窗口刚到前面时，缓存里前面还是原来那扇，场景 B16）：
+// 照缓存判断不在标题栏上时，再现查一次前后顺序确认，免得漏掉刚到前面的窗口标题栏上的双击。
 func pointMayLieInTitlebarBand(_ point: CGPoint) -> Bool {
-    let windows = WindowListCache.shared.onScreenWindows()
-    let maxTitlebarBand: CGFloat = 300
-    for info in windows {
-        guard let bounds = cgWindowBounds(info) else { continue }
-        let alpha = (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
-        guard alpha > 0, bounds.contains(point) else { continue }
-        if point.y <= bounds.minY + min(maxTitlebarBand, bounds.height) { return true }
-    }
-    return false
+    if titlebarBandMayContain(point, in: WindowListCache.shared.onScreenWindows(), ownPID: getpid()) { return true }
+    return titlebarBandMayContain(point, in: WindowListCache.shared.onScreenWindowsNow(), ownPID: getpid())
 }
 
 /// 标题栏命中测试最多等多久（秒）。双击、三击的判定在主线程上，而且钩子线程最多等 TapDecision.deadline；
@@ -60,6 +56,9 @@ nonisolated(unsafe) var mouseDownTapPort: CFMachPort?
 /// 只拦下按下的话，窗口照样被放大，卷帘条截到的就是放大后的窗口。只在钩子线程上读写。
 nonisolated(unsafe) private var swallowNextMouseUp = false
 
+/// 主线程刚没按时回话时暂时不问（TapAskGate，和钩子进程一样，见 Core/TapDecision.swift）。只在钩子线程上读写。
+nonisolated(unsafe) private var inProcessAskGate = TapAskGate()
+
 func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
                       event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     // 钩子超时被系统停用：立即重新启用。
@@ -81,8 +80,11 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
     swallowNextMouseUp = false
     let clickState = event.getIntegerValueField(.mouseEventClickState)
     guard clickState >= 2 else { return Unmanaged.passUnretained(event) }   // 单击：不问主线程
+    // 主线程刚没按时回话：安静期里的双击、三击不问，直接放行。
+    guard let decision = TapDecision.ask(through: inProcessAskGate, now: CFAbsoluteTimeGetCurrent()) else {
+        return Unmanaged.passUnretained(event)
+    }
     let location = event.location
-    let decision = TapDecision()
     DispatchQueue.main.async {
         guard decision.begin() else { return }
         let swallow = MainActor.assumeIsolated { () -> Bool in
@@ -96,6 +98,7 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
     }
     // 有固定时限（见 Core/TapDecision.swift）：超时就放行，不会一直等主线程。
     let swallow = decision.waitForSwallow()
+    decision.record(in: &inProcessAskGate, now: CFAbsoluteTimeGetCurrent())
     if decision.isAbandoned {
         // 写日志可能要等文件锁：不在钩子线程上写。
         DispatchQueue.global(qos: .utility).async { wlog("event-tap: main thread did not answer in time; click passed through") }

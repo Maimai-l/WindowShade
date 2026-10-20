@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TEST_NAME="${1:-all}"
 case "$TEST_NAME" in
-  all|SettingsNavigationTests|GlanceLifecycleTests|StripTrafficLightTests|OrphanStripTests|StripPoolTests|FoldRevealTests|RecoveryJournalTests|CaptureWindowTests) ;;
+  all|SettingsNavigationTests|GlanceLifecycleTests|StripTrafficLightTests|OrphanStripTests|StripPoolTests|FoldRevealTests|RecoveryJournalTests|CaptureWindowTests|ThumbnailDragTests) ;;
   *) echo "Unknown AppKit test: $TEST_NAME" >&2; exit 2 ;;
 esac
 mkdir -p .build/appkit-tests
@@ -18,7 +18,7 @@ while IFS= read -r source; do
 done < <(rg --files prototype -g '*.swift' -g '!main.swift' -g '!*.app/**' | sort)
 TEST_SOURCE=()
 if [ "$TEST_NAME" = all ]; then
-  TESTS=(SettingsNavigationTests GlanceLifecycleTests StripTrafficLightTests OrphanStripTests StripPoolTests FoldRevealTests RecoveryJournalTests CaptureWindowTests)
+  TESTS=(SettingsNavigationTests GlanceLifecycleTests StripTrafficLightTests OrphanStripTests StripPoolTests FoldRevealTests RecoveryJournalTests CaptureWindowTests ThumbnailDragTests)
 else
   TESTS=("$TEST_NAME")
 fi
@@ -49,6 +49,7 @@ import Cocoa
     case "FoldRevealTests": FoldRevealTests.main()
     case "RecoveryJournalTests": RecoveryJournalTests.main()
     case "CaptureWindowTests": CaptureWindowTests.main()
+    case "ThumbnailDragTests": ThumbnailDragTests.main()
     default: preconditionFailure("Choose an AppKit test suite")
     }
   }

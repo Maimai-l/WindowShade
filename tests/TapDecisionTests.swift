@@ -113,6 +113,37 @@ struct TapDecisionTests {
             t.expect(honoured > 0 && passed > 0, "both outcomes occurred (\(honoured) honoured, \(passed) passed)")
         }
 
+        // 缺陷回归（2026-10-20 代码审查）：WindowShade 自己的钩子（钩子进程用不了时的备用）没有安静期，
+        // 主线程停住时，每次双击都要等满时限，全系统的输入每次都被挡住这么久。时刻由测试传入。
+        t.section("R6", "备用钩子：主线程一次没按时回话，安静期里的双击不问，直接放行")
+        do {
+            var gate = TapAskGate()
+            let start: CFAbsoluteTime = 1000
+            let first = TapDecision.ask(through: gate, now: start)
+            t.expect(first != nil, "the first double click is asked")
+            if let first {
+                _ = first.waitForSwallow(timeout: 0.02)   // 主线程一直没开始：到时放行
+                first.record(in: &gate, now: start + 0.02)
+            }
+            t.expect(TapDecision.ask(through: gate, now: start + 0.5) == nil,
+                     "a double click right after an unanswered one passes through without asking")
+            t.expect(TapDecision.ask(through: gate, now: start + 0.02 + TapAskGate.quietPeriod) != nil,
+                     "after the quiet period the main thread is asked again")
+
+            let answered = TapDecision.ask(through: gate, now: start + 2)
+            t.expect(answered != nil, "asked once the quiet period is over")
+            if let answered {
+                Thread.detachNewThread {
+                    guard answered.begin() else { return }
+                    answered.finish(swallow: true)
+                }
+                t.expect(answered.waitForSwallow(), "a timely answer is honoured")
+                answered.record(in: &gate, now: start + 2.05)
+            }
+            t.expect(TapDecision.ask(through: gate, now: start + 2.1) != nil,
+                     "an answered question does not start a quiet period")
+        }
+
         t.finish()
     }
 }

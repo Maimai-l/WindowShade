@@ -200,6 +200,28 @@ func ordinaryWindowOwner(at point: CGPoint, in windows: [[String: Any]]) -> pid_
     return nil
 }
 
+/// 双击标题栏的快速预过滤（App/EventTapCallback.swift 的 pointMayLieInTitlebarBand）：点是否可能落在标题栏上。
+/// 按窗口列表从前到后，找第一扇包含这个点的普通窗口（层级、不透明度的规则和 ordinaryWindowOwner 一样），
+/// 点在它顶部 maxBand 点（不超过窗口高度）之内才算；被它挡住的窗口不算，点击落不到它们上面。
+/// WindowShade 自己的窗口（ownPID）不挡：点在它的顶部带里算，不在就接着往后看（卷帘条的投影等不接点击的窗口会盖在别的窗口上）。
+/// 要看准前后顺序时传 onScreenWindowsNow()（场景 B16）。
+func titlebarBandMayContain(_ point: CGPoint, in windows: [[String: Any]], ownPID: pid_t, maxBand: CGFloat = 300) -> Bool {
+    for info in windows {
+        let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+        guard layer >= 0, layer < 20,
+              ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
+              let raw = info[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: raw as CFDictionary), bounds.contains(point) else { continue }
+        let inBand = point.y <= bounds.minY + min(maxBand, bounds.height)
+        if (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == ownPID {
+            if inBand { return true }
+            continue
+        }
+        return inBand
+    }
+    return false
+}
+
 func cgWindowInfo(_ id: CGWindowID) -> [String: Any]? {
     // 单窗口直接查询，不走 WindowListCache：Reconcile 的定时核对、收起验证、读回 SkyLight 透明度
     // 都要实时值，而且每次只查一个窗口，开销很小。
