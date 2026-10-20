@@ -60,6 +60,9 @@ nonisolated(unsafe) var mouseDownTapPort: CFMachPort?
 /// 只拦下按下的话，窗口照样被放大，卷帘条截到的就是放大后的窗口。只在钩子线程上读写。
 nonisolated(unsafe) private var swallowNextMouseUp = false
 
+/// 主线程刚没按时回话时暂时不问（TapAskGate，和钩子进程一样，见 Core/TapDecision.swift）。只在钩子线程上读写。
+nonisolated(unsafe) private var inProcessAskGate = TapAskGate()
+
 func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
                       event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     // 钩子超时被系统停用：立即重新启用。
@@ -81,8 +84,11 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
     swallowNextMouseUp = false
     let clickState = event.getIntegerValueField(.mouseEventClickState)
     guard clickState >= 2 else { return Unmanaged.passUnretained(event) }   // 单击：不问主线程
+    // 主线程刚没按时回话：安静期里的双击、三击不问，直接放行。
+    guard let decision = TapDecision.ask(through: inProcessAskGate, now: CFAbsoluteTimeGetCurrent()) else {
+        return Unmanaged.passUnretained(event)
+    }
     let location = event.location
-    let decision = TapDecision()
     DispatchQueue.main.async {
         guard decision.begin() else { return }
         let swallow = MainActor.assumeIsolated { () -> Bool in
@@ -96,6 +102,7 @@ func eventTapCallback(proxy: CGEventTapProxy, type: CGEventType,
     }
     // 有固定时限（见 Core/TapDecision.swift）：超时就放行，不会一直等主线程。
     let swallow = decision.waitForSwallow()
+    decision.record(in: &inProcessAskGate, now: CFAbsoluteTimeGetCurrent())
     if decision.isAbandoned {
         // 写日志可能要等文件锁：不在钩子线程上写。
         DispatchQueue.global(qos: .utility).async { wlog("event-tap: main thread did not answer in time; click passed through") }
