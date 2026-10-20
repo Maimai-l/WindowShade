@@ -32,7 +32,8 @@ struct FoldCallbackStamp: Equatable, Sendable {
     }
 
     /// 是不是同一次收起：窗口、进程、事务号、收起方式都相同。故意不看时间和呈现编号（`foldPresentationID`，切桌面或显示器变化时换新）：
-    /// 那些只说明回调晚了，不说明这扇窗口被别的操作接手了。只给过期的收起验证收尾用，它据此重新读真实状态再决定。
+    /// 那些只说明回调晚了，不说明这扇窗口被别的操作接手了。用的地方都会据此重新读真实状态再决定：
+    /// 过期的收起验证收尾，以及用户叫回应用程序以后的复查。
     func sameFold(as current: Self) -> Bool {
         current.window == window && current.pid == pid && current.transaction == transaction && current.hide == hide
     }

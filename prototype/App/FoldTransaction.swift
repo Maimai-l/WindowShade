@@ -719,7 +719,8 @@ extension AppDelegate {
             wlog("ignore early app reveal notification=\(source) id=\(id) app=\(state.appName); checking again after the window")
             let wait = max(0, state.ignoreAppRevealUntil.timeIntervalSinceNow) + 0.05
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
-                guard let self, self.foldCallbackIsCurrent(expected), let current = self.shaded[id], current.hide == .hidden,
+                guard let self, self.foldRevealIsSameFold(expected, step: "early reveal recheck"),
+                      let current = self.shaded[id], current.hide == .hidden,
                       !MainActor.assumeIsolated({ self.glance.holdsReveal(id) }) else { return }
                 self.unshadeAfterAppShown(id, expected: expected, attemptsLeft: 10)
             }
@@ -745,7 +746,7 @@ extension AppDelegate {
     /// 辅助功能的“已显示”通知有时比 NSRunningApplication.isHidden 的更新早到（场景 B06）：
     /// 这时每 0.1 秒再看一次，最多 1 秒，不能直接放弃，否则要等下一次定期检查（5 秒）才展开。
     func unshadeAfterAppShown(_ id: CGWindowID, expected: FoldCallbackStamp, attemptsLeft: Int) {
-        guard foldCallbackIsCurrent(expected), let state = shaded[id],
+        guard foldRevealIsSameFold(expected, step: "unfold after app shown"), let state = shaded[id],
               let app = runningApp(pid: state.pid), !app.isTerminated else { return }
         if app.isHidden {
             guard attemptsLeft > 0 else {
