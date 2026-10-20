@@ -156,6 +156,22 @@ func setSystemDoubleClick(_ value: String?) {
     else { run("/usr/bin/defaults", ["delete", "-g", "AppleActionOnDoubleClick"]) }
 }
 
+/// 系统设置“双击窗口标题栏时”现在的值；没有设置过（键不存在）时为 nil，交给 setSystemDoubleClick 就是删掉这个键。
+/// 和 run-on-this-mac.sh 的 remember 一样用 defaults 读：键不存在时 defaults 以非 0 退出。
+func systemDoubleClick() -> String? {
+    let process = Process()
+    let pipe = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+    process.arguments = ["read", "-g", "AppleActionOnDoubleClick"]
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    guard (try? process.run()) != nil else { return nil }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return nil }
+    return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 let foldScenarios: [Scenario] = [
     Scenario(id: "A01", title: "文本编辑：双击标题栏收起、展开", options: []) { _, h in
         await realAppRoundTrip("com.apple.TextEdit", launch: ["-a", "TextEdit"], size: CGSize(width: 700, height: 460),
