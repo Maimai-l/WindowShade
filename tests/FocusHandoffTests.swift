@@ -163,6 +163,35 @@ struct FocusHandoffTests {
             t.expect(!control.focused.contains(2), "焦点没有给窗口 2")
         }
 
+        t.section("F4", "别的应用程序已被收起、停在屏幕角落的窗口：不交给它，也不激活那个应用程序（场景 A37 的跨应用程序情形）")
+        do {
+            // 访达的窗口收起后停在屏幕角落，还露出 1 像素，算在屏幕上、范围仍是整扇窗口。交给它、激活访达，
+            // 访达到前台时它的当前窗口正是这扇，WindowShade 就把它展开了（unshadeParkedWindowOnActivation）。
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            let parkedFrame = CGRect(x: 1439, y: 899, width: 600, height: 400)
+            let parked = FakeWindow(id: 40, pid: otherPID, frame: parkedFrame)
+            control.appWindows[otherPID] = [parked]
+            let thirdPID: pid_t = 60
+            let heir = FakeWindow(id: 50, pid: thirdPID, frame: frame)
+            control.appWindows[thirdPID] = [heir]
+            control.regularApps = [otherPID, thirdPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(40, otherPID, bounds: parkedFrame), onScreen(50, thirdPID)]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID, folded: [40]))
+            t.expect(result == .otherApp(pid: thirdPID), "交给应用程序 \(thirdPID)，不交给已收起的窗口 40（结果 \(result)）")
+            t.expect(!control.focused.contains(40) && !control.activated.contains(otherPID),
+                     "焦点没有给窗口 40，也没有激活应用程序 \(otherPID)（焦点 \(control.focused)，激活 \(control.activated)）")
+
+            let alone = FakeFocusControl()
+            alone.appWindows[appPID] = [original]
+            alone.appWindows[otherPID] = [parked]
+            alone.regularApps = [otherPID]
+            alone.onScreen = [onScreen(1, appPID), onScreen(40, otherPID, bounds: parkedFrame)]
+            let nowhere = FocusHandoff(control: alone).handOff(request(frontmost: appPID, folded: [40]))
+            t.expect(nowhere == .nowhere, "当前桌面上别的窗口都已收起：无处交接（结果 \(nowhere)）")
+            t.expect(alone.focused.isEmpty && alone.activated.isEmpty, "没有转移焦点，也没有激活应用程序 \(otherPID)")
+        }
+
         t.section("F4", "当前桌面没有可以接收焦点的窗口：不交接，隐藏应用程序不安全")
         do {
             let control = FakeFocusControl()
