@@ -156,7 +156,7 @@ func setSystemDoubleClick(_ value: String?) {
     else { run("/usr/bin/defaults", ["delete", "-g", "AppleActionOnDoubleClick"]) }
 }
 
-/// 系统设置“双击窗口标题栏时”现在的值；没有设置过（键不存在）时为 nil，交给 setSystemDoubleClick 就是删掉这个键。
+/// 系统设置“双击窗口标题栏时”现在的值；没有设置过（键不存在）时为 nil，把 nil 传给 setSystemDoubleClick 会删掉这个键。
 /// 和 run-on-this-mac.sh 的 remember 一样用 defaults 读：键不存在时 defaults 以非 0 退出。
 func systemDoubleClick() -> String? {
     let process = Process()

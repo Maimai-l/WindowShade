@@ -81,7 +81,7 @@ func pressAppMenu(_ pid: pid_t, menu: String, item: String) async -> Bool {
 }
 
 /// 各个应用程序（连同 WindowShade 自己的卷帘条）里已经最小化的窗口，记成“应用程序名: 窗口标题”。
-/// 每次辅助功能调用最多等 0.3 秒：前面的场景留下的无响应应用程序不能让这里停住。
+/// 每次辅助功能调用最多等 0.3 秒，以免前面场景留下的、没有响应的应用程序让这里一直等下去。
 func minimizedWindowNames() -> Set<String> {
     var names: Set<String> = []
     for app in NSWorkspace.shared.runningApplications
@@ -222,12 +222,12 @@ let unfoldScenarios: [Scenario] = [
         await expectRestored(probe, frame, h, within: 3)
         await expectNoStrip(h, within: 2)
     },
-    // 代码审查的一条待定发现：macOS 14、15 上，标题栏的双击动作在第二次按下时执行（macOS 26 改在第二次松开时，
+    // macOS 14、15 上，系统在第二次按下时执行标题栏的双击动作（macOS 26 改在第二次松开时，
     // 见 prototype/App/EventTapCallback.swift 里 swallowNextMouseUp 的说明）。双击卷帘条展开时，第二次按下可能被卷帘条
-    // 自己的标题栏当成一次双击，按系统设置把卷帘条或刚展开的窗口最小化。用户的 macOS 14.5 本机日志里，
-    // 系统设为“缩放”时 900 次双击都没有出现，设为“最小化”时没有数据。
-    // CI 的机器是 macOS 26，在那里这条只确认没有退步；这个问题要在 macOS 14、15 上本机运行才测得到（make-mac-kit.sh）。
-    Scenario(id: "B19", title: "系统设为双击最小化：双击卷帘条展开，窗口回到原处，不进程序坞", options: [],
+    // 自己的标题栏当成双击，按系统设置把卷帘条或刚展开的窗口最小化。这个问题是代码审查提出的，还没有证实：
+    // 用户的 macOS 14.5 本机日志里，设为“缩放”时 900 次双击都没有出现这种情况，设为“最小化”时还没有数据。
+    // CI 的机器是 macOS 26，只能确认那里不出这个问题；要用 make-mac-kit.sh 打出测试包，在 macOS 14、15 上本机运行才测得到。
+    Scenario(id: "B19", title: "系统设置里双击标题栏时最小化：双击卷帘条展开，窗口回到原位置，没有最小化", options: [],
              changesSettings: true) { _, h in
         let original = systemDoubleClick()
         setSystemDoubleClick("Minimize")
@@ -238,7 +238,7 @@ let unfoldScenarios: [Scenario] = [
         guard now == "Minimize" else {
             h.result.violations.append("B19: setup: AppleActionOnDoubleClick is \(now ?? "absent"), not Minimize"); return
         }
-        // 用户一直设成“最小化”：让 WindowShade 在这个设置下启动，和用户的情形一样。
+        // 先改成“最小化”，再重新启动 WindowShade，和平时就这样设置的用户一样。
         _ = await relaunchWindowShade()
         let textEdit = "com.apple.TextEdit"
         let textEditWasRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: textEdit).isEmpty
@@ -262,7 +262,7 @@ let unfoldScenarios: [Scenario] = [
               let window = opened else {
             h.result.violations.append("B19: setup: TextEdit did not open the note"); cleanUp(); return
         }
-        // 测试窗口可能盖在文本编辑的标题栏上：和 realAppRoundTrip 一样，用辅助功能把文本编辑和这扇窗口带到最前面。
+        // 测试窗口（Probe 1）可能盖在文本编辑的标题栏上：和 realAppRoundTrip 一样，用辅助功能把文本编辑和这扇窗口带到最前面。
         if let app = NSRunningApplication.runningApplications(withBundleIdentifier: textEdit).first {
             AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         }
@@ -271,11 +271,11 @@ let unfoldScenarios: [Scenario] = [
         guard let folded = await fold(window, at: CGPoint(x: 160, y: 120), size: CGSize(width: 700, height: 460), h) else {
             h.result.violations.append("B19: setup: cannot read the TextEdit window frame"); cleanUp(); return
         }
-        // 没有收起时 fold 已经记下了。
+        // 没有收起时，fold 已经记下违规（setup: the window did not fold），这里只收尾。
         guard !stripFrames().isEmpty else { cleanUp(); return }
         h.result.notes["frame"] = "\(folded.frame)"
 
-        // 双击卷帘条展开，之后 1.5 秒内每 0.1 秒看一次有没有窗口新进了程序坞（双击之前就在程序坞里的不算）。
+        // 双击卷帘条展开，之后 1.5 秒内每 0.1 秒看一次有没有窗口刚被最小化（双击之前就已最小化的不算）。
         let minimizedBefore = minimizedWindowNames()
         await doubleClick(at: folded.titleBar)
         var newlyMinimized: Set<String> = []
@@ -295,7 +295,7 @@ let unfoldScenarios: [Scenario] = [
         }
         h.expect(appWindowOnScreen(textEdit, at: folded.frame),
                  "B19: the TextEdit window is not on screen at \(folded.frame) after unfolding")
-        // 卷帘条把系统的标题栏双击动作转给原窗口时，日志里有 “traffic: minimize forwarded” 这类行（FoldTransaction.swift）。
+        // 卷帘条把系统的标题栏双击动作转给原窗口时，日志里有“traffic: minimize forwarded”这类记录（FoldTransaction.swift）。
         let forwarded = h.logLines().filter { line in
             ["traffic: minimize", "traffic: zoom", "traffic: fullScreen"].contains { line.contains($0) }
         }

@@ -253,7 +253,7 @@ private struct ShadeSettings: View {
             soundPicker(SettingsCopy.foldSound, $model.foldSound)
             soundPicker(SettingsCopy.unfoldSound, $model.unfoldSound)
         }
-        // 和系统设置的“通用”一样，登录时打开和更新放在这一页。
+        // 和系统设置的“通用”一样，“登录时打开”和“更新”一组放在这一页。
         Section {
             Toggle(isOn: $model.launchAtLogin) {
                 Text(SettingsCopy.launchAtLogin)

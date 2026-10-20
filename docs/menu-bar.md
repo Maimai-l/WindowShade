@@ -18,7 +18,7 @@
 ## 现在
 
 ```text
-  rectangle.compress.vertical  收起当前窗口
+  rectangle.compress.vertical  收起当前窗口     （当前窗口已收起时是展开当前窗口）
   rectangle.grid.1x2           整理卷帘条       （选“缩略图”时是整理缩略图）
 ────────
   （收着窗口时才出现）已收起的窗口 … · 全部展开
