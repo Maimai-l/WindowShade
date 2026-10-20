@@ -516,14 +516,21 @@ func chromeHeight(of win: AXUIElement, winTop: CGFloat, winSize: CGSize? = nil, 
     return min(h, 300)
 }
 
+/// 双击判定用的标题栏高度。收起时解析过的外形、或 2 秒内量过的命中高度还新鲜时直接用（按元素身份和窗口尺寸校验）；
+/// 否则当场量一次（双击时在主线程上，几十次辅助功能请求），量出的高度存进缓存，
+/// 随后收起时的外形解析和接着的双击都不用再量。cache、measure 只为测试注入。
 func titlebarHitHeight(of win: AXUIElement, id: CGWindowID,
-                       winTop: CGFloat, winSize: CGSize, pid: pid_t) -> CGFloat {
-    // 双击判定的第一下已解析过完整 profile 的话，第二下直接取缓存，不再重跑
-    // 整棵 AX 子树的 chrome 计算（cache 按元素身份 + 窗口尺寸校验新鲜度）。
-    if let cached = ChromeProfileCache.shared.cachedHitBarHeight(id: id, win: win, size: winSize) {
+                       winTop: CGFloat, winSize: CGSize, pid: pid_t,
+                       cache: ChromeProfileCache = .shared,
+                       measure: (AXUIElement, CGFloat, CGSize, pid_t) -> CGFloat = {
+                           measuredTitlebarHitHeight(of: $0, winTop: $1, winSize: $2, pid: $3)
+                       }) -> CGFloat {
+    if let cached = cache.cachedHitBarHeight(id: id, win: win, size: winSize) {
         return cached
     }
-    return measuredTitlebarHitHeight(of: win, winTop: winTop, winSize: winSize, pid: pid)
+    let measured = measure(win, winTop, winSize, pid)
+    cache.storeHitBarHeight(measured, id: id, win: win, size: winSize)
+    return measured
 }
 
 /// 不看缓存、当场量。只有辅助功能查询，不读写 ChromeProfileCache，可以在后台线程上做。

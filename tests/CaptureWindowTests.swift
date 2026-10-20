@@ -8,6 +8,7 @@ struct CaptureWindowTests {
   @MainActor
   static func main() {
     toolbarSearchStopsAtTheNodeBudget()
+    titlebarHitHeightIsMeasuredOnce()
     print("PASS CaptureWindowTests")
   }
 
@@ -34,5 +35,29 @@ struct CaptureWindowTests {
     var nested = axTraversalNodeBudget
     precondition(firstDescendant(of: 0, maxDepth: 2, nodeBudget: &nested, children: children,
                                  matches: { $0 == 1 * 41 + 5 }) == 46, "a toolbar one level down is found within the budget")
+  }
+
+  /// 双击判定量出的标题栏高度要存起来：以前只有收起时的外形解析会填缓存，
+  /// 每次双击都在主线程上重新量一遍（几十次辅助功能请求）。
+  @MainActor
+  static func titlebarHitHeightIsMeasuredOnce() {
+    let cache = ChromeProfileCache()
+    // 只建元素，不发请求。
+    let window = AXUIElementCreateApplication(4242)
+    let other = AXUIElementCreateApplication(4243)
+    let size = CGSize(width: 800, height: 600)
+    var measured = 0
+    func hit(_ element: AXUIElement, _ size: CGSize) -> CGFloat {
+      titlebarHitHeight(of: element, id: 77, winTop: 100, winSize: size, pid: 4242, cache: cache,
+                        measure: { _, _, _, _ in measured += 1; return 52 })
+    }
+    precondition(hit(window, size) == 52 && measured == 1, "the first double-click measures")
+    precondition(hit(window, size) == 52 && measured == 1, "the next double-click on the same window uses the stored height")
+    precondition(cache.cachedHitBarHeight(id: 77, win: window, size: size) == 52,
+                 "the fold's profile resolution sees the stored height")
+    _ = hit(window, CGSize(width: 900, height: 600))
+    precondition(measured == 2, "a resized window is measured again")
+    _ = hit(other, CGSize(width: 900, height: 600))
+    precondition(measured == 3, "another element with the same window number is measured again")
   }
 }
