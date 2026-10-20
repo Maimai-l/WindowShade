@@ -167,6 +167,26 @@ struct WindowHiderTests {
             t.expect(hide != .minimized, "应用程序在别处还有窗口：不最小化，免得系统让那扇窗口接手、切换桌面（实际 \(hide)）")
         }
 
+        t.section("R2", "先移到屏幕外的策略（Safari、Codex）也一样：没有窗口能接手焦点、只有这一扇窗口时最小化，不移到屏幕外")
+        do {
+            // 移到屏幕外以后应用程序仍在前台，键盘输入落进看不见的窗口，点程序坞图标也不会让它回来
+            // （没有录屏权限、外观改为简化标题栏时，焦点不会先交给卷帘条，每次都走到这里）。
+            for policy in [ShadePolicy.offscreenThenFallback(allowAppHide: true), .offscreenForLivePreview] {
+                let control = FakeWindowControl(position: start, size: size, allowedOrigins: anywhere)
+                let hider = WindowHider(control: control)
+                let hide = hider.hide(request(policy, appHideSafe: false, noFocusHeir: true))
+                t.expect(hide == .minimized, "\(policy.logDescription)：结果为 minimized（实际 \(hide)）")
+                t.expect(control.calls == ["minimize"], "\(policy.logDescription)：只调用了最小化（实际 \(control.calls)）")
+            }
+            for policy in [ShadePolicy.offscreenThenFallback(allowAppHide: true), .offscreenForLivePreview] {
+                let control = FakeWindowControl(position: start, size: size, allowedOrigins: anywhere)
+                control.totalWindows = 2
+                let hider = WindowHider(control: control)
+                let hide = hider.hide(request(policy, appHideSafe: false, noFocusHeir: true))
+                t.expect(hide == .offscreen, "\(policy.logDescription)：应用程序在别处还有窗口时照旧移到屏幕外（实际 \(hide)）")
+            }
+        }
+
         t.finish()
     }
 }
