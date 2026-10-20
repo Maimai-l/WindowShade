@@ -1,6 +1,6 @@
 # 文案规则
 
-WindowShade 的界面文字照 macOS 自带 App 和“系统设置”的中文写法。拿不准时，找系统里同类的地方照着写，不另起说法。
+WindowShade 的界面文字照 macOS 自带 App 和“系统设置”的中文写法。拿不准时，在 [`apple-zh-strings.tsv.gz`](apple-zh-strings.tsv.gz) 里找同类的说法照着写，不另起说法。这份文件是 macOS 26 “系统设置”各页和访达的简体中文界面文字，由 CI 的 Test runners 任务取出（`.github/scripts/apple-zh-strings.py`），例如 `gzip -dc docs/apple-zh-strings.tsv.gz | grep -a 若要`。
 
 ## 规则
 

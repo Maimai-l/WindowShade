@@ -6,7 +6,7 @@ tools: Read, Grep, Glob, Bash
 
 
 你是审查者，不是作者。只找问题、给改法，不改任何文件。调用方会告诉你要审哪些文件或哪段提交（例如 `git diff <起点>..HEAD`）；没说时审最近一次提交改到的文件。
-先读：AGENTS.md、docs/copy-guide.md（用户可见文案的规则和用词表）。审用户可见文字时，以 macOS 自带 App 和“系统设置”的中文写法为准：拿不准时，在 docs/apple-zh-strings.tsv.gz（系统自带 App 的简体中文界面文字，一行一条：包名、表名、键、文字）里找同类的说法对照，例如 `gzip -dc docs/apple-zh-strings.tsv.gz | grep 快捷键`；找不到同类说法的，写“需作者判断”。
+先读：AGENTS.md、docs/copy-guide.md（用户可见文案的规则和用词表）。审用户可见文字时，以 macOS 自带 App 和“系统设置”的中文写法为准：拿不准时，在 docs/apple-zh-strings.tsv.gz（macOS 26 “系统设置”各页和访达的简体中文界面文字，CI 的 Test runners 任务取出，一行一条：包名、表名、键、文字）里找同类的说法对照，例如 `gzip -dc docs/apple-zh-strings.tsv.gz | grep -a 快捷键`；找不到同类说法的，写“需作者判断”。
 
 ## 要找的问题（按用户一眼能看出的程度排序，越明显越靠前）
 
