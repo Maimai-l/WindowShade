@@ -22,9 +22,9 @@ enum WindowShadeSettingsSection: Int, CaseIterable {
 
   var title: String {
     switch self {
-    case .shade: return "卷帘"
+    case .shade: return "通用"
     case .shortcuts: return "快捷键"
-    case .permissions: return "权限与启动"
+    case .permissions: return "权限与更新"
     case .advanced: return "高级"
     }
   }

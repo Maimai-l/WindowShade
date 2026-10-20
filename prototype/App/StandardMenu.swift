@@ -129,7 +129,7 @@ enum StandardMenu {
                                     keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(hideOthers)
-        menu.addItem(withTitle: "显示全部",
+        menu.addItem(withTitle: "全部显示",
                      action: #selector(NSApplication.unhideAllApplications(_:)),
                      keyEquivalent: "")
         menu.addItem(.separator())

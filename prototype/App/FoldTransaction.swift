@@ -157,7 +157,7 @@ extension AppDelegate {
         _ = applyRestoredGeometry(state, to: state.originalPosition, label: "rollback", reason: "restore")
         forceCleanup(id, preserveRecovery: true)
         verifyRestoredWindow(state, to: state.originalPosition, completion: nil)
-        quietNotice("没能收起这个窗口",
+        quietNotice("未能移开窗口，没有收起",
                     log: "shade: transaction rolled back id=\(id) app=\(state.appName)")
     }
 

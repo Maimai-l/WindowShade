@@ -51,7 +51,7 @@ struct HotKey: Equatable {
         kVK_UpArrow: ("arrow.up", "上箭头"), kVK_DownArrow: ("arrow.down", "下箭头"),
         kVK_Return: ("return", "Return"), kVK_Delete: ("delete.left", "Delete"),
         kVK_ForwardDelete: ("delete.right", "向前删除"), kVK_Escape: ("escape", "Esc"),
-        kVK_Tab: ("arrow.right.to.line", "Tab"), kVK_Space: ("space", "空格"),
+        kVK_Tab: ("arrow.right.to.line", "Tab"), kVK_Space: ("space", "空格键"),
         kVK_Home: (nil, "Home"), kVK_End: (nil, "End"),
         kVK_PageUp: (nil, "Page Up"), kVK_PageDown: (nil, "Page Down"),
         kVK_F1: (nil, "F1"), kVK_F2: (nil, "F2"), kVK_F3: (nil, "F3"), kVK_F4: (nil, "F4"),

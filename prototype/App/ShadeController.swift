@@ -35,7 +35,7 @@ extension AppDelegate {
     func toggle() {
         guard ensureAccessibility() else {
             showPermissionOnboardingIfNeeded(force: true)
-            quietNotice("要先允许辅助功能", log: "toggle: 无辅助功能权限")
+            quietNotice("请先允许辅助功能", log: "toggle: 无辅助功能权限")
             return
         }
         if let shadedID = currentShadedOverlayID() {
@@ -219,13 +219,13 @@ extension AppDelegate {
         }
         guard admissionCurrent() else { return }
         guard let readout else {
-            quietNotice("没能收起这个窗口", log: "shade: 取不到 pos/size")
+            quietNotice("未能读取窗口位置，没有收起", log: "shade: 取不到 pos/size")
             return
         }
         let pos = readout.pos
         let size = readout.size
         guard readout.isWindow else {
-            quietNotice("这里不能收起", log: "shade: reject non-window role=\(readout.role ?? "?") id=\(id)")
+            quietNotice("只能收起窗口", log: "shade: reject non-window role=\(readout.role ?? "?") id=\(id)")
             return
         }
         let bundleID = appBundleID(pid: pid)
@@ -313,7 +313,7 @@ extension AppDelegate {
                 dismissOverlay(overlay)
                 transitionOperationState(id: id, to: .failed, reason: "recovery-intent-write-failed")
                 completeFold(success: false)
-                quietNotice("没能收起这个窗口", log: "shade: refusing hide without durable intent id=\(id)")
+                quietNotice("未能保存窗口位置，没有收起", log: "shade: refusing hide without durable intent id=\(id)")
                 return
             }
             // 隐藏前再核对一次：窗口仍属于这个应用程序、窗口号没变、这次收起仍然有效。
@@ -547,7 +547,7 @@ extension AppDelegate {
         }
 
         guard #available(macOS 14.0, *) else {
-            quietNotice("需要 macOS 14 或更高版本", log: "shade: ScreenCaptureKit unavailable on this macOS")
+            wlog("shade: ScreenCaptureKit unavailable on this macOS")
             return
         }
         handedToAsyncCapture = true
@@ -674,7 +674,7 @@ extension AppDelegate {
             wlog("    capture full=\(full.width)x\(full.height) scale=\(preparation.scale) fixedBarH=\(preparation.fixedBarH.map { String(format: "%.1f", $0) } ?? "-") visualBarH=\(preparation.visualBarH.map { String(Int($0)) } ?? "-") fallbackBarH=\(Int(preparation.fallbackBarH)) standardBarH=\(String(format: "%.1f", preparation.standardBarH)) finalBarH=\(String(format: "%.1f", barH)) buttons=\(buttonRects.count) windowManagement=\(windowManagementCapability) cropPxH=\(max(1, Int(ceil(barH * preparation.scale)))) boundary=\(preparation.boundary)")
             guard let strip = preparation.strip else {
                 activateApp(pid: pid)
-                quietNotice("没能收起这个窗口", log: "shade: 裁剪失败")
+                quietNotice("未能截取标题栏，没有收起", log: "shade: 裁剪失败")
                 return
             }
             if preparation.brokenHealth.0 {

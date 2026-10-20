@@ -286,7 +286,7 @@ extension AppDelegate {
         let arrangedThumbnails = arrangeThumbnailEntries(thumbnails)
         let arrangedStrips = arrangeShadedEntries(strips, reason: "housekeeping")
         guard arrangedThumbnails || arrangedStrips else {
-            quietNotice("没有收起的窗口", log: "arrange: no shaded overlays")
+            quietNotice("没有已收起的窗口", log: "arrange: no shaded overlays")
             return
         }
     }

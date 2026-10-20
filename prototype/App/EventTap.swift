@@ -83,8 +83,8 @@ extension AppDelegate {
             let duplicated = failed.filter { $0.value.status == OSStatus(eventHotKeyExistsErr) }
             let taken = failed.filter { $0.value.status != OSStatus(eventHotKeyExistsErr) }
             var parts: [String] = []
-            if !taken.isEmpty { parts.append("其他应用已占用：\(names(taken))") }
-            if !duplicated.isEmpty { parts.append("和 WindowShade 的另一个快捷键重复：\(names(duplicated))") }
+            if !taken.isEmpty { parts.append("快捷键已被使用：\(names(taken))") }
+            if !duplicated.isEmpty { parts.append("快捷键重复：\(names(duplicated))") }
             quietNotice(parts.joined(separator: "；"),
                         log: "hotkey: registration failed "
                             + failed.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.status)" }

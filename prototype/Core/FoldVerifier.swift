@@ -18,7 +18,7 @@ final class FoldVerifier {
 
     /// 收起验证途中过期以后怎么收尾。过期是因为机器很忙、主线程一直没空，超过了时限。
     /// 切桌面、显示器变化换了呈现编号不算过期（见 FoldCallbackStamp.acceptsIgnoringPresentation）。
-    /// 以前过期就丢掉：窗口已经藏起来，卷帘条却没显示，也没提示“这个窗口可能没有收起”，也没回滚，用户看到窗口凭空消失
+    /// 以前过期就丢掉：窗口已经藏起来，卷帘条却没显示，也没提示“窗口可能未收起”，也没回滚，用户看到窗口凭空消失
     /// （上游 surfine/WindowShade 2d66e57：虚拟机上安装阶段用了 9.5 秒）。
     enum ExpiredVerdict: Equatable, Sendable {
         /// 这扇窗口已经是另一次收起，或已经展开、清理：旧的收起验证不处理。
@@ -27,7 +27,7 @@ final class FoldVerifier {
         case complete
         /// 重新读到窗口还在：回滚。
         case rollback
-        /// 读不准：照样显示卷帘条，提示“这个窗口可能没有收起，双击展开”，保留恢复记录。
+        /// 读不准：照样显示卷帘条，提示“窗口可能未收起，双击展开”，保留恢复记录。
         case retainUnconfirmed
     }
 

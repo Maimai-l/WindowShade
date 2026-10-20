@@ -102,7 +102,7 @@ final class GlanceContentView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel("看一眼：\(accessibilityTitle)")
-        setAccessibilityHelp("单击展开这个窗口")
+        setAccessibilityHelp("单击展开窗口")
     }
 
     required init?(coder: NSCoder) { nil }

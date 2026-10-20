@@ -70,12 +70,12 @@ let shadeCaptureTimeoutNanoseconds: UInt64 = 450_000_000
 let shadeDefaultFoldSound = "Purr"
 let shadeDefaultUnfoldSound = "Pop"
 let shadeSoundChoices: [(label: String, name: String)] = [
-    ("柔和（Purr）", "Purr"),
-    ("低沉（Submarine）", "Submarine"),
-    ("轻吹（Blow）", "Blow"),
-    ("轻响（Tink）", "Tink"),
-    ("清脆（Glass）", "Glass"),
-    ("弹响（Pop）", "Pop")
+    ("Purr", "Purr"),
+    ("Submarine", "Submarine"),
+    ("Blow", "Blow"),
+    ("Tink", "Tink"),
+    ("Glass", "Glass"),
+    ("Pop", "Pop")
 ]
 /// main.swift 启动时在主线程写一次，之后只读。
 nonisolated(unsafe) var appDelegate: AppDelegate?
@@ -491,7 +491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         contentView.setAccessibilityRole(NSAccessibility.Role.button)
         contentView.setAccessibilityLabel(label)
         contentView.setAccessibilityValue("已收起")
-        contentView.setAccessibilityHelp("展开这个窗口")
+        contentView.setAccessibilityHelp(PaperSurfaceAccessibility.stripHelp())
         contentView.setAccessibilityCustomActions(actions)
     }
 

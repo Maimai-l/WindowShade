@@ -7,8 +7,8 @@ import SwiftUI
 enum WelcomeCopy {
     static let title = "欢迎使用 WindowShade"
     static let lede = "两项都允许后就可以开始使用。"
-    static let standardAccount = "允许这两项时，要输入管理员的用户名和密码。"
-    static let later = "稍后再说"
+    static let standardAccount = "允许这两项需要输入管理员名称和密码。"
+    static let later = "以后"
     static let start = "开始使用"
 
     static var all: [String] { [title, lede, standardAccount, later, start] }
@@ -53,7 +53,7 @@ struct WelcomeContent: View {
 
             HStack {
                 Spacer()
-                // 没授权时显示“稍后再说”；两项都授权后才能点“开始使用”。
+                // 没授权时显示“以后”；两项都授权后才能点“开始使用”。
                 if !status.allGranted {
                     Button(WelcomeCopy.later, action: onLater)
                 }

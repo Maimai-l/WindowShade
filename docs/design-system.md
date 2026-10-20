@@ -292,7 +292,7 @@ WWDC25 356、WWDC23 10158 和 HIG 是其他讲者或文档给的补充来源。�
 | 网格 | `rectangle.split.3x3` |
 | 调度中心 / 窗口浏览 | `rectangle.3.group` / `rectangle.on.rectangle` |
 | 快捷键 | `command` |
-| 权限与启动 | `lock.shield` |
+| 权限与更新 | `lock.shield` |
 | 高级 | `gearshape.2` |
 | 已授权 | `checkmark.circle.fill`（绿色） |
 | 按键 | `control` / `option` / `shift` / `command`；`arrow.left` 等方向键、`return`、`delete.left`、`delete.right`、`escape`、`arrow.right.to.line`（Tab）、`space` |
@@ -310,7 +310,7 @@ WWDC25 356、WWDC23 10158 和 HIG 是其他讲者或文档给的补充来源。�
 ### 5.4 欢迎窗口（App/Welcome.swift）
 
 - **结构**：一页两项授权（辅助功能、屏幕录制）。
-- **内容**：按钮只用“开始使用”，没授权时旁边显示“稍后再说”。
+- **内容**：按钮只用“开始使用”，没授权时旁边显示“以后”。
 - **价值观**：V2 只问真正要用的两项授权，手势留给用的时候。V5 每一行旁边有一句话，VoiceOver 能读到。V6 标题说用户得到什么，不列功能。
 
 ### 5.5 App 图标（assets/app-icon/WindowShade.icns，build.sh）

@@ -20,9 +20,9 @@ enum SettingsCopy {
     static let thumbnailTranslucency = "缩略图透明度"
 
     static let sound = "声音"
-    static let playSound = "收起和展开时播放音效"
-    static let foldSound = "收起音效"
-    static let unfoldSound = "展开音效"
+    static let playSound = "收起和展开时播放声音"
+    static let foldSound = "收起声音"
+    static let unfoldSound = "展开声音"
 
     static let permissions = "权限"
     static let accessibility = "辅助功能"
@@ -54,8 +54,8 @@ enum SettingsCopy {
     static let recording = "现在按下按键"
     /// “按编号展开”只换修饰键：按住修饰键再按一个键，界面上提示按数字。
     static let recordingModifiers = "按住修饰键并按下数字键"
-    static let needsControlOrOption = "组合里要有 Control 或 Option"
-    static let reservedBySystem = "系统已占用这个组合"
+    static let needsControlOrOption = "必须包含 Control 或 Option"
+    static let reservedBySystem = "快捷键已被系统使用"
     static func usedBy(_ name: String) -> String { "已用于：\(name)" }
 
     static let welcomeWindow = "欢迎使用 WindowShade"

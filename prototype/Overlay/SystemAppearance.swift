@@ -398,9 +398,9 @@ enum PaperSurfaceAccessibility {
         "双击展开窗口"
     }
 
-    /// 状态栏按钮的可访问性值：读成“没有收起的窗口 / N 个收起的窗口”，不只读一个数字。
+    /// 状态栏按钮的可访问性值：读成“没有已收起的窗口 / N 个已收起的窗口”，不只读一个数字。
     static func statusItemValue(foldedCount: Int) -> String {
-        foldedCount <= 0 ? "没有收起的窗口" : "\(foldedCount) 个收起的窗口"
+        foldedCount <= 0 ? "没有已收起的窗口" : "\(foldedCount) 个已收起的窗口"
     }
 
     static let statusItemLabel = "WindowShade"

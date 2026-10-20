@@ -84,11 +84,11 @@ enum FoldRejection: Error, Equatable, Sendable {
 
     var notice: String {
         switch self {
-        case .offSpace: return "窗口在屏幕外"
+        case .offSpace: return "窗口不在当前桌面，不能收起"
         case .fullScreen: return "全屏时不能收起"
         case .minimized: return "已最小化的窗口不能收起"
-        case .hasSheet: return "先关掉窗口上的对话框"
-        case .modalDialog: return "先关掉弹出的对话框"
+        case .hasSheet: return "请先关闭窗口上的对话框"
+        case .modalDialog: return "请先关闭对话框"
         case .quickLookWithoutFile: return "找不到快速查看的文件"
         case .adobePanel: return "浮动面板不能收起"
         case .noTitleBar: return "没有标题栏的窗口不能收起"
