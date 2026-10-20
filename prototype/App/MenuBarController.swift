@@ -55,7 +55,6 @@ extension AppDelegate {
 
     let menuState = makeMenuState()
 
-    statusMenu.addItem(.sectionHeader(title: "当前窗口"))
     func action(_ title: String, _ symbol: String, _ selector: Selector,
                 _ shortcut: GlobalShortcut? = nil, enabled: Bool = true, menu: NSMenu? = nil) {
       let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
@@ -64,7 +63,7 @@ extension AppDelegate {
       if let shortcut { applyShortcut(shortcut, to: item) }
       (menu ?? statusMenu).addItem(item)
     }
-    let foldTitle = foldToggleMenuTitle().replacingOccurrences(of: "当前窗口", with: "窗口")
+    let foldTitle = foldToggleMenuTitle()
     action(foldTitle,
            foldTitle.contains("展开") ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
            #selector(toggleAction), .toggleShade)
