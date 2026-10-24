@@ -30,7 +30,7 @@ struct GlanceTarget {
     /// 整扇窗口的画面在卡片里的位置，超出卡片的部分（标题栏、屏幕外）裁掉。
     let picture: NSRect
     /// 原窗口会在底下临时取消隐藏时，它露在卡片之外的那块区域（屏幕坐标）：
-    /// 打开时截一张那里原本的背景垫上。
+    /// 准备时在后台截一张那里原本的背景，打开时垫上。
     let backdropArea: NSRect?
     /// 画面四个角的圆角半径（点），取原窗口自己的。
     let cornerRadius: CGFloat
@@ -120,6 +120,9 @@ private final class GlanceSession {
     var cardScreen: NSRect?
     /// 缩略图：卡片从这里（面板坐标）长出来、缩回这里。
     var growFrom: NSRect?
+    /// 被隐藏的应用程序：原窗口背后那块区域的样子，准备时在后台截好（backdropArea 是截的范围，屏幕坐标）。
+    var backdrop: CGImage?
+    var backdropArea: NSRect?
     /// 看一眼展开时已经开始把原窗口挪回来了。
     var restoreStarted = false
     /// 展开开始的时刻：展开后 80、250 毫秒还会再把原窗口升起、聚焦一次，画面要撑过这两次。
@@ -190,6 +193,8 @@ final class GlanceController {
     /// 测试可以替换这两个入口来模拟指针与时钟；平时读真实的指针位置。
     var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
     var clock: () -> TimeInterval = { CACurrentMediaTime() }
+    /// 截原窗口背后那块区域（左上原点的全局坐标），在后台队列上调用。测试可以替换。
+    var backdropCapture: (CGRect) -> CGImage? = { FastCapture.composite(excluding: [], rect: $0) }
     /// 用户此刻是否正在自己切换应用程序：按着鼠标键，或按着 Command（⌘Tab）。测试可以替换。
     var userIsSwitchingApps: () -> Bool = {
         NSEvent.pressedMouseButtons != 0 || NSEvent.modifierFlags.contains(.command)
@@ -502,6 +507,22 @@ final class GlanceController {
         sessions[id] = session
         // 能直接开流的现在就开；被隐藏的要等画面盖好、取消隐藏之后。
         if target.source == .stream { startCapture(session) }
+        if session.viaUnhide, let area = target.backdropArea { captureBackdrop(session, area: area) }
+    }
+
+    /// 被隐藏的应用程序：在后台截下原窗口背后那块区域，画面打开时用。截图不在主线程上做：
+    /// 在 CI 虚拟机上一次截图要 300 毫秒以上，主线程停住，单击卷帘条后卡住（2026-10-24 CI 场景 X15，12847ac）。
+    private func captureBackdrop(_ session: GlanceSession, area: NSRect) {
+        session.backdropArea = area
+        let rect = CGRect(origin: axPosition(fromCocoaFrame: area), size: area.size)
+        let capture = HandOff(backdropCapture)
+        DispatchQueue.global(qos: .userInitiated).async { [weak session] in
+            let image = HandOff(capture.value(rect))
+            DispatchQueue.main.async {
+                guard let session, !session.cancelled, session.backdropArea == area else { return }
+                session.backdrop = image.value
+            }
+        }
     }
 
     private func startCapture(_ session: GlanceSession) {
@@ -575,16 +596,15 @@ final class GlanceController {
         session.cardScreen = target.card.offsetBy(dx: target.panel.minX, dy: target.panel.minY)
         session.growFrom = target.growFrom
         if session.viaUnhide {
-            // 原窗口还藏着：此刻那块区域的样子就是它背后的背景。截不到就不取消隐藏，只给截图。
-            if let area = target.backdropArea,
-               let backdrop = FastCapture.composite(
-                excluding: [], rect: CGRect(origin: axPosition(fromCocoaFrame: area), size: area.size)) {
+            // 原窗口还藏着：准备时在后台截下的那块区域就是它背后的背景。还没截好、截不到，
+            // 或者位置变了，就不取消隐藏，只给截图。
+            if let area = target.backdropArea, let backdrop = session.backdrop, session.backdropArea == area {
                 content.setBackdrop(backdrop, frame: area.offsetBy(dx: -target.panel.minX,
                                                                    dy: -target.panel.minY))
             } else {
                 session.viaUnhide = false
                 session.captureFailed = true
-                wlog("glance: no backdrop id=\(id); snapshot only")
+                wlog("glance: no backdrop yet id=\(id); snapshot only")
             }
         }
         content.setSnapshot(target.snapshot)

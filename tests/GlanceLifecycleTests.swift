@@ -162,6 +162,32 @@ extension GlanceController {
         card.setSnapshot(clearContext.makeImage())
         card.applySystemAppearance()
         precondition(card.cardBackgroundAlpha == 1, "A card with a picture still has an opaque background under it")
+        // 缺陷回归（2026-10-24 CI 场景 X15，12847ac）：被隐藏的应用程序的看一眼，打开画面时在主线程上截原窗口背后的背景，
+        // CI 虚拟机上一次截图 300 多毫秒，单击卷帘条后主线程停了 558 毫秒。截图要在后台做，没截好就只给截图。
+        final class BackdropCalls: @unchecked Sendable {
+            let lock = NSLock()
+            private var threads: [Bool] = []
+            func record() { lock.lock(); threads.append(Thread.isMainThread); lock.unlock() }
+            var onMainThread: [Bool] { lock.lock(); defer { lock.unlock() }; return threads }
+        }
+        let calls = BackdropCalls()
+        controller.backdropCapture = { _ in calls.record(); return nil }
+        source.target = GlanceTarget(strip: source.frame, panel: source.frame, card: source.frame, picture: source.frame,
+                                     backdropArea: source.frame, cornerRadius: 8, source: .unhideUnderCover,
+                                     snapshot: nil, pid: 123_456, bundleID: "test.lifecycle", accessibilityTitle: "test")
+        controller.prepare(id)
+        controller.open(id)
+        precondition(!calls.onMainThread.contains(true), "Opening a glance does not capture the backdrop on the main thread")
+        if let opened = controller.sessions[id] {
+            precondition(!opened.viaUnhide, "Backdrop not captured yet: snapshot only, no unhide")
+            controller.finish(opened, reason: "test-cleanup")
+        }
+        let backdropDeadline = Date().addingTimeInterval(2)
+        while calls.onMainThread.isEmpty && Date() < backdropDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        precondition(calls.onMainThread == [false], "The backdrop is captured once, off the main thread")
+
         // Restore the fixture so later scenarios still see a target.
         source.target = LifecycleSource().target
     }
