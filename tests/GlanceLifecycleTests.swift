@@ -162,8 +162,8 @@ extension GlanceController {
         card.setSnapshot(clearContext.makeImage())
         card.applySystemAppearance()
         precondition(card.cardBackgroundAlpha == 1, "A card with a picture still has an opaque background under it")
-        // 缺陷回归（2026-10-24 CI 场景 X15，12847ac）：被隐藏的应用程序的看一眼，打开画面时在主线程上截原窗口背后的背景，
-        // CI 虚拟机上一次截图 300 多毫秒，单击卷帘条后主线程停了 558 毫秒。截图要在后台做，没截好就只给截图。
+        // 缺陷回归（2026-10-24 CI 场景 X15，12847ac）：被隐藏的应用程序的看一眼，打开画面时在主线程上截原窗口背后那块区域，
+        // CI 虚拟机上截一次要 300 多毫秒，单击卷帘条后主线程停顿了 558 毫秒。背景要在后台截，没截好就只给截图。
         final class BackdropCalls: @unchecked Sendable {
             let lock = NSLock()
             private var threads: [Bool] = []

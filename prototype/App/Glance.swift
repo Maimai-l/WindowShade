@@ -120,8 +120,9 @@ private final class GlanceSession {
     var cardScreen: NSRect?
     /// 缩略图：卡片从这里（面板坐标）长出来、缩回这里。
     var growFrom: NSRect?
-    /// 被隐藏的应用程序：原窗口背后那块区域的样子，准备时在后台截好（backdropArea 是截的范围，屏幕坐标）。
+    /// 被隐藏的应用程序：原窗口背后那块区域的截图，准备时在后台截好。
     var backdrop: CGImage?
+    /// 上面那张截图截的范围（屏幕坐标）；打开时和 target.backdropArea 不同，就不用这张截图。
     var backdropArea: NSRect?
     /// 看一眼展开时已经开始把原窗口挪回来了。
     var restoreStarted = false
@@ -193,7 +194,7 @@ final class GlanceController {
     /// 测试可以替换这两个入口来模拟指针与时钟；平时读真实的指针位置。
     var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
     var clock: () -> TimeInterval = { CACurrentMediaTime() }
-    /// 截原窗口背后那块区域（左上原点的全局坐标），在后台队列上调用。测试可以替换。
+    /// 截原窗口背后那块区域，参数是原点在左上角的全局坐标；在后台队列上调用。测试可以替换。
     var backdropCapture: (CGRect) -> CGImage? = { FastCapture.composite(excluding: [], rect: $0) }
     /// 用户此刻是否正在自己切换应用程序：按着鼠标键，或按着 Command（⌘Tab）。测试可以替换。
     var userIsSwitchingApps: () -> Bool = {
@@ -510,8 +511,8 @@ final class GlanceController {
         if session.viaUnhide, let area = target.backdropArea { captureBackdrop(session, area: area) }
     }
 
-    /// 被隐藏的应用程序：在后台截下原窗口背后那块区域，画面打开时用。截图不在主线程上做：
-    /// 在 CI 虚拟机上一次截图要 300 毫秒以上，主线程停住，单击卷帘条后卡住（2026-10-24 CI 场景 X15，12847ac）。
+    /// 被隐藏的应用程序：在后台截下原窗口背后那块区域，打开时用。截背景不在主线程上做：
+    /// CI 虚拟机上截一次要 300 毫秒以上，放在主线程上时，单击卷帘条后主线程停顿了 558 毫秒（2026-10-24 CI 场景 X15，12847ac）。
     private func captureBackdrop(_ session: GlanceSession, area: NSRect) {
         session.backdropArea = area
         let rect = CGRect(origin: axPosition(fromCocoaFrame: area), size: area.size)
@@ -600,8 +601,8 @@ final class GlanceController {
         session.cardScreen = target.card.offsetBy(dx: target.panel.minX, dy: target.panel.minY)
         session.growFrom = target.growFrom
         if session.viaUnhide {
-            // 原窗口还藏着：准备时在后台截下的那块区域就是它背后的背景。还没截好、截不到，
-            // 或者位置变了，就不取消隐藏，只给截图。
+            // 原窗口还藏着：准备时在后台截下的那张图就是它背后的背景。还没截好、截不到，
+            // 或者那块区域变了，就不取消隐藏，只给截图。
             if let area = target.backdropArea, let backdrop = session.backdrop, session.backdropArea == area {
                 content.setBackdrop(backdrop, frame: area.offsetBy(dx: -target.panel.minX,
                                                                    dy: -target.panel.minY))
