@@ -516,10 +516,14 @@ final class GlanceController {
         session.backdropArea = area
         let rect = CGRect(origin: axPosition(fromCocoaFrame: area), size: area.size)
         let capture = HandOff(backdropCapture)
-        DispatchQueue.global(qos: .userInitiated).async { [weak session] in
+        let id = session.id
+        let token = ObjectIdentifier(session)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let image = HandOff(capture.value(rect))
-            DispatchQueue.main.async {
-                guard let session, !session.cancelled, session.backdropArea == area else { return }
+            Task { @MainActor [weak self] in
+                // 回到主线程时按编号找回会话；已经换了一次会话（或结束了）就不用这张图。
+                guard let session = self?.sessions[id], ObjectIdentifier(session) == token,
+                      !session.cancelled, session.backdropArea == area else { return }
                 session.backdrop = image.value
             }
         }
