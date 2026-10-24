@@ -132,6 +132,18 @@ enum ChromeBand {
         return found
     }
 
+    /// 截图里找不到下沿时，辅助功能读到的顶部区域的下沿：从窗口顶边开始（上沿不超过 2 点）、下沿在 floor 以下 4 点
+    /// 到 maxHeight 之间、里面有控件的元素，取其中最深的下沿；没有时为 nil。
+    /// 例如网易云音乐（macOS 15.2）的顶栏是半透明的，截图里找不到下沿；辅助功能读到 0 至 50 点的一块，
+    /// 搜索框（16 至 40 点）就在里面（2026-10-24 用户实测）。
+    static func accessibleTopBand(content: [ClosedRange<CGFloat>], controls: [ClosedRange<CGFloat>],
+                                  floor: CGFloat, maxHeight: CGFloat) -> CGFloat? {
+        content.filter { band in
+            band.lowerBound <= 2 && band.upperBound >= floor + 4 && band.upperBound <= maxHeight
+                && controls.contains { $0.lowerBound >= band.lowerBound && $0.upperBound <= band.upperBound }
+        }.map(\.upperBound).max()
+    }
+
     /// 显示图标和标题的卷帘条多高：和原窗口的标题栏一样高（standard，按红绿灯推算），这样红绿灯和原窗口的红绿灯对齐；
     /// 读不到或不合理（不到 24 点）时用 fallback；最高 52 点，也不超过窗口的高度和 300 点。
     static func proxyBarHeight(standard: CGFloat?, fallback: CGFloat, windowHeight: CGFloat) -> CGFloat {

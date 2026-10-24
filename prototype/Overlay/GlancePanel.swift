@@ -236,10 +236,13 @@ final class GlanceContentView: NSView {
         let bare = !hasSnapshot && !isLive
         cardLayer.borderWidth = bare ? SystemAppearancePolicy.edgeWidth(capabilities) : 0
         cardLayer.borderColor = SystemAppearancePolicy.cgColor(NSColor.separatorColor, for: self)
-        cardLayer.backgroundColor = bare
-            ? SystemAppearancePolicy.cgColor(NSColor.windowBackgroundColor, for: self)
-            : NSColor.clear.cgColor
+        // 有画面时也用窗口的底色垫底：半透明的顶栏、侧栏在截图里是透明的，不垫底就透出桌面，
+        // 在卡片底下取消隐藏原应用程序时还会透出真正的窗口（2026-10-24 用户实测，网易云音乐）。
+        cardLayer.backgroundColor = SystemAppearancePolicy.cgColor(NSColor.windowBackgroundColor, for: self)
     }
+
+    /// 卡片底色的不透明度，测试用。
+    var cardBackgroundAlpha: CGFloat { cardLayer.backgroundColor?.alpha ?? 0 }
 
     // MARK: 卷下 / 卷上
 

@@ -79,7 +79,24 @@ struct ChromeBandTests {
         t.expect(bottom { _, _ in toolbar } == nil, "顶部和内容区同一种底色、没有分隔线")
         t.expect(bottom { x, y in (UInt8(Int(x) % 256), UInt8(Int(y * 3) % 256), UInt8(Int(x + y) % 256), 255) } == nil,
                  "顶部是渐变或透出后面内容的半透明材质")
-        // 用户 2026-10-24 实测（macOS 26）：显示图标和标题的卷帘条一律用灰色的系统材质，和下面窗口的标题栏对不上（终端的标题栏是白的）。
+        // 2026-10-24 用户实测（macOS 15.2）：网易云音乐的顶栏是半透明的，截图里找不到下沿，改用了图标和标题。
+        // 下面是那次日志里辅助功能读到的值。
+        t.section("S1", "截图里找不到下沿时，用辅助功能读到的、从顶边开始而且里面有控件的那一块")
+        let neteaseControls: [ClosedRange<CGFloat>] = [16...40, 22...34, 16...24, 17...23, 60...100, 75...84]
+        let neteaseContent: [ClosedRange<CGFloat>] = [0...50, 0...50, 13...40, 16...40, 0...50, 14...34, 65...93,
+                                                      105...135, 50...110, 72...88, 0...8, 0...8]
+        t.expect(ChromeBand.accessibleTopBand(content: neteaseContent, controls: neteaseControls, floor: 24, maxHeight: 96) == 50,
+                 "网易云音乐：0 至 50 点那一块，搜索框在里面")
+        t.expect(ChromeBand.accessibleTopBand(content: [0...50], controls: [], floor: 24, maxHeight: 96) == nil,
+                 "里面没有控件：不当顶部区域")
+        t.expect(ChromeBand.accessibleTopBand(content: [0...26], controls: [5...20], floor: 24, maxHeight: 96) == nil,
+                 "只到红绿灯下面：不算")
+        t.expect(ChromeBand.accessibleTopBand(content: [0...120], controls: [20...40], floor: 24, maxHeight: 96) == nil,
+                 "深过 96 点：不算")
+        t.expect(ChromeBand.accessibleTopBand(content: [10...50], controls: [20...40], floor: 24, maxHeight: 96) == nil,
+                 "不是从顶边开始：不算")
+
+        // 2026-10-24 用户实测（macOS 15.2）：显示图标和标题的卷帘条一律用灰色的系统材质，和下面窗口的标题栏对不上（终端的标题栏是白的）。
         t.section("S5", "显示图标和标题的卷帘条跟原窗口的标题栏一致：底色、高度")
         let whiteBar = image { x, y in y < 32 ? (x < 70 ? red : white) : grey }
         let barColor = ChromeBand.titleBarColor(of: whiteBar, scale: 2, height: 32)

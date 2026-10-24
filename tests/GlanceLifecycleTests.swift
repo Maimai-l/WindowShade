@@ -148,6 +148,20 @@ extension GlanceController {
         precondition(controller.intent.phase == .idle)
         precondition(controller.intent.blocked.isEmpty)
         precondition(!controller.needsTimer, "Nothing left to sample: the timer must stop")
+
+        // 缺陷回归（2026-10-24 用户实测，macOS 15.2，网易云音乐）：窗口的顶栏和侧栏是半透明的，截图里这些地方也是透明的；
+        // 看一眼的卡片有了画面以后底色是透明的，透过卡片看到桌面，在卡片底下取消隐藏时又看到真正的窗口，像盖了一层玻璃。
+        // 卡片有画面时也要有不透明的底色。
+        let card = GlanceContentView(frame: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                     cardFrame: NSRect(x: 24, y: 24, width: 252, height: 152),
+                                     pictureFrame: NSRect(x: 24, y: 24, width: 252, height: 152),
+                                     cornerRadius: 8, accessibilityTitle: "test")
+        let clearContext = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
+                                     space: CGColorSpaceCreateDeviceRGB(),
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        card.setSnapshot(clearContext.makeImage())
+        card.applySystemAppearance()
+        precondition(card.cardBackgroundAlpha == 1, "A card with a picture still has an opaque background under it")
         // Restore the fixture so later scenarios still see a target.
         source.target = LifecycleSource().target
     }

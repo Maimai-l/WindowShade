@@ -401,9 +401,11 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
     let fixedBarH = fixedNonstandardChromeHeight(pid: pid)
     let visualBarH: CGFloat?
     if fixedBarH == nil && profile.pixelBoundary, let top = topPixels(of: full, points: 140, scale: scale) {
-        visualBarH = ChromeBand.bottom(of: top, scale: scale,
-                                       floor: max(12, profile.trafficLightBottom.map { $0 + 2 } ?? profile.trafficLightHeight ?? 0),
-                                       controls: profile.topControls)
+        let floor = max(12, profile.trafficLightBottom.map { $0 + 2 } ?? profile.trafficLightHeight ?? 0)
+        // 截图里分不出下沿（半透明的顶栏透出后面的内容）时，用辅助功能读到的顶部区域（见 ChromeBand.accessibleTopBand）。
+        visualBarH = ChromeBand.bottom(of: top, scale: scale, floor: floor, controls: profile.topControls)
+            ?? ChromeBand.accessibleTopBand(content: profile.topContent, controls: profile.topControls,
+                                            floor: floor, maxHeight: maxPixelBoundaryHeight)
     } else {
         visualBarH = nil
     }
