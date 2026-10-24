@@ -4,6 +4,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/secure-log-tests
 swiftc -swift-version 6 -strict-concurrency=complete -warnings-as-errors \
-  tests/support/WS2TestSupport.swift prototype/Core/Contracts.swift \
+  tests/support/TestSuite.swift \
   prototype/Support/SecureLogFile.swift tests/SecureLogFileTests.swift -o .build/secure-log-tests/tests
 .build/secure-log-tests/tests

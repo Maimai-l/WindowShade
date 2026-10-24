@@ -6,7 +6,7 @@
 
 ## 交付
 
-完整实现与逐项证据见 [设计规范 v1 落地](../design-v1.md)。中英文 README 已使用 assets/windowshade-settings.png 和 assets/windowshade-settings-dark.png，并按主题切换。开发指南已加入隔离验收入口和组件回归命令。
+完整实现与逐项证据见“设计规范 v1 实现”（原文件 docs/design-v1.md 已在提交 67805aa 中删除）。中英文 README 已使用 assets/windowshade-settings.png 和 assets/windowshade-settings-dark.png，并按主题切换。开发指南已加入隔离验收入口和组件回归命令。
 
 签名验证包：`.build/duo-validation/WindowShade.app`。最后构建 session85687，2026-09-13 00:59:25，50 Swift 文件，原 Apple Development 身份 / Team <TEAM_ID>。仅保留既有 stopCapture 异步 API 建议警告。原应用 bundle 未替换，未提交或发布。
 
@@ -49,7 +49,7 @@ QA实例 session90372 已结束，原应用 PID41590保持运行。不要再对�
 
 ## 实施中：2026-09-13 04:44
 
-目标已激活：把修订计划落地，完成后交付；用户授权自行判断常规不确定事项。已改置顶标题为“已置顶窗口（点击取消）”，设置文案为窗口折叠动画／暂停效果／效果，README 中英同步区分合盖桌面效果与手动折叠动画。
+目标已激活：把修订计划实现，完成后交付；用户授权自行判断常规不确定事项。已改置顶标题为“已置顶窗口（点击取消）”，设置文案为窗口折叠动画／暂停效果／效果，README 中英同步区分合盖桌面效果与手动折叠动画。
 
 已取得关键实图：QA `compareCropGeometry` 对同一个设置窗口比较 SCK 带 framing 与无 framing。`.build/design-review/crop/framed-crop.png` 顶部阴影占据内容坐标导致标题／按钮被截；`unframed-crop.png` 完整。生产 `captureWindow` 增加 `ignoreShadowsSingleWindow=true`。撤掉前轮未生效的 toolbar-less 额外控件扫描，保留自身窗口 contentLayoutRect 高度读取。实际生产捕获经镜像与 makeScreenshotOverlay 生成的 `actual-overlay.png` 也已查看，52pt 设置条完整。QA 只捕获自身设置窗口，不触碰受 CUA 禁止的 Codex。
 

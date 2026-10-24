@@ -1,6 +1,6 @@
-// 渲染与图像分析辅助（纯计算）：标题行绘制、布局度量、
-// 标题栏 chrome 像素扫描、圆角镜像、截图降采样、卷帘条制备等。
-// 全部为纯函数/纯类型，可在任意线程执行，不依赖 AppDelegate 状态。
+// 截图分析与绘制的辅助函数：标题行绘制、布局度量、标题栏像素扫描、圆角镜像、降采样、卷帘条制备。
+// 除 drawAlignedTitleLine（画在 NSGraphicsContext.current 上）和 quickWindowPreviewImage（生成 NSImage）外，
+// 都可在任意线程调用，不依赖 AppDelegate 状态。
 
 import Cocoa
 import CoreText
@@ -89,96 +89,7 @@ struct ProxyTitleLayoutMetrics {
     }
 }
 
-// Elpass / WeChat 这类窗口的 AX 树不给稳定 toolbar：
-// - Elpass 会把内容区控件混进顶部扫描，AX 高度偏大；
-// - WeChat 只暴露交通灯，AX 高度偏小。
-// 这条只在白名单 app 上使用：从截图上找搜索框/顶部控件的浅色填充行，
-// 用控件上 padding 推出对称下 padding，得到“刚好包住顶部控件”的裁切高度。
-func preciseVisualChromeHeight(of image: CGImage, scale: CGFloat, minimum: CGFloat) -> CGFloat? {
-    let w = image.width, h = image.height
-    guard w > 20, h > 20, scale > 0 else { return nil }
-    let maxScan = min(h, Int(ceil(130 * scale)))
-    guard let top = image.cropping(to: CGRect(x: 0, y: 0, width: w, height: maxScan)) else { return nil }
-
-    let bpr = w * 4
-    var buf = [UInt8](repeating: 0, count: bpr * maxScan)
-    guard let ctx = CGContext(data: &buf, width: w, height: maxScan, bitsPerComponent: 8,
-                              bytesPerRow: bpr, space: CGColorSpaceCreateDeviceRGB(),
-                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-    ctx.draw(top, in: CGRect(x: 0, y: 0, width: w, height: maxScan))
-
-    let step = max(1, w / 1200)
-    let edgeInset = max(Int(18 * scale), min(w / 18, 96))
-    let minRunWidth = max(Int(52 * scale), min(w / 14, 160))
-    let maxRunWidth = Int(CGFloat(w) * 0.72)
-    var controlRows: [(Int, Int)] = []
-
-    for y in 0..<maxScan {
-        var currentRunStart: Int?
-        var bestRun = 0
-        var x = 0
-        while x < w {
-            let i = y * bpr + x * 4
-            let r = Int(buf[i]), g = Int(buf[i + 1]), b = Int(buf[i + 2]), a = Int(buf[i + 3])
-            let lum = (r + g + b) / 3
-            let saturation = max(r, max(g, b)) - min(r, min(g, b))
-            let blueBias = b - max(r, g)
-            let isLightControl = a > 170 && lum > 232 && saturation < 26
-            let isFocusRing = a > 150 && blueBias > 26 && b > 150 && r < 190
-            let isControlPixel = isLightControl || isFocusRing
-
-            if isControlPixel {
-                if currentRunStart == nil { currentRunStart = x }
-            } else if let start = currentRunStart {
-                let width = x - start
-                if start > edgeInset && x < w - edgeInset &&
-                   width >= minRunWidth && width <= maxRunWidth {
-                    bestRun = max(bestRun, width)
-                }
-                currentRunStart = nil
-            }
-
-            if x + step >= w, let start = currentRunStart {
-                let end = min(w, x + step)
-                let width = end - start
-                if start > edgeInset && end < w - edgeInset &&
-                   width >= minRunWidth && width <= maxRunWidth {
-                    bestRun = max(bestRun, width)
-                }
-                currentRunStart = nil
-            }
-            x += step
-        }
-        if bestRun > 0 { controlRows.append((y, bestRun)) }
-    }
-
-    let maxGap = max(2, Int(ceil(2 * scale)))
-    let minRows = max(12, Int(ceil(12 * scale)))
-    var clusters: [[(Int, Int)]] = []
-    for row in controlRows {
-        if clusters.isEmpty || row.0 - (clusters[clusters.count - 1].last?.0 ?? row.0) > maxGap {
-            clusters.append([])
-        }
-        clusters[clusters.count - 1].append(row)
-    }
-
-    let maxControlTop = Int(ceil(70 * scale))
-    guard let cluster = clusters.first(where: {
-        guard $0.count >= minRows, let first = $0.first, let last = $0.last else { return false }
-        let height = last.0 - first.0
-        return first.0 <= maxControlTop && height >= Int(12 * scale) && height <= Int(58 * scale)
-    }), let first = cluster.first, let last = cluster.last else { return nil }
-
-    let controlTop = CGFloat(first.0)
-    let controlBottom = CGFloat(last.0)
-    let topPadding = max(6 * scale, min(controlTop, 26 * scale))
-    let candidate = (controlBottom + topPadding) / scale
-    let minH = max(minimum, 32)
-    guard candidate >= minH, candidate <= 96 else { return nil }
-    return candidate
-}
-
-// 把截图底部两角裁成和顶部两角完全一样的形状：每个像素的 alpha 与其「垂直镜像」位置取 min。
+// 把截图底部两角裁成和顶部两角完全一样的形状：每个像素的 alpha 与其“垂直镜像”位置取 min。
 // 顶部本就有原生圆角的透明缺口，镜像到底部就得到对称、同半径同曲线的底部圆角——不靠猜半径。
 func mirrorRoundCorners(_ image: CGImage) -> CGImage? {
     let w = image.width, h = image.height
@@ -280,10 +191,10 @@ func nativeTitleStripLooksBroken(_ image: CGImage, logicalHeight: CGFloat) -> (B
         return count > 0 ? CGFloat(material) / CGFloat(count) : 0
     }
 
-    // 只统计 alpha 覆盖率，不管颜色。用来区分两种"两侧空"：
-    // 真悬浮岛（Codex 式分离标题药丸）两侧是 alpha≈0 的透明缺口；
-    // Liquid Glass 全宽工具栏（Safari 非激活态）两侧是近白色半透明"材质"——
-    // 后者是正常 chrome，不得降级成代理标题栏。
+    // 只统计 alpha 覆盖率，不看颜色，用来区分两种“两侧空”：
+    // 真正浮在中间的标题（Codex 那种两侧断开的圆角标题块）两侧是 alpha≈0 的透明缺口；
+    // Liquid Glass 的全宽工具栏（Safari 不在前台时）两侧是接近白色的半透明材质——
+    // 后者是正常的标题栏，不能改用图标和标题。
     func alphaCoverage(xRange: Range<Int>, yRange: Range<Int>) -> CGFloat {
         var covered = 0
         var count = 0
@@ -381,41 +292,6 @@ func estimatedCornerRadiusPixels(from image: CGImage) -> CGFloat? {
     return min(max(radius, 6), CGFloat(min(w, h)) / 2)
 }
 
-func roundedClippedImage(_ image: CGImage, cornerRadius: CGFloat,
-                         whitePreviewGradient: Bool = false) -> CGImage? {
-    let w = image.width, h = image.height
-    guard w > 0, h > 0 else { return nil }
-    let bpr = w * 4
-    var buf = [UInt8](repeating: 0, count: bpr * h)
-    guard let ctx = CGContext(data: &buf, width: w, height: h, bitsPerComponent: 8,
-                              bytesPerRow: bpr, space: CGColorSpaceCreateDeviceRGB(),
-                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-    ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
-    let rect = CGRect(x: 0, y: 0, width: w, height: h)
-    // 窗口原貌的圆角同样是连续曲率，不用正圆近似。
-    let path = SystemCornerPath.cgPath(in: rect, radius: cornerRadius)
-    ctx.addPath(path)
-    ctx.clip()
-    ctx.draw(image, in: rect)
-    if whitePreviewGradient {
-        let colors = [
-            NSColor.white.withAlphaComponent(0.56).cgColor,
-            NSColor.white.withAlphaComponent(0.20).cgColor,
-            NSColor.white.withAlphaComponent(0.00).cgColor,
-        ] as CFArray
-        let locations: [CGFloat] = [0.0, 0.32, 1.0]
-        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                     colors: colors,
-                                     locations: locations) {
-            ctx.drawLinearGradient(gradient,
-                                   start: CGPoint(x: 0, y: h),
-                                   end: CGPoint(x: 0, y: 0),
-                                   options: [])
-        }
-    }
-    return ctx.makeImage()
-}
-
 func downsampleCGImage(_ image: CGImage, maxPixelSize: CGSize) -> CGImage? {
     let maxWidth = max(1, maxPixelSize.width)
     let maxHeight = max(1, maxPixelSize.height)
@@ -445,7 +321,7 @@ func quickWindowPreviewImage(id: CGWindowID, logicalSize: CGSize,
         .map { NSImage(cgImage: $0, size: logicalSize) }
 }
 
-/// 快速预览所依赖的旧接口只报一次可用性，便于未来系统移除时定位。
+/// 截图用的旧接口不可用时只记一次日志，以后系统移除它时便于定位。
 enum LegacyQuickCapture {
     private static let lock = NSLock()
     /// 只在持有 `lock` 时读写。
@@ -462,29 +338,45 @@ enum LegacyQuickCapture {
 
 }
 
-// 只到 CGImage 为止：CGWindowListCreateImage 与降采样都只碰 CoreGraphics，可在
-// 任意线程调用；包装成 NSImage 的那一步留给主线程的调用方。
+// 只到 CGImage 为止：截图与缩小都只碰 CoreGraphics，可在任意线程调用；包装成 NSImage 的那一步留给主线程的调用方。
+// 这里的截图和收起用的快速截图用的是同一个接口（FastCapture）：设了 WINDOWSHADE_DISABLE_FAST_CAPTURE 时不截，
+// 窗口还没合成出画面（刚展开、刚打开，整张全透明）时返回 nil。收起时调用方据此在隐藏原窗口之前改用
+// ScreenCaptureKit 补截；把透明图当成截到了，卷帘条和菜单的预览就一直是空的。
+// capture 只为测试注入。
 func quickWindowPreviewCGImage(id: CGWindowID,
-                               maxPixelSize: CGSize = hoverPreviewMaxPixelSize) -> CGImage? {
-    let options: CGWindowImageOption = [.boundsIgnoreFraming, .bestResolution]
-    typealias CreateImage = @convention(c) (CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption) -> Unmanaged<CGImage>?
-    struct Loader {
-        static let createImage: CreateImage? = {
-            guard let handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY),
-                  let symbol = dlsym(handle, "CGWindowListCreateImage") else {
-                // Apple 已把 CGWindowListCreateImage 标记为废弃（改用 ScreenCaptureKit）。
-                // 当前系统上它仍可用；一旦未来系统移除该符号，这里记录一次，
-                // 折叠条会退回代理标题栏、悬停预览退回“无预览”，不会静默损坏。
-                LegacyQuickCapture.reportUnavailableOnce()
-                return nil
-            }
-            return unsafeBitCast(symbol, to: CreateImage.self)
-        }()
+                               maxPixelSize: CGSize = hoverPreviewMaxPixelSize,
+                               capture: (CGWindowID) -> CGImage? = { FastCapture.rawWindow($0) }) -> CGImage? {
+    guard let raw = capture(id) else { return nil }
+    // 先缩小再检查：检查要把整张图画一遍，缩小后的图画起来快。
+    let image = downsampleCGImage(raw, maxPixelSize: maxPixelSize) ?? raw
+    return FastCapture.hasContent(image) ? image : nil
+}
+
+/// 收起时给看一眼用的截图：保留原尺寸（看一眼按窗口原大小显示，缩小过就模糊）。只用缩小的副本检查有没有画面，
+/// 检查要把整张图画一遍，缩小后快。窗口还没合成出画面时返回 nil，和 quickWindowPreviewCGImage 一样。
+func quickFoldPreviewCGImage(id: CGWindowID,
+                             capture: (CGWindowID) -> CGImage? = { FastCapture.rawWindow($0) }) -> CGImage? {
+    guard let raw = capture(id) else { return nil }
+    let probe = downsampleCGImage(raw, maxPixelSize: hoverPreviewMaxPixelSize) ?? raw
+    return FastCapture.hasContent(probe) ? raw : nil
+}
+
+/// 在截图里找到的下沿比这更深时，顶部区域太高，不当卷帘条用。
+let maxPixelBoundaryHeight: CGFloat = 96
+
+/// 截图顶部 points 点高的一块，按 RGBA 读出来。
+func topPixels(of image: CGImage, points: CGFloat, scale: CGFloat) -> TopPixels? {
+    let w = image.width, h = min(image.height, Int(ceil(points * scale)))
+    guard w > 0, h > 0, let top = image.cropping(to: CGRect(x: 0, y: 0, width: w, height: h)) else { return nil }
+    var data = [UInt8](repeating: 0, count: w * h * 4)
+    let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
+        guard let ctx = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        ctx.draw(top, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return true
     }
-    guard let createImage = Loader.createImage else { return nil }
-    guard let unmanaged = createImage(.null, .optionIncludingWindow, id, options) else { return nil }
-    let raw = unmanaged.takeRetainedValue()
-    return downsampleCGImage(raw, maxPixelSize: maxPixelSize) ?? raw
+    return drawn ? TopPixels(data: data, width: w, height: h, bytesPerRow: w * 4) : nil
 }
 
 // 截图后的标题栏条制备结果：像素分析全部在后台完成，主线程只消费这些值。
@@ -500,39 +392,48 @@ struct NativeStripPreparation {
     let standardBarH: CGFloat
 }
 
-// 纯 CPU 计算，可在任意线程执行：决定标题栏裁切高度（visual/precise chrome
-// 像素扫描）、裁切、原生条健康检查、底部圆角镜像。不触碰 AppKit/AX 状态，
-// 因此可以安全地在 pixelAnalysisQueue 上跑。
+// 纯计算，可在 pixelAnalysisQueue 上执行：定标题栏裁切高度（像素扫描）、裁切、检查原标题栏的卷帘条是否完整、
+// 镜像底部圆角。只读应用程序配置（经加锁的 WindowRegistry 和线程安全的 NSRunningApplication），不读辅助功能。
 func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
                         profile: WindowChromeProfile, pid: pid_t) -> NativeStripPreparation {
     let scale = CGFloat(full.width) / max(1, logicalSize.width)
-    let minimumBarH = profile.standardCropHeight
     let standardBarH = profile.standardCropHeight
     let fixedBarH = fixedNonstandardChromeHeight(pid: pid)
-    let visualBarH = fixedBarH == nil && profile.preciseChrome
-        ? preciseVisualChromeHeight(of: full, scale: scale, minimum: minimumBarH)
-        : nil
-    let fallbackBarH = fixedBarH
-        ?? (profile.preciseChrome
-            ? (fallbackControlPaddedChromeHeight(pid: pid, minimum: minimumBarH) ?? profile.axBarHeight)
-            : profile.axBarHeight)
+    let visualBarH: CGFloat?
+    if fixedBarH == nil && profile.pixelBoundary, let top = topPixels(of: full, points: 140, scale: scale) {
+        let floor = max(12, profile.trafficLightBottom.map { $0 + 2 } ?? profile.trafficLightHeight ?? 0)
+        // 截图里找不到下沿（半透明的顶栏透出后面的内容）时，改用辅助功能读到的顶部区域的下沿（见 ChromeBand.accessibleTopBand）。
+        visualBarH = ChromeBand.bottom(of: top, scale: scale, floor: floor, controls: profile.topControls)
+            ?? ChromeBand.accessibleTopBand(content: profile.topContent, controls: profile.topControls,
+                                            floor: floor, maxHeight: maxPixelBoundaryHeight)
+    } else {
+        visualBarH = nil
+    }
+    let fallbackBarH = fixedBarH ?? profile.axBarHeight
     let barH: CGFloat
     if profile.isQuickLook {
         barH = min(quickLookOriginalTitleBarHeight, logicalSize.height)
     } else if profile.standardTitleBarOnly {
-        barH = standardBarH
+        // 红绿灯在标准位置的窗口：规则见 ChromeBand.standardWindowBar。
+        barH = ChromeBand.standardWindowBar(standard: standardBarH, found: visualBarH, maxHeight: maxPixelBoundaryHeight,
+                                            content: profile.topContent, controls: profile.topControls)
     } else {
         barH = min(visualBarH ?? fallbackBarH, min(logicalSize.height, 300))
     }
     let cropHeight = max(1, Int(ceil(barH * scale)))
-    let boundary = fixedBarH == nil ? profile.boundaryName : "fixed"
+    let boundary = fixedBarH != nil ? "fixed"
+        : profile.standardTitleBarOnly && barH != standardBarH ? "pixel"
+        : profile.pixelBoundary && visualBarH == nil ? "AX" : profile.boundaryName
     guard let rawStrip = full.cropping(to: CGRect(x: 0, y: 0, width: full.width, height: cropHeight)) else {
         return NativeStripPreparation(barH: barH, boundary: boundary, strip: nil,
                                       brokenHealth: (false, ""), scale: scale,
                                       fixedBarH: fixedBarH, visualBarH: visualBarH,
                                       fallbackBarH: fallbackBarH, standardBarH: standardBarH)
     }
-    let health = nativeTitleStripLooksBroken(rawStrip, logicalHeight: barH)
+    // 截图里和辅助功能都找不到顶部区域的下沿、或下沿深过 96 点的窗口，不按辅助功能读到的窗口顶部高度裁（可能裁过顶栏），改用图标和标题。
+    let boundaryUnknown = fixedBarH == nil && profile.pixelBoundary && !profile.isQuickLook && !profile.standardTitleBarOnly
+        && (visualBarH.map { $0 > maxPixelBoundaryHeight } ?? true)
+    let health = boundaryUnknown ? (true, "top-edge-not-found") : nativeTitleStripLooksBroken(rawStrip, logicalHeight: barH)
     let strip = health.0 ? rawStrip : (mirrorRoundCorners(rawStrip) ?? rawStrip)
     return NativeStripPreparation(barH: barH, boundary: boundary, strip: strip,
                                   brokenHealth: health, scale: scale,

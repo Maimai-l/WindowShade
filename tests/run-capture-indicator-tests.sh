@@ -1,5 +1,5 @@
 #!/bin/bash
-# 录屏胶囊清理：真实样本 + 合成标题栏，纯像素计算，不需要任何权限。
+# 录屏指示器清理：真实样本 + 合成标题栏，纯像素计算，不需要任何权限。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/capture-indicator-tests

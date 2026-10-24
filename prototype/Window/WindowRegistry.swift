@@ -1,6 +1,5 @@
-// 窗口元数据短 TTL 缓存：pid -> (app 名, bundleID)。
-// app 名与 bundleID 在会话内不会变化，缓存 1s 即可；高频路径（windowPolicy
-// 解析、日志、菜单、置顶预览）不再反复构造 NSRunningApplication。
+// 应用程序信息的短时缓存：进程号 → 应用程序名、bundle ID，1 秒过期。
+// 应用程序名和 bundle ID 在会话内不会变化；高频路径（appProfile 解析、日志、菜单）不再反复构造 NSRunningApplication。
 // 窗口帧与标题分别由 WindowListCache / ShadeState 覆盖，这里不重复缓存。
 
 import Cocoa

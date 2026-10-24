@@ -1,6 +1,6 @@
 // 快速截图：CGWindowListCreateImage。
 //
-// ScreenCaptureKit 的单张截图（SCScreenshotManager）每次要临时起一条流，实测 200–584ms，
+// ScreenCaptureKit 的单张截图（SCScreenshotManager）每次要临时起一条流，实测 200–584 毫秒，
 // 是双击收起时最慢的一段。CGWindowListCreateImage 被 Apple 标为废弃，但仍可用（按符号
 // 动态取，SDK 里不直接引用），同样只在有屏幕录制权限时工作，实测几十毫秒。
 // 拿不到、或者窗口还没合成出画面（整张全透明）时返回 nil，调用方退回 ScreenCaptureKit。
@@ -29,11 +29,24 @@ enum FastCapture {
 
     /// 整扇窗口，满分辨率，不含阴影；窗口被别的窗口挡住也照样截得到它自己。
     static func window(_ id: CGWindowID) -> CGImage? {
+        guard let image = rawWindow(id), hasContent(image) else { return nil }
+        return image
+    }
+
+    /// 同 window(_:)，但不检查有没有画面：先缩小再检查的调用方（quickWindowPreviewCGImage）用。
+    static func rawWindow(_ id: CGWindowID) -> CGImage? {
         guard !disabled, let createImage,
               let image = createImage(.null, .optionIncludingWindow, id,
                                       [.boundsIgnoreFraming, .bestResolution])?.takeRetainedValue(),
-              image.width > 1, image.height > 1, hasContent(image) else { return nil }
+              image.width > 1, image.height > 1 else { return nil }
         return image
+    }
+
+    /// 截屏幕左上角 1 像素，只为提前加载截图接口，不针对任何窗口。
+    static func warmUp() -> Bool {
+        guard !disabled, let createImage else { return false }
+        return createImage(CGRect(x: 0, y: 0, width: 1, height: 1), .optionOnScreenOnly,
+                           kCGNullWindowID, [])?.takeRetainedValue() != nil
     }
 
     private typealias CreateImageFromArray = @convention(c) (CGRect, CFArray, CGWindowImageOption)

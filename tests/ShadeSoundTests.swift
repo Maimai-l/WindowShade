@@ -1,7 +1,7 @@
-// 收起 / 展开的音效：设备闲下来之后，第一次 NSSound.play() 会把音频设备同步拉起来。
-// 2026-10-01 在 Mac17,4 / macOS 27.0 上实测 496ms，全部花在调用线程上——以前它就在主线里，
-// 于是每次「收起 / 展开」都冻半秒（日志里 CoreAudio AudioDeviceStart 的主线程卡顿）。
-// 这条测试盯住修好之后的不变量：调用方立即返回，真正的播放在那条串行队列上。
+// 收起 / 展开的音效：音频设备空闲一段时间后，第一次 NSSound.play() 会在调用线程上同步启动设备。
+// 2026-10-01 在 Mac17,4 / macOS 27.0 上实测 496 毫秒，全部花在调用线程上；以前它在主线程上，
+// 于是每次“收起 / 展开”都停顿半秒（日志里 CoreAudio AudioDeviceStart 的主线程停顿）。
+// 这条测试检查修好之后的不变量：调用方立即返回，真正的播放在那条串行队列上。
 import AppKit
 import Foundation
 
@@ -35,7 +35,12 @@ struct ShadeSoundTests {
         let second = CFAbsoluteTimeGetCurrent()
         player.play("Purr")
         expect((CFAbsoluteTimeGetCurrent() - second) * 1000 < 25, "a second play also returns at once")
-        Thread.sleep(forTimeInterval: 0.4)
+        // 和第一次一样，等到后台队列上的这次 play() 返回再检查（最多等 3 秒）：在 CI 虚拟机上，每次 play() 要几百毫秒，
+        // 固定等 0.4 秒时它还没返回（1f33537 的 CI 上 plays=1）。
+        let secondDeadline = CFAbsoluteTimeGetCurrent() + 3
+        while player.stats.plays < 2 && CFAbsoluteTimeGetCurrent() < secondDeadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
         expect(player.stats.plays == 2, "both plays ran (plays=\(player.stats.plays))")
 
         if failures == 0 { print("PASS: shade sounds play off the main thread") }

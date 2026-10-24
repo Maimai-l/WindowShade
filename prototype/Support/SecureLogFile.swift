@@ -1,4 +1,4 @@
-// WindowShade 2 · 原创。队列隔离的文件写入器；不包含日志内容过滤规则。
+// 在日志队列里独占使用的文件写入器；不负责过滤日志内容。
 import Foundation
 #if canImport(Darwin)
 import Darwin
@@ -59,7 +59,7 @@ final class SecureLogFile {
         if fileFD >= 0 { _ = fsync(fileFD); _ = close(fileFD); fileFD = -1 }
         if directoryFD >= 0 { _ = close(directoryFD); directoryFD = -1 }
     }
-    /// 最大 16 KiB 单条；不接受空记录。轮转后当前文件与一个备份各至多 maximumBytes。
+    /// 单条记录最大 16 KiB，不接受空记录。轮转后，当前文件和一个备份各自不超过 maximumBytes。
     func append(_ data: Data) throws {
         guard !data.isEmpty, data.count <= 16 * 1024, Int64(data.count) <= maximumBytes else { throw Failure.recordTooLarge }
         guard directoryFD >= 0, fileFD >= 0 else { throw Failure.unsafeFile }
@@ -112,8 +112,8 @@ final class SecureLogFile {
     }
     private static func harden(_ fd: Int32, mode: mode_t) throws {
         #if canImport(Darwin)
-        // 用空的 extended ACL 去掉继承/具名授权；单靠 chmod 不能作出同等承诺。
-        // 签名由 Apple Libc/include/sys/acl.h 核对；此分支仍须在 SDK 27 编译和双账户实测。
+        // 用空的扩展 ACL 去掉继承和具名授权，只用 chmod 做不到。签名按 Apple Libc/include/sys/acl.h 核对过；
+        // 这个分支仍需在 SDK 27 上编译、用两个账户实测。
         guard let acl = acl_init(0) else { throw Failure.system(errno) }
         defer { _ = acl_free(UnsafeMutableRawPointer(acl)) }
         guard acl_set_fd(fd, acl) == 0 else { throw Failure.system(errno) }

@@ -1,0 +1,208 @@
+// 需求：F4（docs/testing.md 第 3.1 节）。
+// 第 2 层组件测试：收起时把焦点交给当前桌面上的哪个窗口（Platform/FocusHandoff.swift）。
+
+import CoreGraphics
+import Foundation
+
+@main
+struct FocusHandoffTests {
+    static let selfPID: pid_t = 1
+    static let appPID: pid_t = 10
+    static let otherPID: pid_t = 20
+    static let frame = CGRect(x: 100, y: 100, width: 600, height: 400)
+
+    static func onScreen(_ id: CGWindowID, _ pid: pid_t, layer: Int = 0, alpha: Double = 1,
+                         bounds: CGRect = frame) -> OnScreenWindow {
+        OnScreenWindow(id: id, pid: pid, layer: layer, alpha: alpha, bounds: bounds)
+    }
+
+    static func main() {
+        var t = TestSuite("focus-handoff")
+        let original = FakeWindow(id: 1, pid: appPID, frame: frame)
+        func request(frontmost: pid_t?, overlays: Set<CGWindowID> = [], folded: Set<CGWindowID> = []) -> FocusHandoffRequest {
+            FocusHandoffRequest(window: WindowHandle(element: original), id: 1, pid: appPID,
+                                frontmostPID: frontmost, selfPID: selfPID, overlayIDs: overlays, foldedIDs: folded)
+        }
+
+        t.section("F4", "收起过程中用户已经按下了卷帘条：焦点留在卷帘条上，不交接（2026-10-19 CI 场景 A32，4dc0853）")
+        do {
+            let control = FakeFocusControl()
+            let sibling = FakeWindow(id: 2, pid: appPID, frame: frame)
+            control.appWindows[appPID] = [original, sibling]
+            control.onScreen = [onScreen(1, appPID), onScreen(2, appPID)]
+            let pressed = StripPressFlag()
+            pressed.set()
+            var withPress = request(frontmost: appPID)
+            withPress.stripPressed = pressed
+            let result = FocusHandoff(control: control).handOff(withPress)
+            t.expect(result == .keptOnStrip && result.appHideSafe, "结果为 keptOnStrip，隐藏应用程序安全")
+            t.expect(control.focused.isEmpty && control.activated.isEmpty, "没有把焦点交给同一应用程序的其他窗口")
+            let notPressed = StripPressFlag()
+            var withoutPress = request(frontmost: appPID)
+            withoutPress.stripPressed = notPressed
+            t.expect(FocusHandoff(control: FakeFocusControl()).handOff(withoutPress) != .keptOnStrip, "没按下卷帘条：结果不是 keptOnStrip")
+        }
+
+        t.section("F4", "原窗口所属的应用程序不在前台：不交接")
+        do {
+            let control = FakeFocusControl()
+            let result = FocusHandoff(control: control).handOff(request(frontmost: otherPID))
+            t.expect(result == .notFrontmost && result.appHideSafe, "结果为 notFrontmost，隐藏应用程序安全")
+            t.expect(control.focused.isEmpty && control.activated.isEmpty, "没有转移焦点")
+        }
+
+        t.section("F4", "同一应用程序在当前桌面上还有窗口：交给它")
+        do {
+            let control = FakeFocusControl()
+            let sibling = FakeWindow(id: 2, pid: appPID, frame: frame)
+            let minimized = FakeWindow(id: 3, pid: appPID, frame: frame)
+            minimized.minimized = true
+            let otherSpace = FakeWindow(id: 4, pid: appPID, frame: frame)
+            control.appWindows[appPID] = [original, minimized, otherSpace, sibling]
+            control.onScreen = [onScreen(1, appPID), onScreen(3, appPID), onScreen(2, appPID)]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID))
+            t.expect(result == .sameApp(heir: 2), "交给窗口 2（跳过原窗口、已最小化的窗口和不在当前桌面的窗口）")
+            t.expect(control.focused == [2] && control.activated.isEmpty, "只设置焦点窗口，不切换应用程序")
+        }
+
+        t.section("F4", "截图时 WindowShade 暂居前台，同一应用程序还有窗口：激活该应用程序再交给它（场景 A15）")
+        do {
+            let control = FakeFocusControl()
+            let sibling = FakeWindow(id: 2, pid: appPID, frame: frame)
+            control.appWindows[appPID] = [original, sibling]
+            control.onScreen = [onScreen(99, selfPID), onScreen(1, appPID), onScreen(2, appPID)]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: selfPID))
+            t.expect(result == .sameApp(heir: 2), "交给窗口 2")
+            t.expect(control.activated == [appPID], "激活应用程序 \(appPID)：只设置焦点窗口，它仍在后台，窗口 2 成不了当前窗口")
+            t.expect(control.focused == [2], "焦点给窗口 2")
+        }
+
+        t.section("F4", "同一应用程序没有其他窗口：交给当前桌面最上层的普通应用程序窗口")
+        do {
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            let heir = FakeWindow(id: 30, pid: otherPID, frame: frame.offsetBy(dx: 10, dy: 10))
+            let far = FakeWindow(id: 31, pid: otherPID, frame: CGRect(x: 800, y: 600, width: 200, height: 200))
+            control.appWindows[otherPID] = [far, heir]
+            control.regularApps = [otherPID, 40]
+            control.onScreen = [
+                onScreen(99, selfPID),                     // WindowShade 自己的窗口
+                onScreen(50, 40, layer: 25),               // 菜单栏层级
+                onScreen(51, 40, alpha: 0),                // 全透明
+                onScreen(52, 40, bounds: CGRect(x: 0, y: 0, width: 1, height: 1)),
+                onScreen(77, 40),                          // 卷帘条
+                onScreen(1, appPID),
+                onScreen(30, otherPID, bounds: frame.offsetBy(dx: 10, dy: 10)),
+            ]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: selfPID, overlays: [77]))
+            t.expect(result == .otherApp(pid: otherPID), "交给应用程序 \(otherPID)")
+            t.expect(control.activated == [otherPID], "激活该应用程序")
+            t.expect(control.focused == [30], "焦点给位置与屏幕上那扇窗一致的窗口 30")
+            // 用户的 macOS 14.5 本机运行（8e9a4f1，场景 E11-trash、E12）：接手的应用程序在别的桌面上也有窗口时，
+            // 先激活它，系统会把那扇窗口带到前面，屏幕跟着切过去。所以要先设焦点窗口，再激活。
+            t.expect(control.events == ["focus 30", "activate \(otherPID)"],
+                     "先设焦点窗口，再激活应用程序（实际 \(control.events)）")
+        }
+
+        // 依据：用户的 macOS 14.5 本机运行（4f1a815），见 docs/testing.md 第 5 节。
+        t.section("F4", "隐藏原应用程序之前把焦点交给别的应用程序：等它到了前台再返回")
+        do {
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            control.appWindows[otherPID] = [FakeWindow(id: 30, pid: otherPID, frame: frame)]
+            control.regularApps = [otherPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(30, otherPID)]
+            control.frontmost = appPID
+            control.activationDelay = 3
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID), waitForHeir: true)
+            t.expect(result == .otherApp(pid: otherPID), "交给应用程序 \(otherPID)")
+            t.expect(control.frontmost == otherPID, "返回时应用程序 \(otherPID) 已在前台（实际是 \(control.frontmost.map { String($0) } ?? "nil")）")
+        }
+
+        t.section("F4", "接手的应用程序一直没到前台：最多等 300 毫秒")
+        do {
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            control.appWindows[otherPID] = [FakeWindow(id: 30, pid: otherPID, frame: frame)]
+            control.regularApps = [otherPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(30, otherPID)]
+            control.frontmost = appPID
+            control.activationDelay = nil
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID), waitForHeir: true)
+            t.expect(result == .otherApp(pid: otherPID), "仍交给应用程序 \(otherPID)")
+            t.expect(control.pauses > 0 && Double(control.pauses) * FocusHandoff.heirWaitStep <= FocusHandoff.heirWaitLimit + 0.0001,
+                     "等了 \(control.pauses) 次，合计不超过 \(FocusHandoff.heirWaitLimit) 秒")
+        }
+
+        t.section("F4", "不要求等待时（隐藏之后才交接、在主线程上交接）：不等")
+        do {
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            control.appWindows[otherPID] = [FakeWindow(id: 30, pid: otherPID, frame: frame)]
+            control.regularApps = [otherPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(30, otherPID)]
+            control.frontmost = appPID
+            control.activationDelay = 3
+            _ = FocusHandoff(control: control).handOff(request(frontmost: appPID))
+            t.expect(control.pauses == 0, "没有等待（等了 \(control.pauses) 次）")
+        }
+
+        t.section("F4", "同一应用程序的其他窗口已被收起：不交给它们，交给别的应用程序（场景 A37、Q01）")
+        do {
+            // 收起后停在屏幕角落的窗口还露出 1 像素，算在屏幕上；交给它，它成了当前窗口，
+            // 应用程序下次被激活时系统把它拉回屏幕内，WindowShade 就把它展开了（Q01 种子 1771577254 第 28 步）。
+            let control = FakeFocusControl()
+            let parked = FakeWindow(id: 2, pid: appPID, frame: CGRect(x: 1439, y: 899, width: 600, height: 400))
+            control.appWindows[appPID] = [original, parked]
+            let heir = FakeWindow(id: 30, pid: otherPID, frame: frame)
+            control.appWindows[otherPID] = [heir]
+            control.regularApps = [otherPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(2, appPID, bounds: parked.frame), onScreen(30, otherPID)]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID, folded: [2]))
+            t.expect(result == .otherApp(pid: otherPID), "交给应用程序 \(otherPID)，不交给已收起的窗口 2（结果 \(result)）")
+            t.expect(!control.focused.contains(2), "焦点没有给窗口 2")
+        }
+
+        t.section("F4", "别的应用程序已收起、停在屏幕角落的窗口：不交给它，也不激活那个应用程序（场景 A37 的跨应用程序情形）")
+        do {
+            // 访达的窗口收起后停在屏幕角落，还露出 1 像素，仍算在屏幕上，窗口列表里的范围也仍是整扇窗口的大小，
+            // 不会被当成过小的窗口跳过。交给它、激活访达，访达到前台时它的当前窗口正是这扇，
+            // WindowShade 会把它展开（unshadeParkedWindowOnActivation）。
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            let parkedFrame = CGRect(x: 1439, y: 899, width: 600, height: 400)
+            let parked = FakeWindow(id: 40, pid: otherPID, frame: parkedFrame)
+            control.appWindows[otherPID] = [parked]
+            let thirdPID: pid_t = 60
+            let heir = FakeWindow(id: 50, pid: thirdPID, frame: frame)
+            control.appWindows[thirdPID] = [heir]
+            control.regularApps = [otherPID, thirdPID]
+            control.onScreen = [onScreen(1, appPID), onScreen(40, otherPID, bounds: parkedFrame), onScreen(50, thirdPID)]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID, folded: [40]))
+            t.expect(result == .otherApp(pid: thirdPID), "交给应用程序 \(thirdPID)，不交给已收起的窗口 40（结果 \(result)）")
+            t.expect(!control.focused.contains(40) && !control.activated.contains(otherPID),
+                     "焦点没有给窗口 40，也没有激活应用程序 \(otherPID)（焦点 \(control.focused)，激活 \(control.activated)）")
+
+            let alone = FakeFocusControl()
+            alone.appWindows[appPID] = [original]
+            alone.appWindows[otherPID] = [parked]
+            alone.regularApps = [otherPID]
+            alone.onScreen = [onScreen(1, appPID), onScreen(40, otherPID, bounds: parkedFrame)]
+            let nowhere = FocusHandoff(control: alone).handOff(request(frontmost: appPID, folded: [40]))
+            t.expect(nowhere == .nowhere, "当前桌面上别的窗口都已收起：无处交接（结果 \(nowhere)）")
+            t.expect(alone.focused.isEmpty && alone.activated.isEmpty, "没有转移焦点，也没有激活应用程序 \(otherPID)")
+        }
+
+        t.section("F4", "当前桌面没有可以接收焦点的窗口：不交接，隐藏应用程序不安全")
+        do {
+            let control = FakeFocusControl()
+            control.appWindows[appPID] = [original]
+            control.onScreen = [onScreen(1, appPID), onScreen(99, selfPID)]
+            let result = FocusHandoff(control: control).handOff(request(frontmost: appPID))
+            t.expect(result == .nowhere && !result.appHideSafe, "结果为 nowhere")
+            t.expect(control.focused.isEmpty && control.activated.isEmpty, "没有转移焦点，也没有激活访达")
+        }
+
+        t.finish()
+    }
+}

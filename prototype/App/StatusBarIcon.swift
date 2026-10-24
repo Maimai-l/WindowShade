@@ -19,8 +19,7 @@ func makeStatusBarIcon() -> NSImage {
                       height: height * scale)
     }
 
-    // Monochrome template mask traced from the reference icon, with symmetric strokes.
-    // The 72px body is centered in the 74px source grid; inner bands are cut out.
+    // 单色模板图，照参考图标描出，线条左右对称。72 像素的主体居中放在 74 像素的网格里，挖掉里面三条横带。
     let path = NSBezierPath(rect: sourceRect(x: 1, y: 1, width: 72, height: 72))
     path.append(NSBezierPath(rect: sourceRect(x: 8, y: 8, width: 58, height: 18)))
     path.append(NSBezierPath(rect: sourceRect(x: 8, y: 33, width: 58, height: 8)))

@@ -162,7 +162,7 @@ html[lang=zh-CN] .history-page :is(.classic-bar,.classic-bar b,.retro-panel,.ret
 .sticky-exhibit h3{font:500 32px/1.3 var(--serif);margin:14px 0 18px}
 .sticky-exhibit .artifact-note{margin-top:16px}
 
-/* The lab: the page's one dark room, like the product page's lid section. */
+/* The lab: the page's one dark room. */
 .archive-lab{background:#0b0c0f;color:#f2f3f5;margin-top:136px;padding:120px 0;--muted:#a3a8b2;--faint:#80858f;--chip:rgba(255,255,255,.1);--ink:#f2f3f5;--bg:#0b0c0f}
 .archive-lab .dateline{color:#a3a8b2}
 .lab-heading{max-width:720px}

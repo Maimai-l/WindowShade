@@ -1,0 +1,121 @@
+name: Demo recording
+
+# 在 macOS 机器上编出 App，录收起 / 看一眼 / 展开的视频。
+# PR 里改了 App 或录屏脚本就跑；同一分支推了新提交，旧的那遍取消。也可以手动触发。
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "prototype/**"
+      - ".github/demo/**"
+      - ".github/workflows/demo.yml"
+
+concurrency:
+  group: demo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 先只跑这次改动相关的部分（.github/demo/quick-part.txt），几分钟出结果。macOS 机器同时最多 5 台，
+  # 下面 10 个任务要排队，整套跑完要二三十分钟；quick 任务没通过就不跑整套，省下排队的时间。
+  quick:
+    name: record (quick)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: .github/scripts/select-xcode.sh
+      - name: Install ffmpeg for the frame check
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install ffmpeg
+      - name: Build, grant permissions and record
+        timeout-minutes: 25
+        run: |
+          RECORD_PART="$(grep -v '^#' .github/demo/quick-part.txt | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          echo "quick part: $RECORD_PART"
+          RECORD_PART="$RECORD_PART" bash .github/demo/record.sh
+      - name: Collect the WindowShade log
+        if: always()
+        run: cp ~/Library/Logs/WindowShade/windowshade.log .build/demo/windowshade.log 2>/dev/null || true
+      - name: Upload recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-quick
+          path: |
+            .build/demo/*.mp4
+            .build/demo/*.png
+            .build/demo/*.log
+            .build/demo/*.ips
+            .build/demo/*.json
+
+  record:
+    needs: quick
+    # 场景一条一条跑要一个多小时：分成几台机器并行。recordings 录像并跑检查的检查和权限场景组，random 跑随机操作，
+    # 其余各跑主场景组的三分之一
+    # （.github/demo/record.sh 的 RECORD_PART）。
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: recordings
+            name: recordings
+          - part: "shard:0/3"
+            name: scenarios-1
+          - part: "shard:1/3"
+            name: scenarios-2
+          - part: "shard:2/3"
+            name: scenarios-3
+          - part: random
+            name: random
+          # 用修复之前的版本跑 E13、A34、X01 至 X05：至少一条要报出输入被挡住，证明这些测试测得出全系统卡死这一类问题。
+          - part: reproduce-e13
+            name: e13-before-fix
+          # 测试有效性：defects.tsv 里每条缺陷的场景在修复之前的版本上要失败、在当前代码上要通过（docs/testing.md 第 5.1 节）。
+          - part: "validity:0/4"
+            name: validity-1
+          - part: "validity:1/4"
+            name: validity-2
+          - part: "validity:2/4"
+            name: validity-3
+          - part: "validity:3/4"
+            name: validity-4
+    name: record (${{ matrix.name }})
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # reproduce-e13 和 validity 要编译修复之前的提交，需要完整的提交历史。
+          fetch-depth: ${{ (matrix.part == 'reproduce-e13' || startsWith(matrix.part, 'validity')) && '0' || '1' }}
+      - name: Select newest Xcode
+        run: .github/scripts/select-xcode.sh
+      - name: Install ffmpeg for the frame check
+        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install ffmpeg
+      - name: Build, grant permissions and record
+        # 比整个任务的时限短：录制停住不动时，这一步先到时限、先结束，后面收集日志、上传录像的步骤仍有时间运行，
+        # 停住时的录像和日志才能留下来。
+        timeout-minutes: 45
+        env:
+          RECORD_PART: ${{ matrix.part }}
+        run: bash .github/demo/record.sh
+      - name: Collect the WindowShade log
+        if: always()
+        run: cp ~/Library/Logs/WindowShade/windowshade.log .build/demo/windowshade.log 2>/dev/null || true
+      - name: Upload recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-${{ matrix.name }}
+          path: |
+            .build/demo/*.mp4
+            .build/demo/*.png
+            .build/demo/*.log
+            .build/demo/*.ips
+            .build/demo/*.json
+      - name: Upload the app for manual testing
+        if: always() && matrix.name == 'recordings'
+        uses: actions/upload-artifact@v4
+        with:
+          name: WindowShade-app
+          path: .build/demo/WindowShade-app.zip
+          if-no-files-found: ignore

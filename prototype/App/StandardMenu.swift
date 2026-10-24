@@ -1,8 +1,8 @@
 // 标准最小主菜单。
 //
-// WindowShade 是 LSUIElement（菜单栏代理）应用，屏幕顶部不会显示菜单栏；但 AppKit 的
-// 文本编辑快捷键（⌘X/⌘C/⌘V/⌘A/⌘Z）与 ⌘W 都通过主菜单的 key equivalent 派发。
-// 实测：没有主菜单时，即使 NSTextField 已经是 first responder，⌘V 也不会粘贴
+// WindowShade 是只在菜单栏显示图标的代理应用（LSUIElement），屏幕顶部不显示它的菜单栏；
+// 但 AppKit 的文本编辑快捷键（⌘X/⌘C/⌘V/⌘A/⌘Z）和 ⌘W 都通过主菜单的快捷键分派。
+// 实测：没有主菜单时，即使 NSTextField 已经是第一响应者，⌘V 也不会粘贴
 // （menuHandled=false / windowHandled=false）。
 //
 // 因此这里提供一份最小但标准的主菜单：应用菜单（关于/设置/服务/隐藏/退出）、编辑
@@ -10,6 +10,40 @@
 // 代理应用的菜单栏行为，只让文本框和关闭快捷键恢复系统习惯。
 
 import Cocoa
+
+/// “关于”窗口的内容：一句用途说明、版本、构建、提交和仓库链接。由 App/AboutWindow.swift 显示。
+/// 照 Ghostty 的“关于”窗口，不放版权、许可和宣传语。只生成数据、不碰界面，便于测试。
+struct AboutContent: Equatable {
+    static let summary = "双击标题栏，窗口收起成卷帘条，留在原处。"
+    static let repository = URL(string: "https://github.com/Maimai-l/WindowShade")!
+
+    struct Row: Equatable {
+        let label: String
+        let value: String
+        /// 有链接时，值显示成可点的链接；“提交”一行链接到 GitHub 上这次提交的页面。
+        let link: URL?
+    }
+
+    let rows: [Row]
+
+    /// commit 为 nil 或空字符串时（不在 Git 仓库里编译），不显示“提交”这一行。
+    init(version: String, build: String, commit: String?) {
+        var rows = [Row(label: "版本", value: version, link: nil),
+                    Row(label: "构建", value: build, link: nil)]
+        if let commit, !commit.isEmpty {
+            rows.append(Row(label: "提交", value: commit,
+                            link: Self.repository.appendingPathComponent("commit").appendingPathComponent(commit)))
+        }
+        self.rows = rows
+    }
+
+    /// 从 App 的 Info.plist 读版本、构建和编译时写进去的提交（WindowShadeCommit）。
+    static func fromBundle(_ bundle: Bundle = .main) -> AboutContent {
+        AboutContent(version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+                     build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+                     commit: bundle.object(forInfoDictionaryKey: "WindowShadeCommit") as? String)
+    }
+}
 
 enum StandardMenu {
     /// 只从主线程安装主菜单：里面要写 `NSApp.servicesMenu`。
@@ -30,32 +64,10 @@ enum StandardMenu {
         return mainMenu
     }
 
-    /// 系统标准“关于”面板的内容：一句用途说明 + 许可与仓库链接。
-    /// 纯构造，便于测试；实际展示仍由 `orderFrontStandardAboutPanel` 负责。
-    static func aboutPanelOptions(applicationName: String = "WindowShade",
-                                  version: String,
-                                  build: String)
-        -> [NSApplication.AboutPanelOptionKey: Any] {
-        let credits = NSMutableAttributedString(
-            string: "卷起挡路的窗口，钉住要一直看的，或者停在 Dock 图标上翻出那个应用的所有窗口。\n",
-            attributes: [.font: NSFont.systemFont(ofSize: 11),
-                         .foregroundColor: NSColor.secondaryLabelColor])
-        credits.append(NSAttributedString(
-            string: "MIT License · github.com/surfine/WindowShade",
-            attributes: [.font: NSFont.systemFont(ofSize: 11),
-                         .link: URL(string: "https://github.com/surfine/WindowShade")!]))
-        return [
-            .applicationName: applicationName,
-            .applicationVersion: version,
-            .version: build,
-            .credits: credits,
-        ]
-    }
+    // MARK: 已收起窗口的菜单分区
 
-    // MARK: 折叠窗口的菜单分区
-
-    /// 内联列出并带 ⌃⌘1…⌃⌘9 的窗口数；其余放进“更多”子菜单，
-    /// 免得菜单很长、快捷键却静悄悄停在第 9 个。
+    /// 直接列出并带“按编号展开”组合（默认 ⌃⌘1 至 ⌃⌘9）的窗口数；其余放进“更多”子菜单，
+    /// 免得菜单太长，而第 9 扇之后的窗口又没有快捷键。
     static let inlineFoldedWindowLimit = 9
 
     static func foldedWindowShortcut(index: Int) -> String? {
@@ -87,7 +99,7 @@ enum StandardMenu {
         let item = NSMenuItem()
         let menu = NSMenu(title: appName)
 
-        // 有自定义实现时用应用的“关于”面板（标准面板 + 授权信息），否则退回系统默认。
+        // 传入 aboutAction 时用应用自己的“关于”窗口（App/AboutWindow.swift），否则用系统的“关于”面板。
         let about = NSMenuItem(title: "关于 \(appName)",
                                action: aboutAction
                                    ?? #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
@@ -117,7 +129,7 @@ enum StandardMenu {
                                     keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(hideOthers)
-        menu.addItem(withTitle: "显示全部",
+        menu.addItem(withTitle: "全部显示",
                      action: #selector(NSApplication.unhideAllApplications(_:)),
                      keyEquivalent: "")
         menu.addItem(.separator())
@@ -131,7 +143,7 @@ enum StandardMenu {
     private static func editMenuItem() -> NSMenuItem {
         let item = NSMenuItem()
         let menu = NSMenu(title: "编辑")
-        // selector 指向 NSText/NSTextView 的标准实现，由响应链上的 first responder 处理。
+        // 这些动作由响应链上的第一响应者执行，标准实现在 NSText/NSTextView 里。
         menu.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
         let redo = NSMenuItem(title: "重做", action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]

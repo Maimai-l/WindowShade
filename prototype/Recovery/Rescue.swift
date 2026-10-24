@@ -1,8 +1,8 @@
-// 离屏窗口救援：折叠异常退出后的 journal 恢复与广域停车点扫描。
+// 找回屏幕外的窗口：WindowShade 在收起期间异常退出后，先按恢复记录放回窗口，再扫描还停在停放位置上的窗口。
 // 扫描在后台队列、写回在主线程；作为 AppDelegate 扩展实现。
 //
-// 恢复纪律：找到 journal entry → 尝试恢复 → 验证成功 → 才清掉这条 entry。
-// 验证失败的 entry 保留到下一轮 rescue 重试，绝不先删线索再恢复。
+// 顺序：找到记录 → 放回窗口 → 验证成功 → 才删除记录。
+// 验证失败的记录留到下一轮重试；不能先删记录再放回窗口。
 
 import Cocoa
 
@@ -25,18 +25,16 @@ extension AppDelegate {
     struct JournalRescueResult {
         var actions: [OffscreenRescueAction] = []
         var alphaRestores: [JournalAlphaRestore] = []
-        // preparing intent 且窗口当前可见：事务没有真正走到隐藏，无需救援，
-        // 可以直接清理这条 intent（安全，因为窗口本身完好可见）。
+        // 记录还停在 preparing、窗口仍然可见：收起没走到隐藏这一步，窗口完好，直接删掉这条记录。
         var resolvedIDs: Set<CGWindowID> = []
     }
 
-    // WindowShade 自己的停车点（见 axOffscreenHide / privateSLSOffscreenHide /
-    // livePreviewParkingSpots）：主点 (-32000,-32000)，备选 (-12000, y)/
-    // (x, -12000)/(-12000,-12000)。判据只匹配这些停车带：
-    // - 两轴都在停车带（主点 / (-12000,-12000)），或
-    // - 单轴在停车带、另一轴是"像普通窗口坐标"的值（备选点），
-    // 避免误救其他 app 自己放到极远坐标（如 -100000）的窗口。
-    func isAtWindowShadeParkingSpot(_ pos: CGPoint) -> Bool {
+    // WindowShade 自己的停放位置（见 Platform/WindowHider.swift 的 offscreenParkingPoint 和 offscreenSpots）：
+    // 主点 (-32000,-32000)，备选 (-12000, y)、(x, -12000)、(-12000,-12000)。只匹配这些位置附近（±96 点）：
+    // - 两个坐标都在停放位置附近（主点或 (-12000,-12000)），或
+    // - 一个坐标在停放位置附近，另一个像普通窗口的坐标（备选点）。
+    // 这样不会误动其他应用程序自己放到极远处（如 -100000）的窗口。
+    nonisolated func isAtWindowShadeParkingSpot(_ pos: CGPoint) -> Bool {
         func onParkingBand(_ v: CGFloat) -> Bool {
             abs(v + 12000) <= 96 || abs(v + 32000) <= 96
         }
@@ -50,14 +48,13 @@ extension AppDelegate {
             || (yParked && looksLikeWindowAxis(pos.x))
     }
 
-    func collectJournalRescueActions(targetTopLeft: CGPoint,
-                                             into result: inout JournalRescueResult) {
-        let entries = shadeJournalEntries()
+    /// 在后台队列上跑：恢复记录由调用方先在主线程读好传进来。
+    nonisolated func collectJournalRescueActions(entries: [[String: Any]], targetTopLeft: CGPoint, screens: ScreenSnapshot,
+                                                 into result: inout JournalRescueResult) {
         guard !entries.isEmpty else { return }
         var rescued = 0
 
-        // 与专注同理：救援扫描原本对每个运行中的进程都发一次 AX 枚举，
-        // 启动期这条路径直接决定「launch」有多慢。
+        // 只枚举有窗口的进程：对每个运行中的进程都做一次辅助功能枚举，启动会明显变慢。
         let pidsOwningWindows = WindowListCache.shared.pidsWithWindows()
 
         for app in NSWorkspace.shared.runningApplications {
@@ -77,19 +74,40 @@ extension AppDelegate {
                 }), let id = journalID(entry) else { continue }
 
                 guard let pos = axPosition(win), let size = axSize(win) else { continue }
-                if windowIsVisible(pos: pos, size: size),
-                   journalString(entry,"stage") != ShadeLifecycleStage.restoring.rawValue,
-                   journalString(entry,"hide") != HideMethod.minimized.rawValue,
-                   journalString(entry,"hide") != HideMethod.hidden.rawValue,
-                   journalString(entry,"hide") != HideMethod.privateAlpha.rawValue {
-                    // preparing intent 且窗口仍可见：事务没走到隐藏这一步（进程在
-                    // 写 intent 后、隐藏前被杀），窗口完好，无需救援，安全清理。
-                    if journalString(entry, "stage") == ShadeLifecycleStage.preparing.rawValue {
+                let windowOnScreen = screens.isVisible(pos: pos, size: size)
+                let appHidden = app.isHidden
+                let minimized = axBoolAttribute(win, kAXMinimizedAttribute as String)
+                let alpha = PrivateSLSWindowMover.shared.windowAlpha(id: id).map { Double($0) }
+                    ?? (cgWindowInfo(id)?[kCGWindowAlpha as String] as? NSNumber)?.doubleValue
+                let transparent = windowLooksTransparent(alpha: alpha)
+                // 记录停在“准备”：隐藏、最小化的请求可能在退出前发出、退出后才生效，窗口位置在屏幕上也要再看应用程序是否隐藏、窗口是否最小化。
+                var hide = HideMethod(rawValue: journalString(entry, "hide"))
+                if journalString(entry, "stage") == ShadeLifecycleStage.preparing.rawValue {
+                    switch preparingIntentOutcome(windowOnScreen: windowOnScreen, appHidden: appHidden,
+                                                  minimized: minimized, transparent: transparent) {
+                    case .intact:
                         result.resolvedIDs.insert(id)
                         wlog("journal: preparing intent resolved (window visible) id=\(id)")
+                        continue
+                    case .unhideApp:
+                        hide = .hidden
+                        wlog("journal: preparing intent left the app hidden; unhiding id=\(id)")
+                    case .unminimize:
+                        hide = .minimized
+                        wlog("journal: preparing intent left the window minimized id=\(id)")
+                    case .moveBack:
+                        break
+                    case .restoreAlpha:
+                        wlog("journal: preparing intent left the window transparent; restoring alpha id=\(id)")
                     }
+                } else if windowUserVisible(windowOnScreen: windowOnScreen, appHidden: appHidden,
+                                            minimized: minimized, transparent: transparent) {
+                    // 用户已经看得见这扇窗口：它已经回来了，只删掉记录，不再移动它、取消隐藏或带到最前。
+                    result.resolvedIDs.insert(id)
+                    wlog("journal: window already visible; record removed without moving it id=\(id) stage=\(journalString(entry, "stage"))")
                     continue
                 }
+                let restoresAlpha = transparent || journalString(entry, "hide") == HideMethod.privateAlpha.rawValue
 
                 let target = CGPoint(
                     x: CGFloat(journalNumber(entry, "originalX") ?? Double(targetTopLeft.x + CGFloat(rescued * 24))),
@@ -100,27 +118,28 @@ extension AppDelegate {
                     height: CGFloat(journalNumber(entry, "originalHeight") ?? Double(size.height))
                 )
                 let safeTarget: CGPoint
-                if windowIsVisible(pos: target, size: originalSize) {
+                if screens.isVisible(pos: target, size: originalSize) {
                     safeTarget = target
                 } else {
-                    let frame = cocoaFrame(fromAXPosition: target, size: originalSize)
-                    // 优先恢复到折叠时所在显示器，避免多显示器布局变化后救错屏。
+                    let frame = screens.cocoaFrame(fromAXPosition: target, size: originalSize)
+                    // 优先放回收起时所在的显示器，避免多显示器布局变化后放错屏幕。
                     let displayID = journalNumber(entry, "displayID").map { CGDirectDisplayID($0) }
-                    safeTarget = axPosition(fromCocoaFrame: clampedFrame(frame, margin: 16,
-                                                                          preferredDisplayID: displayID))
+                    safeTarget = screens.axPosition(fromCocoaFrame: screens.clampedFrame(frame, margin: 16,
+                                                                                          preferredDisplayID: displayID))
                 }
                 result.actions.append(OffscreenRescueAction(id: id, win: win,
                                                             target: safeTarget, size: originalSize,
-                                                            pid:app.processIdentifier,hide:HideMethod(rawValue:journalString(entry,"hide")),
-                                                            targetAlpha:journalString(entry,"hide") == HideMethod.privateAlpha.rawValue ? Float(journalNumber(entry,"originalAlpha") ?? 1):nil))
+                                                            pid:app.processIdentifier,hide:hide,
+                                                            targetAlpha: restoresAlpha ? Float(journalNumber(entry, "originalAlpha") ?? 1) : nil))
                 rescued += 1
                 wlog("journal: rescued id=\(id) app=\(journalString(entry, "appName")) target=(\(Int(safeTarget.x)),\(Int(safeTarget.y)))")
             }
         }
     }
 
-    // 每个恢复动作单独验证：geometry 恢复至少确认 AXPosition/AXSize 可重新读取、
-    // 窗口落在有效显示区域；只有验证成功的 entry 才允许被清理。
+    // 每个恢复动作单独验证：窗口的位置和大小读得到、窗口落在屏幕上、用户看得见；只有验证通过的记录才删掉。
+    // 不要求和记录的位置、大小完全一致：macOS 会把窗口限制在屏幕之内，用户也可能已经拖走了它，看得见就够了，
+    // 否则记录一直留着，每轮找回都把窗口拉回原处。
     func rescueActionVerified(_ action: OffscreenRescueAction) -> Bool {
         guard let pos = axPosition(action.win), let size = axSize(action.win) else { return false }
         guard pos.x.isFinite, pos.y.isFinite, size.width > 1, size.height > 1 else { return false }
@@ -130,8 +149,35 @@ extension AppDelegate {
         if let alpha=action.targetAlpha {
             guard let actual=PrivateSLSWindowMover.shared.windowAlpha(id:action.id), abs(actual-alpha)<0.05 else { return false }
         }
-        return abs(pos.x-action.target.x)<=2 && abs(pos.y-action.target.y)<=2 &&
-            abs(size.width-action.size.width)<=2 && abs(size.height-action.size.height)<=2
+        return true
+    }
+
+    /// 找回做过一秒以后：窗口已经看得见就删掉记录；还看不见就记下试过几次，到次数就删掉记录、不再试。
+    func settleRescueAttempts(_ actions: [OffscreenRescueAction]) {
+        let liveJournalIDs = Set(shadeJournalEntries().compactMap { journalID($0) })
+        let inFlightIDs = windowsInUse
+        var settledIDs: Set<CGWindowID> = []
+        for action in actions {
+            guard rescueActionStillApplies(id: action.id, liveJournalIDs: liveJournalIDs,
+                                           inFlightIDs: inFlightIDs) else { continue }
+            if rescueActionVerified(action) {
+                settledIDs.insert(action.id)
+                wlog("journal: rescue verified id=\(action.id)")
+                continue
+            }
+            var attempts = 0
+            updateShadeJournal(id: action.id, reason: "rescue-unverified") { entry in
+                attempts = Int(journalNumber(entry, "rescueAttempts") ?? 0) + 1
+                entry["rescueAttempts"] = attempts
+            }
+            if journalRescueGivesUp(attempts: attempts) {
+                settledIDs.insert(action.id)
+                wlog("journal: rescue still unverified after \(attempts) attempts; record removed id=\(action.id)")
+            } else {
+                wlog("journal: rescue unverified, keep entry for retry id=\(action.id) attempts=\(attempts)")
+            }
+        }
+        pruneRescuedJournalEntries(rescuedIDs: settledIDs)
     }
 
     func alphaRestoreVerified(_ restore: JournalAlphaRestore) -> Bool {
@@ -151,7 +197,7 @@ extension AppDelegate {
             wlog("journal: pruned \(entries.count - filtered.count) rescued entries")
         }
     }
-    func collectParkedWindowRescueActions(targetTopLeft: CGPoint,
+    nonisolated func collectParkedWindowRescueActions(targetTopLeft: CGPoint, screens: ScreenSnapshot,
                                                   into actions: inout [OffscreenRescueAction]) -> Int {
         let allWindows = WindowListCache.shared.allWindows()
         var parkedPIDs: Set<pid_t> = []
@@ -171,9 +217,9 @@ extension AppDelegate {
 
             for win in windows {
                 guard let pos = axPosition(win), let size = axSize(win) else { continue }
-                // 只救我们自己的停车点附近、且确实不在任何屏幕可见区的窗口。
+                // 只找回停在 WindowShade 停放位置附近、而且不在任何屏幕可见区域里的窗口。
                 guard isAtWindowShadeParkingSpot(pos) else { continue }
-                guard !windowIsVisible(pos: pos, size: size) else { continue }
+                guard !screens.isVisible(pos: pos, size: size) else { continue }
                 actions.append(OffscreenRescueAction(
                     id: 0,
                     win: win,
@@ -185,61 +231,77 @@ extension AppDelegate {
         }
         return rescued
     }
-    func rescueOffscreenWindows(silent: Bool) {
+    func rescueOffscreenWindows() {
         guard !isRescuingOffscreenWindows else {
             isRescueQueued = true
             return
         }
         isRescuingOffscreenWindows = true
-        // 屏幕几何在主线程取好（NSScreen 只在主线程访问）；AX 扫描在后台。
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+        // 屏幕在主线程取一份快照（NSScreen 只在主线程访问），后台扫描只用快照；辅助功能扫描在后台。
+        let screens = ScreenSnapshot.current()
+        guard let screen = screens.screens.first else {
             isRescuingOffscreenWindows = false
-            if !silent { quietNotice("没有可用屏幕", log: "rescue: no screen") }
+            wlog("rescue: no screen")
             return
         }
         let targetTopLeft = CGPoint(x: screen.visibleFrame.minX + 80,
-                                    y: coordinateBaselineY() - (screen.visibleFrame.maxY - 80))
-        let finish: @Sendable (String?) -> Void = { [weak self] notice in
+                                    y: screens.baselineY - (screen.visibleFrame.maxY - 80))
+        let finish: @Sendable () -> Void = { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.isRescuingOffscreenWindows = false
-                if let notice {
-                    self.quietNotice(notice, log: "rescue: \(notice)")
-                }
                 if self.isRescueQueued {
                     self.isRescueQueued = false
-                    self.rescueOffscreenWindows(silent: true)
+                    self.rescueOffscreenWindows()
                 }
             }
         }
+        // 正在收起、已收起、正在展开的窗口的记录属于正在进行的操作，不交给扫描。
+        let inUseAtStart = windowsInUse
+        let journalEntries = HandOff(shadeJournalEntries().filter { entry in
+            journalID(entry).map { !inUseAtStart.contains($0) } ?? false
+        })
+        let scansParkedWindows = parkedWindowScanAllowed(inUse: inUseAtStart)
         rescueWorkQueue.async { [weak self] in
             guard let self else { return }
             guard AXIsProcessTrusted() else {
                 DispatchQueue.main.async { self.showPermissionOnboardingIfNeeded(force: true) }
-                finish(silent ? nil : "需要权限")
+                wlog("rescue: accessibility is not allowed")
+                finish()
                 return
             }
             var result = JournalRescueResult()
-            self.collectJournalRescueActions(targetTopLeft: targetTopLeft, into: &result)
+            self.collectJournalRescueActions(entries: journalEntries.value, targetTopLeft: targetTopLeft, screens: screens,
+                                             into: &result)
             var rescued = result.actions.count + result.alphaRestores.count
-            if rescued == 0 {
-                rescued += self.collectParkedWindowRescueActions(targetTopLeft: targetTopLeft,
+            if rescued == 0, scansParkedWindows {
+                rescued += self.collectParkedWindowRescueActions(targetTopLeft: targetTopLeft, screens: screens,
                                                                  into: &result.actions)
             }
-            // 写回统一在主线程：若扫描期间用户折了窗口（shaded 非空），放弃这批
-            // 写回，避免把刚停车的窗口又挪回可见区；journal 清理也回主线程写，
-            // 避免与 shade 的 journal 写入竞争。
+            // 写回统一在主线程，逐条核对：扫描期间记录已经删掉、窗口正在收起、已收起或正在展开的，不再动它，
+            // 别的记录照常写回（扫描期间用户收起了别的窗口，也不放弃整批）。删除记录也在主线程做，避免和收起时写记录冲突。
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if !self.shaded.isEmpty {
-                    wlog("rescue: shaded windows appeared during scan; skip applying \(result.actions.count) actions")
-                    finish(nil)
-                    return
-                }
                 self.pruneShadeJournal(reason: "rescue")
-                // 先恢复、逐条验证，再清理：验证失败的 entry 保留，下一轮重试。
-                var verifiedIDs = result.resolvedIDs
+                // 见 PreparingIntent.swift 的 rescueActionStillApplies。
+                let liveJournalIDs = Set(self.shadeJournalEntries().compactMap { self.journalID($0) })
+                let inFlightIDs = self.windowsInUse
+                // 先恢复、过一会儿逐条验证，再清理：验证失败的记录保留，下一轮重试，到次数就放弃。
+                var verifiedIDs = result.resolvedIDs.filter {
+                    rescueActionStillApplies(id: $0, liveJournalIDs: liveJournalIDs, inFlightIDs: inFlightIDs)
+                }
+                var applied: [OffscreenRescueAction] = []
                 for action in result.actions {
+                    if action.id != 0,
+                       !rescueActionStillApplies(id: action.id, liveJournalIDs: liveJournalIDs, inFlightIDs: inFlightIDs) {
+                        wlog("rescue: skip id=\(action.id); its entry was removed or it is folded, being folded or being unfolded")
+                        continue
+                    }
+                    // 停放位置上没有记录的窗口：扫描期间有窗口收起了，分不出哪扇是现在藏着的，这一批都不动。
+                    if action.id == 0, !parkedWindowScanAllowed(inUse: inFlightIDs) {
+                        wlog("rescue: skip a parked window; a window was folded during the scan")
+                        continue
+                    }
                     guard action.id != 0 else {
                         setAXSize(action.win, action.size)
                         setAXPosition(action.win, action.target)
@@ -248,16 +310,12 @@ extension AppDelegate {
                     }
                     if let alpha=action.targetAlpha { _=PrivateSLSWindowMover.shared.setAlpha(id:action.id,alpha:alpha) }
                     if action.hide == .hidden,let pid=action.pid { _=NSRunningApplication(processIdentifier:pid)?.unhide() }
-                    if action.hide == .minimized { setAXMinimized(action.win,false) }
+                    // 应用程序隐藏、窗口也最小化时，取消隐藏之后还要解除最小化。
+                    if action.hide == .minimized || axBoolAttribute(action.win, kAXMinimizedAttribute as String) { setAXMinimized(action.win,false) }
                     setAXSize(action.win, action.size)
                     setAXPosition(action.win, action.target)
                     raiseAXWindow(action.win)
-                    if self.rescueActionVerified(action) {
-                        verifiedIDs.insert(action.id)
-                        wlog("journal: rescue verified id=\(action.id)")
-                    } else {
-                        wlog("journal: rescue unverified, keep entry for retry id=\(action.id)")
-                    }
+                    applied.append(action)
                 }
                 for restore in result.alphaRestores {
                     if PrivateSLSWindowMover.shared.setAlpha(id: restore.id, alpha: restore.targetAlpha),
@@ -270,7 +328,17 @@ extension AppDelegate {
                 }
                 self.pruneRescuedJournalEntries(rescuedIDs: verifiedIDs)
                 wlog("rescueOffscreenWindows: rescued=\(rescued)")
-                finish(rescued == 0 && !silent ? "没有需要救援的窗口" : nil)
+                guard !applied.isEmpty else {
+                    finish()
+                    return
+                }
+                // 取消隐藏、解除最小化要过一会儿才生效，放回之后立刻看，窗口多半还看不见。等一秒再验证；
+                // 这期间不开始下一轮找回（isRescuingOffscreenWindows 还是 true），免得同一扇窗口被放回两次。
+                let held = HandOff(applied)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.settleRescueAttempts(held.value)
+                    finish()
+                }
             }
         }
     }

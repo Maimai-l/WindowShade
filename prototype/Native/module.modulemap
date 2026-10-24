@@ -1,4 +1,0 @@
-module WS2ProcessNative {
-    header "WS2Child.h"
-    export *
-}

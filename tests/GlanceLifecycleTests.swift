@@ -1,35 +1,31 @@
 
 // Appended to Glance.swift by the runner to exercise actual session transitions
 // without a screen-capture stream, real window, or AX write.
-@MainActor private final class LifecycleCarrySource: GlanceCarrySource {
+@MainActor private final class LifecycleSource {
     let frame = NSRect(x: 100, y: 100, width: 260, height: 30)
-    /// The strip can outlive the carried window: a target lookup may start
-    /// failing while `carriedStripFrame` still answers.
+    /// The strip can outlive its window's glance: a target lookup may start
+    /// failing while the strip is still on screen.
     var target: GlanceTarget?
 
     init() {
         target = GlanceTarget(strip: frame, panel: frame, card: frame, picture: frame,
                               backdropArea: nil, cornerRadius: 8, source: .snapshotOnly,
                               snapshot: nil, pid: 123_456, bundleID: "test.lifecycle",
-                              accessibilityTitle: "test", staleText: "test")
+                              accessibilityTitle: "test")
     }
-
-    func carriedStripFrame(_ id: CGWindowID) -> NSRect? { frame }
-    func glanceTarget(forCarried id: CGWindowID) -> GlanceTarget? { target }
-    func openCarriedWindow(_ id: CGWindowID) {}
 }
 
 extension GlanceController {
     @MainActor static func verifyLifecycle() {
         let owner = AppDelegate()
         let controller = GlanceController(owner: owner)
-        let source = LifecycleCarrySource()
-        controller.carrySource = source
+        let source = LifecycleSource()
+        controller.testTarget = { _ in (source.frame, source.target) }
         controller.clock = { 10 }
         let id: CGWindowID = 4_000_001
         func install() -> GlanceSession {
             let session = GlanceSession(id: id, preparedAt: 1, stripFrame: source.frame,
-                                        liveExpected: true, carried: false)
+                                        liveExpected: true)
             session.pid = 123_456
             session.viaUnhide = true
             controller.sessions[id] = session
@@ -86,14 +82,56 @@ extension GlanceController {
         controller.takeOverUnhiddenSessions(for: active.pid) { restored.append($0) }
         precondition(restored == [id], "User takeover restores exactly once")
 
+        // 缺陷回归（2026-10-20 CI 场景 C18，127faba、6b2d7cd）：前台是邮件，看一眼显示时，WindowShade 临时取消隐藏原应用程序，
+        // 约 0.2 秒后系统把它换到前台；修复之前，WindowShade 把这次激活当成用户切回原应用程序，展开了窗口。
+        let justUnhidden = install()
+        justUnhidden.stage = .shown
+        justUnhidden.frontmostBeforeUnhide = 999
+        justUnhidden.unhideAt = 9.8
+        justUnhidden.unhiddenAt = 9.9
+        var reactivated: [pid_t] = []
+        controller.reactivate = { reactivated.append($0) }
+        controller.userIsSwitchingApps = { false }
+        restored = []
+        controller.takeOverUnhiddenSessions(for: justUnhidden.pid) { restored.append($0) }
+        precondition(restored.isEmpty && controller.sessions[id] === justUnhidden,
+                     "An activation right after the unhide is not a user switch: keep the fold")
+        precondition(reactivated == [999], "The app that was frontmost before the unhide gets the focus back")
+        // 同一时刻，用户按着 Command 用 ⌘Tab 切换到原应用程序：照常展开。
+        controller.userIsSwitchingApps = { true }
+        controller.takeOverUnhiddenSessions(for: justUnhidden.pid) { restored.append($0) }
+        precondition(restored == [id], "A user switch right after the unhide still unfolds")
+        controller.cancelAll(reason: "frontmost-app")
+        restored = [id]
+
+        // 按下卷帘条时，看一眼临时取消隐藏过的应用程序要马上藏回去，画面留着。
+        // 按住卷帘条切桌面时，应用程序必须已经隐藏（CI 场景 S6-carry-sip，56ae7e5：按下后 585 毫秒才藏回去）。
+        let pressed = install()
+        pressed.stage = .shown
+        pressed.frontmostBeforeUnhide = 999
+        pressed.unhideAt = 1
+        pressed.unhiddenAt = 2
+        controller.stripPressed(id)
+        precondition(pressed.rehiddenAt != nil, "Pressing the strip hides the temporarily revealed app again")
+        precondition(controller.sessions[id] === pressed && pressed.stage == .shown,
+                     "Pressing the strip keeps the glance picture")
+        precondition(pressed.stripClicked, "After a press the glance does not reveal the app again")
+        controller.finish(pressed, reason: "test-cleanup")
+        // 只用截图、没有取消隐藏过应用程序的看一眼：按下时不隐藏。
+        let snapshotOnly = install()
+        snapshotOnly.stage = .shown
+        controller.stripPressed(id)
+        precondition(snapshotOnly.rehiddenAt == nil)
+        controller.finish(snapshotOnly, reason: "test-cleanup")
+
         // A source not yet temporarily revealed has no ownership to transfer.
         let preparing = install()
         controller.takeOverUnhiddenSessions(for: preparing.pid) { restored.append($0) }
         precondition(controller.sessions[id] === preparing && restored == [id])
         controller.finish(preparing, reason: "test-cleanup")
 
-        // The strip can still be on screen while its carried window is no longer
-        // carried: opening must not leave the preparing session and intent alive.
+        // The strip can still be on screen while its window can no longer be
+        // glanced: opening must not leave the preparing session and intent alive.
         controller.apply(controller.intent.entered(id, at: 1))
         let stale = controller.sessions[id]
         precondition(stale != nil && stale!.stage == .preparing && !stale!.liveExpected)
@@ -110,24 +148,62 @@ extension GlanceController {
         precondition(controller.intent.phase == .idle)
         precondition(controller.intent.blocked.isEmpty)
         precondition(!controller.needsTimer, "Nothing left to sample: the timer must stop")
+
+        // 缺陷回归（2026-10-24 用户实测，macOS 15.2，网易云音乐）：窗口半透明的顶栏和侧栏在截图里也是透明的。
+        // 修复之前，看一眼的卡片有画面时底色透明，透出桌面；在卡片底下取消隐藏应用程序时，又透出真正的窗口。
+        // 卡片有画面时也要有不透明的底色。
+        let card = GlanceContentView(frame: NSRect(x: 0, y: 0, width: 300, height: 200),
+                                     cardFrame: NSRect(x: 24, y: 24, width: 252, height: 152),
+                                     pictureFrame: NSRect(x: 24, y: 24, width: 252, height: 152),
+                                     cornerRadius: 8, accessibilityTitle: "test")
+        let clearContext = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
+                                     space: CGColorSpaceCreateDeviceRGB(),
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        card.setSnapshot(clearContext.makeImage())
+        card.applySystemAppearance()
+        precondition(card.cardBackgroundAlpha == 1, "A card with a picture still has an opaque background under it")
+        // 缺陷回归（2026-10-24 CI 场景 X15，12847ac）：被隐藏的应用程序的看一眼，打开画面时在主线程上截原窗口背后那块区域，
+        // CI 虚拟机上截一次要 300 多毫秒，单击卷帘条后主线程停顿了 558 毫秒。背景要在后台截，没截好就只给截图。
+        final class BackdropCalls: @unchecked Sendable {
+            let lock = NSLock()
+            private var threads: [Bool] = []
+            func record() { lock.lock(); threads.append(Thread.isMainThread); lock.unlock() }
+            var onMainThread: [Bool] { lock.lock(); defer { lock.unlock() }; return threads }
+        }
+        let calls = BackdropCalls()
+        controller.backdropCapture = { _ in calls.record(); return nil }
+        source.target = GlanceTarget(strip: source.frame, panel: source.frame, card: source.frame, picture: source.frame,
+                                     backdropArea: source.frame, cornerRadius: 8, source: .unhideUnderCover,
+                                     snapshot: nil, pid: 123_456, bundleID: "test.lifecycle", accessibilityTitle: "test")
+        controller.prepare(id)
+        controller.open(id)
+        precondition(!calls.onMainThread.contains(true), "Opening a glance does not capture the backdrop on the main thread")
+        if let opened = controller.sessions[id] {
+            precondition(!opened.viaUnhide, "Backdrop not captured yet: snapshot only, no unhide")
+            controller.finish(opened, reason: "test-cleanup")
+        }
+        let backdropDeadline = Date().addingTimeInterval(2)
+        while calls.onMainThread.isEmpty && Date() < backdropDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        precondition(calls.onMainThread == [false], "The backdrop is captured once, off the main thread")
+
         // Restore the fixture so later scenarios still see a target.
-        source.target = LifecycleCarrySource().target
+        source.target = LifecycleSource().target
     }
 }
 
-@MainActor private final class StagedOpenCarrySource: GlanceCarrySource {
+@MainActor private final class StagedOpenSource {
     let frame = NSRect(x: 100, y: 100, width: 260, height: 30)
     var snapshot: CGImage?
     let source: GlanceTarget.Source = .stream
 
-    func carriedStripFrame(_ id: CGWindowID) -> NSRect? { frame }
-    func glanceTarget(forCarried id: CGWindowID) -> GlanceTarget? {
+    var target: GlanceTarget {
         GlanceTarget(strip: frame, panel: frame, card: frame, picture: frame,
                      backdropArea: nil, cornerRadius: 8, source: source,
                      snapshot: snapshot, pid: 123_456, bundleID: "test.lifecycle",
-                     accessibilityTitle: "test", staleText: "收起时的画面")
+                     accessibilityTitle: "test")
     }
-    func openCarriedWindow(_ id: CGWindowID) {}
 }
 
 extension GlanceController {
@@ -135,14 +211,14 @@ extension GlanceController {
     @MainActor static func verifyOpenStaging() {
         let owner = AppDelegate()
         let controller = GlanceController(owner: owner)
-        let source = StagedOpenCarrySource()
-        controller.carrySource = source
+        let source = StagedOpenSource()
+        controller.testTarget = { _ in (source.frame, source.target) }
         let id: CGWindowID = 4_100_001
         var now = 10.0
         controller.clock = { now }
         func install() -> GlanceSession {
             let session = GlanceSession(id: id, preparedAt: 1, stripFrame: source.frame,
-                                        liveExpected: true, carried: true)
+                                        liveExpected: true)
             session.pid = 123_456
             controller.sessions[id] = session
             return session
@@ -164,10 +240,47 @@ extension GlanceController {
                      "An available snapshot must show without waiting for a live frame")
         precondition(withSnapshot.showDeadline == nil, "Nothing to wait for when a snapshot is ready")
         precondition(withSnapshot.content?.hasSnapshot == true)
+        // G2：卡片上不加任何文字（以前右下角有“收起时的画面”，2026-10-08 删除）。
+        func textFields(_ view: NSView) -> [NSTextField] {
+            var found: [NSTextField] = []
+            for child in view.subviews {
+                if let field = child as? NSTextField { found.append(field) }
+                found += textFields(child)
+            }
+            return found
+        }
+        precondition(withSnapshot.content.map(textFields)?.isEmpty == true, "The glance card shows no text")
         precondition(controller.diagnostics.opens == 1)
         precondition(controller.isShowing)
         controller.finish(withSnapshot, reason: "test-cleanup")
         precondition(controller.sessions[id] == nil)
+
+        // 同一次“看一眼”再打开一次（例如展开途中）：不建第二个面板；结束后屏幕上不留面板
+        // （2026-10-17 CI 场景 A33-Safari，33232d9：两个面板一直留在屏幕上）。
+        let twice = install()
+        controller.open(id)
+        let firstPanel = twice.panel
+        twice.stage = .expanding
+        controller.open(id)
+        precondition(twice.panel === firstPanel, "A second open must not replace the panel of the same glance")
+        controller.finish(twice, reason: "test-cleanup")
+        precondition(!NSApp.windows.contains { $0 is GlancePanel && $0.isVisible },
+                     "No glance panel stays on screen after the glance ends")
+
+        // 展开后撤画面：先淡出，不一下子撤掉（用户 2026-10-17 的录像：撤掉的那一刻，原窗口刚取消隐藏，
+        // 标题栏还没画好，露出 3 帧标题栏底下没经过模糊的正文、2 帧灰色的标题栏）。淡出结束后面板不留在屏幕上。
+        let expanded = install()
+        controller.open(id)
+        let fadingPanel = expanded.panel
+        expanded.stage = .expanding
+        controller.finish(expanded, reason: "expanded")
+        precondition(controller.sessions[id] == nil)
+        precondition(fadingPanel?.isVisible == true, "After an expand the panel fades out instead of vanishing at once")
+        let fadeDeadline = Date().addingTimeInterval(1)
+        while fadingPanel?.isVisible == true, Date() < fadeDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        precondition(fadingPanel?.isVisible != true, "The panel is gone once the fade ends")
 
         // 没有截图：保留有界的首帧等待；清理时待显示的会话整条都要收掉。
         source.snapshot = nil
@@ -194,25 +307,6 @@ extension GlanceController {
         _ = NSApplication.shared
         GlanceController.verifyLifecycle()
         GlanceController.verifyOpenStaging()
-        let element = AXUIElementCreateApplication(getpid())
-        var events: [String] = []
-        let opened = CarryController.restoreForOpening(element,
-            isMinimized: { _ in true },
-            unminimize: { _ in events.append("unminimize"); return .success },
-            bringForward: { events.append("front") })
-        precondition(opened && events == ["unminimize", "front"])
-        events = []
-        let failed = CarryController.restoreForOpening(element,
-            isMinimized: { _ in true },
-            unminimize: { _ in events.append("unminimize"); return .cannotComplete },
-            bringForward: { events.append("front") })
-        precondition(!failed && events == ["unminimize"], "Do not focus another window after failed restoration")
-        events = []
-        let visible = CarryController.restoreForOpening(element,
-            isMinimized: { _ in false },
-            unminimize: { _ in preconditionFailure("No AX write needed for a visible window") },
-            bringForward: { events.append("front") })
-        precondition(visible && events == ["front"])
         print("GlanceLifecycleTests passed")
     }
 }

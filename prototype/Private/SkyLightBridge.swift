@@ -1,11 +1,5 @@
-// SkyLight 私有 API 隔离层。
-//
-// 把 _AXUIElementGetWindow 与 SLS 符号封装移出主实现，统一经由
-// PrivateSLSWindowMover 访问；所有调用方只依赖这一个入口，
-// 私有符号不可用时由内部 fallback 返回失败，调用方自行降级
-// （AX 移动 → hide/minimize）。
-//
-// 编译单元：prototype/Private/SkyLightBridge.swift
+// SkyLight 私有接口集中在这里：PrivateSLSWindowMover 包装 SLS 函数，_AXUIElementGetWindow 单独声明。
+// 符号取不到时各方法返回失败或 nil，由调用方改用别的方式移开窗口（见 Platform/WindowHider.swift）。
 
 import Cocoa
 import ApplicationServices
@@ -17,14 +11,16 @@ func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePoin
 private typealias SLSMainConnectionIDFunction = @convention(c) () -> Int32
 private typealias SLSMoveWindowWithGroupFunction = @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGPoint>) -> Int32
 private typealias SLSReassociateWindowsSpacesByGeometryFunction = @convention(c) (Int32, CFArray) -> Int32
-// Copy 规则：返回的数组是 +1，按 Unmanaged 接住再 takeRetainedValue，不然每次调用都漏一个（刘海每次悬停都会调）。
+// Copy 规则：返回的数组是 +1，按 Unmanaged 接住再 takeRetainedValue，不然每次调用都漏一个。
 private typealias SLSCopySpacesForWindowsFunction = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
 private typealias SLSMoveWindowsToManagedSpaceFunction = @convention(c) (Int32, CFArray, UInt64) -> Void
 private typealias SLSManagedDisplayGetCurrentSpaceFunction = @convention(c) (Int32, CFString) -> UInt64
 private typealias SLSManagedDisplaySetCurrentSpaceFunction = @convention(c) (Int32, CFString, UInt64) -> Int32
 private typealias SLSGetWindowAlphaFunction = @convention(c) (Int32, UInt32, UnsafeMutablePointer<Float>) -> Int32
 private typealias SLSSetWindowAlphaFunction = @convention(c) (Int32, UInt32, Float) -> Int32
-private typealias SLSCopyManagedDisplaySpacesFunction = @convention(c) (Int32) -> Unmanaged<CFArray>?
+private typealias SLSSpaceSetCompatIDFunction = @convention(c) (Int32, UInt64, Int32) -> Int32
+private typealias SLSSetWindowListWorkspaceFunction = @convention(c) (Int32, UnsafePointer<UInt32>, Int32, Int32) -> Int32
+private typealias SLSSpaceGetTypeFunction = @convention(c) (Int32, UInt64) -> Int32
 
 final class PrivateSLSWindowMover: Sendable {
     static let shared = PrivateSLSWindowMover()
@@ -38,7 +34,9 @@ final class PrivateSLSWindowMover: Sendable {
     private let managedDisplaySetCurrentSpace: SLSManagedDisplaySetCurrentSpaceFunction?
     private let getWindowAlpha: SLSGetWindowAlphaFunction?
     private let setWindowAlpha: SLSSetWindowAlphaFunction?
-    private let copyManagedDisplaySpaces: SLSCopyManagedDisplaySpacesFunction?
+    private let spaceSetCompatID: SLSSpaceSetCompatIDFunction?
+    private let setWindowListWorkspace: SLSSetWindowListWorkspaceFunction?
+    private let spaceGetType: SLSSpaceGetTypeFunction?
 
     private init() {
         let paths = [
@@ -64,7 +62,9 @@ final class PrivateSLSWindowMover: Sendable {
             managedDisplaySetCurrentSpace = nil
             getWindowAlpha = nil
             setWindowAlpha = nil
-            copyManagedDisplaySpaces = nil
+            spaceSetCompatID = nil
+            setWindowListWorkspace = nil
+            spaceGetType = nil
             return
         }
         mainConnectionID = unsafeBitCast(mainSymbol, to: SLSMainConnectionIDFunction.self)
@@ -107,8 +107,16 @@ final class PrivateSLSWindowMover: Sendable {
         } else {
             setWindowAlpha = nil
         }
-        copyManagedDisplaySpaces = dlsym(handle, "SLSCopyManagedDisplaySpaces")
-            .map { unsafeBitCast($0, to: SLSCopyManagedDisplaySpacesFunction.self) }
+        spaceSetCompatID = dlsym(handle, "SLSSpaceSetCompatID").map { unsafeBitCast($0, to: SLSSpaceSetCompatIDFunction.self) }
+        setWindowListWorkspace = dlsym(handle, "SLSSetWindowListWorkspace")
+            .map { unsafeBitCast($0, to: SLSSetWindowListWorkspaceFunction.self) }
+        spaceGetType = dlsym(handle, "SLSSpaceGetType").map { unsafeBitCast($0, to: SLSSpaceGetTypeFunction.self) }
+    }
+
+    /// 这个桌面是不是全屏应用程序的桌面（类型 4；普通桌面是 0）。私有接口不可用时返回 nil。
+    func spaceIsFullScreen(_ space: UInt64) -> Bool? {
+        guard let mainConnectionID, let spaceGetType else { return nil }
+        return spaceGetType(mainConnectionID(), space) == 4
     }
 
     var isAvailable: Bool {
@@ -139,31 +147,6 @@ final class PrivateSLSWindowMover: Sendable {
         return reassociateWindowsSpacesByGeometry(mainConnectionID(), windows) == 0
     }
 
-    /// 这扇窗所在的所有桌面（“在所有桌面上”的窗口有好几张；最小化的窗口一张都没有）。读不到时返回空。
-    func windowSpaces(id: CGWindowID) -> [UInt64] {
-        guard let mainConnectionID, let copySpacesForWindows else { return [] }
-        let windows = [NSNumber(value: UInt32(id))] as CFArray
-        let spaces = copySpacesForWindows(mainConnectionID(), 0x7, windows)?.takeRetainedValue() as? [NSNumber] ?? []
-        return spaces.map(\.uint64Value).filter { $0 != 0 }
-    }
-
-    /// 每块屏（“显示器具有单独的空间”关掉时是所有屏共用的一组）的桌面，按调度中心里的次序，和它此刻正显示的那张。
-    /// 只认普通桌面（type 0）和全屏 App 的桌面（type 4）。读不到时返回空。
-    func desktopRows() -> [DesktopRow] {
-        guard let mainConnectionID, let copyManagedDisplaySpaces,
-              let displays = copyManagedDisplaySpaces(mainConnectionID())?.takeRetainedValue() as? [[String: Any]] else { return [] }
-        return displays.compactMap { entry in
-            guard let current = ((entry["Current Space"] as? [String: Any])?["ManagedSpaceID"] as? NSNumber)?.uint64Value
-            else { return nil }
-            let spaces = ((entry["Spaces"] as? [[String: Any]]) ?? []).compactMap { space -> DesktopRow.Space? in
-                guard let id = (space["ManagedSpaceID"] as? NSNumber)?.uint64Value,
-                      let type = (space["type"] as? NSNumber)?.intValue, type == 0 || type == 4 else { return nil }
-                return DesktopRow.Space(id: id, isFullScreen: type == 4)
-            }
-            return DesktopRow(spaces: spaces, current: current)
-        }
-    }
-
     func windowSpace(id: CGWindowID) -> UInt64? {
         guard let mainConnectionID, let copySpacesForWindows else { return nil }
         let windows = [NSNumber(value: UInt32(id))] as CFArray
@@ -184,6 +167,32 @@ final class PrivateSLSWindowMover: Sendable {
         }
         _ = reassociateWindowByGeometry(id: id)
         return windowSpace(id: id) == sid
+    }
+
+    /// 把别的应用程序的窗口移到 sid 桌面，返回生效的那种办法的名字；三种办法都不生效时返回 nil（需求 S6）。
+    /// 先用 SLSMoveWindowsToManagedSpace；从 macOS 14.5 起，它移不了别的应用程序的窗口。
+    /// 再用 SkyLight 的内部函数提交移动请求（见 BridgedSpaceMove.swift）；它是异步的，提交后每 20 毫秒核对一次，最多等 300 毫秒。
+    /// 最后临时给目标桌面设一个兼容编号，按这个编号把窗口移过去，再清掉编号。
+    /// yabai 7.1.1 起在 macOS 14.5 上用这种办法；yabai 7.1.2 的记录说，从 macOS 15 开始要关闭系统完整性保护才能这样移。
+    func moveOtherAppWindow(id: CGWindowID, toSpace sid: UInt64) -> String? {
+        if moveWindow(id: id, toSpace: sid) { return "managed-space" }
+        if BridgedSpaceMove.move(windows: [UInt32(id)], toSpace: sid) {
+            for _ in 0..<15 {
+                if windowSpace(id: id) == sid { return "bridged-operation" }
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+            wlog("space: bridged move submitted but window=\(id) is still on \(windowSpace(id: id).map(String.init) ?? "-")")
+        } else {
+            wlog("space: bridged move not available (symbol found: \(BridgedSpaceMove.isAvailable))")
+        }
+        guard let mainConnectionID, let spaceSetCompatID, let setWindowListWorkspace else { return nil }
+        let cid = mainConnectionID()
+        let tag: Int32 = 0x7961_6265
+        _ = spaceSetCompatID(cid, sid, tag)
+        var window = UInt32(id)
+        _ = setWindowListWorkspace(cid, &window, 1, tag)
+        _ = spaceSetCompatID(cid, sid, 0)
+        return windowSpace(id: id) == sid ? "compat-workspace" : nil
     }
 
     private func managedDisplayUUIDString(displayID: CGDirectDisplayID) -> CFString? {
@@ -219,5 +228,20 @@ final class PrivateSLSWindowMover: Sendable {
     func setAlpha(id: CGWindowID, alpha: Float) -> Bool {
         guard let mainConnectionID, let setWindowAlpha else { return false }
         return setWindowAlpha(mainConnectionID(), UInt32(id), alpha) == 0
+    }
+}
+
+@_silgen_name("csr_get_active_config")
+private func csr_get_active_config(_ config: UnsafeMutablePointer<UInt32>) -> Int32
+
+/// 系统完整性保护（SIP）是否开着。开着时，改别的应用程序窗口的透明度、位置不起作用。
+/// CI 的 macOS 虚拟机关着系统完整性保护（见 record.sh 里 csrutil status 的输出），用户的 Mac 一般开着；
+/// 测试可以用偏好 WindowShadeAssumeSIPEnabled 让 WindowShade 当作开着（CI 场景 S6-carry-sip）。
+enum SystemIntegrity {
+    static var isEnabled: Bool {
+        if UserDefaults.standard.bool(forKey: "WindowShadeAssumeSIPEnabled") { return true }
+        var config: UInt32 = 0
+        guard csr_get_active_config(&config) == 0 else { return true }
+        return config == 0
     }
 }

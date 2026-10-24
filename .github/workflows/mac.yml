@@ -1,0 +1,55 @@
+name: Mac tests (self-hosted)
+
+# 在自托管的 Mac 上跑场景测试和录像检查（运行器标签 self-hosted、macOS）。不用排队，出结果比在 GitHub 的 macOS 机器上快。
+# 用的脚本和测试包里的相同，都是 run-on-this-mac.sh。它把程序固定编到 ~/WindowShadeTests/build，所以权限在这台 Mac 上只要给一次。
+# 不需要关闭 SIP。这台 Mac 要用运行器所用的账户登录，并且不锁屏。运行器用 svc.sh install 装成登录项，这样它在桌面会话里运行。
+# 只在手动触发时运行（这台 Mac 连 GitHub 不稳定，2026-10-18 第一次运行时下载代码超时）。
+# 手动触发时可以指定要跑的部分和场景，填 all 跑全部，留空时跑 .github/demo/quick-part.txt 里写的部分。
+on:
+  workflow_dispatch:
+    inputs:
+      part:
+        description: "要跑的部分和场景，例如 recordings A36；留空时跑 quick-part.txt 里写的部分；填 all 跑全部"
+        required: false
+        default: ""
+
+concurrency:
+  group: mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    name: mac (self-hosted)
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the scenarios on this Mac
+        env:
+          PART_INPUT: ${{ inputs.part }}
+        run: |
+          part="$PART_INPUT"
+          if [ -z "$part" ]; then
+            # 把 quick-part.txt 里的写法（recordings+only:A36）换成脚本的参数写法（recordings only:A36）。
+            part="$(grep -v '^#' .github/demo/quick-part.txt | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]' | tr '+' ' ')"
+          fi
+          echo "part: $part"
+          # all 换成不带参数；脚本不带参数时跑全部。
+          [ "$part" = all ] && part=""
+          # 不加引号：part 里可能有几个用空格隔开的部分。
+          bash .github/demo/run-on-this-mac.sh $part
+      - name: Collect the results
+        if: always()
+        run: |
+          mkdir -p .build/mac-results
+          latest=$(ls -t "$HOME"/WindowShadeTests/results-*.zip 2>/dev/null | head -1)
+          [ -n "$latest" ] && cp "$latest" .build/mac-results/
+          [ -f "$HOME/WindowShadeTests/build/WindowShade-app.zip" ] && cp "$HOME/WindowShadeTests/build/WindowShade-app.zip" .build/mac-results/
+          ls -l .build/mac-results
+      - name: Upload the results and the app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-results
+          path: .build/mac-results
+          if-no-files-found: ignore
