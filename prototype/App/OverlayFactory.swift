@@ -1,4 +1,4 @@
-// 建卷帘条窗口：按收起后显示的样式建原标题栏或简化标题栏的卷帘条，复用回收的卷帘条窗口。
+// 建卷帘条窗口：按收起后显示的样式建原标题栏或图标和标题的卷帘条，复用回收的卷帘条窗口。
 // 作为 AppDelegate 扩展实现。
 
 import Cocoa
@@ -135,7 +135,8 @@ extension AppDelegate {
     func makeProxyOverlay(axPos: CGPoint, width: CGFloat, height: CGFloat,
                                   pid: pid_t, appName: String, title: String, id: CGWindowID,
                                   canResize: Bool, windowManagement: WindowManagementCapability,
-                                  trafficLights: ProxyTrafficLightConfiguration) -> NSWindow {
+                                  trafficLights: ProxyTrafficLightConfiguration,
+                                  barColor: NSColor? = nil) -> NSWindow {
         let effectiveWindowManagement: WindowManagementCapability = trafficLights.style == .quickLook
             ? .fullScreen
             : windowManagement
@@ -202,12 +203,21 @@ extension AppDelegate {
             content.wantsLayer = true
             content.layer?.backgroundColor = NSColor.clear.cgColor
 
-            // 代理标题栏材质与其他自定义表面共用同一份系统外观策略。
-            let material = SystemMaterialView(purpose: .proxyTitleBar)
-            material.frame = content.bounds
-            material.autoresizingMask = [.width, .height]
-            material.apply()
-            content.addSubview(material)
+            if let barColor {
+                // 照原窗口的标题栏上色：macOS 26 的标题栏和窗口内容同色，统一的灰色材质和下面的窗口对不上
+                // （2026-10-24 用户实测）。文字和红绿灯按底色深浅用浅色或深色外观。
+                content.layer?.backgroundColor = barColor.cgColor
+                let rgb = barColor.usingColorSpace(.deviceRGB) ?? barColor
+                let luminance = 0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
+                overlay.appearance = NSAppearance(named: luminance < 0.5 ? .darkAqua : .aqua)
+            } else {
+                // 取不到原窗口标题栏的颜色时，用和其他自定义表面同一份系统外观策略的材质。
+                let material = SystemMaterialView(purpose: .proxyTitleBar)
+                material.frame = content.bounds
+                material.autoresizingMask = [.width, .height]
+                material.apply()
+                content.addSubview(material)
+            }
 
             let titleView = NativeProxyTitleContentView(frame: content.bounds,
                                                         appName: appName,

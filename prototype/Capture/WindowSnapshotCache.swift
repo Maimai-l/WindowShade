@@ -16,7 +16,7 @@ import Cocoa
 import CoreGraphics
 
 enum WindowSnapshotVariant: String, Hashable {
-    case preview        // 带 maxPixelSize 上限的截图（收起时用简化标题栏的那条路径会传 hoverPreviewMaxPixelSize）
+    case preview        // 带 maxPixelSize 上限的截图（收起时用图标和标题的那条路径会传 hoverPreviewMaxPixelSize）
     case nativeChrome   // 显示原标题栏的卷帘条：完整 Retina 截图
 }
 

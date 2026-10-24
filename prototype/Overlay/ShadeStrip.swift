@@ -1,4 +1,4 @@
-// 覆盖层视图：卷帘条窗口（原标题栏 / 简化标题栏）与预览视窗。视图只通过闭包回调动作，不直接持有 AppDelegate。
+// 覆盖层视图：卷帘条窗口（原标题栏 / 图标和标题）与预览视窗。视图只通过闭包回调动作，不直接持有 AppDelegate。
 
 import Cocoa
 import QuartzCore
@@ -174,7 +174,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         inactiveLights.isHidden = showSystem
     }
 
-    /// 灰点画在系统按钮的位置上（原标题栏的卷帘条按钮对齐原窗口的灯，简化标题栏的按钮按固定排版）。
+    /// 灰点画在系统按钮的位置上（原标题栏的卷帘条按钮对齐原窗口的灯，图标和标题的按钮按固定排版）。
     /// 位置在画的时候现取，按钮被挪动时重画（见 InactiveTrafficLightsView）。
     private func layoutInactiveLights() {
         guard let content = contentView else { return }

@@ -384,7 +384,7 @@ extension AppDelegate {
             if !mayHideApp { focusParkingWindow?.orderOut(nil) }
             // 最小化和隐藏应用程序的状态要过一会儿才读得到（最小化动画进行中 kAXMinimized 还没变，
             // NSRunningApplication.isHidden 更新滞后），后台那次检查可能读到“还没藏好”。
-            // 简化标题栏和缩略图模式下：读到已藏好就立即显示卷帘条；否则交给 scheduleFoldVerification 在 0.15 秒、0.45 秒后再查，
+            // 图标和标题和缩略图模式下：读到已藏好就立即显示卷帘条；否则交给 scheduleFoldVerification 在 0.15 秒、0.45 秒后再查，
             // 查到藏好才显示，仍然失败就补救或回滚。
             let hideVerifiedNow = observation == .hidden
             foldPhase("日志落盘") {
@@ -491,7 +491,8 @@ extension AppDelegate {
         }
 
         if mode == .proxyTitleBar {
-            let barH = min(proxyTitleBarHeight, min(size.height, 300))
+            let barH = ChromeBand.proxyBarHeight(standard: profile.standardCropHeight, fallback: proxyTitleBarHeight,
+                                                 windowHeight: size.height)
             let canProxyResize = allowsProxyHorizontalResize(win, pid: pid)
             let windowManagementCapability = realWindowManagementCapability(win)
             guard #available(macOS 14.0, *) else {
@@ -504,16 +505,19 @@ extension AppDelegate {
                 installOverlay(overlay, mode: mode, previewImage: nil)
                 return
             }
-            let quickPreview = preparedImage.map { NSImage(cgImage: $0, size: size) }
-                ?? quickWindowPreviewImage(id: id, logicalSize: size)
+            // 原尺寸的截图：看一眼按窗口原大小显示，缩小过就发虚。
+            let previewSource = preparedImage ?? quickFoldPreviewCGImage(id: id)
+            let quickPreview = previewSource.map { NSImage(cgImage: $0, size: size) }
             if quickPreview != nil || !options.capturePreview {
                 // 旧接口的截图已经成功，或者这次收起本来就不需要预览：两种情况都马上装上卷帘条，不等。
+                let barColor = proxyBarColor(image: previewSource, size: size, height: barH)
                 let overlay = foldPhase("建 overlay") {
                     makeProxyOverlay(axPos: pos, width: size.width, height: barH,
                                                    pid: pid, appName: appName, title: title, id: id,
                                                    canResize: canProxyResize,
                                                    windowManagement: windowManagementCapability,
-                                                   trafficLights: profile.trafficLights)
+                                                   trafficLights: profile.trafficLights,
+                                                   barColor: barColor)
                 }
                 wlog("    proxy immediate finalBarH=\(Int(barH)) canResize=\(canProxyResize) windowManagement=\(windowManagementCapability) preview=\(quickPreview == nil ? "-" : "quick") capture=\(options.capturePreview)")
                 installOverlay(overlay, mode: mode, previewImage: quickPreview)
@@ -532,13 +536,13 @@ extension AppDelegate {
                     }
                 }
                 let capturedImage = await self.captureWindowWithTimeout(id: id, axPos: pos, size: size,
-                                                                         maxPixelSize: hoverPreviewMaxPixelSize,
                                                                          timeoutNanoseconds: shadeCaptureTimeoutNanoseconds)
                 let overlay = makeProxyOverlay(axPos: pos, width: size.width, height: barH,
                                                pid: pid, appName: appName, title: title, id: id,
                                                canResize: canProxyResize,
                                                windowManagement: windowManagementCapability,
-                                               trafficLights: profile.trafficLights)
+                                               trafficLights: profile.trafficLights,
+                                               barColor: self.proxyBarColor(image: capturedImage, size: size, height: barH))
                 wlog("    proxy pre-hide-capture finalBarH=\(Int(barH)) canResize=\(canProxyResize) windowManagement=\(windowManagementCapability) preview=\(capturedImage == nil ? "-" : "sck")")
                 installOverlay(overlay, mode: mode,
                                previewImage: capturedImage.map { NSImage(cgImage: $0, size: size) })
@@ -600,7 +604,8 @@ extension AppDelegate {
                 if shouldParkFocus {
                     releaseFocusParking(reactivate: nil)
                 }
-                let barH = min(proxyTitleBarHeight, min(size.height, 300))
+                let barH = ChromeBand.proxyBarHeight(standard: profile.standardCropHeight, fallback: proxyTitleBarHeight,
+                                                     windowHeight: size.height)
                 let canProxyResize = allowsProxyHorizontalResize(win, pid: pid)
                 let windowManagementCapability = realWindowManagementCapability(win)
                 let overlay = makeProxyOverlay(axPos: pos, width: size.width, height: barH,
@@ -678,13 +683,15 @@ extension AppDelegate {
                 return
             }
             if preparation.brokenHealth.0 {
-                let proxyBarH = min(proxyTitleBarHeight, min(size.height, 300))
+                let proxyBarH = ChromeBand.proxyBarHeight(standard: profile.standardCropHeight, fallback: proxyTitleBarHeight,
+                                                          windowHeight: size.height)
                 let canProxyResize = allowsProxyHorizontalResize(win, pid: pid)
                 let overlay = makeProxyOverlay(axPos: pos, width: size.width, height: proxyBarH,
                                                pid: pid, appName: appName, title: title, id: id,
                                                canResize: canProxyResize,
                                                windowManagement: windowManagementCapability,
-                                               trafficLights: profile.trafficLights)
+                                               trafficLights: profile.trafficLights,
+                                               barColor: proxyBarColor(image: stripSource, size: size, height: proxyBarH))
                 let preview = NSImage(cgImage: stripSource, size: size)
                 wlog("    native strip invalid → proxy fallback id=\(id) app=\(appName) reason=\(preparation.brokenHealth.1)")
                 installOverlay(overlay, mode: .proxyTitleBar, previewImage: preview)
@@ -709,6 +716,15 @@ extension AppDelegate {
             proceed(readout)
         }
     }
+    /// 图标和标题的卷帘条的底色：收起时截图里原窗口标题栏的颜色（见 ChromeBand.titleBarColor）；取不到时为 nil，用系统材质。
+    func proxyBarColor(image: CGImage?, size: CGSize, height: CGFloat) -> NSColor? {
+        guard let image, size.width > 0 else { return nil }
+        let scale = CGFloat(image.width) / size.width
+        guard let pixels = topPixels(of: image, points: height, scale: scale),
+              let c = ChromeBand.titleBarColor(of: pixels, scale: scale, height: height) else { return nil }
+        return NSColor(deviceRed: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1)
+    }
+
     func captureWindow(id: CGWindowID, axPos: CGPoint, size: CGSize,
                                maxPixelSize: CGSize? = nil) async -> CGImage? {
         guard let content = await ShareableContentCache.shared.content(requiring: id, size: size),

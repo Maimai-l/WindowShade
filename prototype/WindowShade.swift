@@ -296,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sessionFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         sessionFormatter.locale = Locale(identifier: "en_US_POSIX")
         wlog("=== session start pid=\(getpid()) at \(sessionFormatter.string(from: Date())) ===")
-        // 权限状态写进日志：没有权限时的表现（欢迎窗口、简化标题栏）要能和权限对上。
+        // 权限状态写进日志：没有权限时的表现（欢迎窗口、图标和标题）要能和权限对上。
         wlog("permissions: accessibility=\(AXIsProcessTrusted()) screenRecording=\(hasScreenRecordingPermission())")
         // 一直不进入 App Nap：鼠标钩子（在钩子进程里，或钩子进程启动失败时在 WindowShade 自己的线程上）
         // 遇到双击、三击要问主线程；主线程被节流后回答变慢，每次双击都要等满时限才放行

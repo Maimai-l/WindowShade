@@ -147,7 +147,7 @@ extension AppDelegate {
       rebuildMenu()
     }
   }
-  /// 设置里“收起后显示”：原标题栏 / 简化标题栏 / 缩略图。只影响之后收起的窗口。
+  /// 设置里“收起后显示”：原标题栏 / 图标和标题 / 缩略图。只影响之后收起的窗口。
   func setAppearanceMode(_ mode: ShadeAppearanceMode) {
     switch mode {
     case .proxyTitleBar, .thumbnail: appearanceMode = mode

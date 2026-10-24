@@ -186,7 +186,7 @@ AX API 可在任意线程调用。各 App / 各窗口之间没有依赖的只读
 **12. 收起截图先用 `CGWindowListCreateImage`，拿不到时改用 ScreenCaptureKit。**
 卷帘条（“原标题栏”外观）原来用 `SCScreenshotManager` 截整窗：单独测 82ms，
 放在收起途中（焦点刚停靠、窗口在重绘成非活跃态）变成 229ms，超过 450ms 还会改用
-简化标题栏。现在先在后台队列用 `CGWindowListCreateImage`（`Capture/FastCapture.swift`，
+图标和标题。现在先在后台队列用 `CGWindowListCreateImage`（`Capture/FastCapture.swift`，
 按符号动态取，单独测 48–57ms），拿不到或整张全透明才走 ScreenCaptureKit。收起动画的
 背景同理改用 `CGWindowListCreateImageFromArray`：同样去掉源窗口、动画面板和卷帘条，
 其余在屏窗口按原顺序合成，34ms；尺寸对不上才走 ScreenCaptureKit。

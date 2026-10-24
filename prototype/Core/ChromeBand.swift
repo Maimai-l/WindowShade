@@ -30,7 +30,7 @@ enum ChromeBand {
     /// 下沿下面这么近（点）以内就有顶部控件时，算顶部区域的下一层。
     static let nextTierGap: CGFloat = 8
 
-    /// 顶部区域的下沿（点，从窗口顶边算）。找不到时返回 nil，调用方改用简化标题栏。
+    /// 顶部区域的下沿（点，从窗口顶边算）。找不到时返回 nil，调用方改用图标和标题。
     /// floor：下沿最高到这里（调用方传红绿灯按钮的下沿往下 2 点，读不到按钮时传按红绿灯推算的高度，至少 12 点）。ceiling：最深找到这里。
     /// controls：辅助功能读到的顶部控件的上下沿（点）；下沿不落在任何一个控件中间。
     static func bottom(of pixels: TopPixels, scale: CGFloat, floor: CGFloat, ceiling: CGFloat = 140,
@@ -130,6 +130,38 @@ enum ChromeBand {
             return standard
         }
         return found
+    }
+
+    /// 图标和标题的卷帘条多高：和原窗口的标题栏一样高（standard，按红绿灯推算），红绿灯和原窗口的对齐；
+    /// 读不到或不合理（不到 24 点）时用 fallback；最高 52 点，也不超过窗口本身和 300 点。
+    static func proxyBarHeight(standard: CGFloat?, fallback: CGFloat, windowHeight: CGFloat) -> CGFloat {
+        let base = standard.flatMap { $0 >= 24 ? min($0, 52) : nil } ?? fallback
+        return min(base, min(windowHeight, 300))
+    }
+
+    /// 原窗口标题栏的底色：截图顶部 height 点（不含上下各 2 点）里、红绿灯右边的取样点的中位色。
+    /// 一半以上的取样点是这种颜色才算（渐变、透出桌面的半透明材质、画着图片的顶栏返回 nil，调用方用系统材质）。
+    /// 图标和标题的卷帘条用它当底色，看起来和原窗口的标题栏一样（macOS 26 的标题栏和窗口内容同色，不再是统一的灰色）。
+    static func titleBarColor(of pixels: TopPixels, scale: CGFloat, height: CGFloat) -> (r: Int, g: Int, b: Int)? {
+        guard pixels.width > 40, scale > 0 else { return nil }
+        let px = { (points: CGFloat) in Int((points * scale).rounded()) }
+        let left = min(px(80), pixels.width / 4)
+        let right = pixels.width - min(px(12), pixels.width / 8)
+        let step = max(1, (right - left) / 120)
+        let rows = Array(stride(from: px(2), to: min(pixels.height, px(height - 2)), by: max(1, px(2))))
+        guard right > left, !rows.isEmpty else { return nil }
+        var reds: [Int] = [], greens: [Int] = [], blues: [Int] = []
+        for y in rows {
+            for x in stride(from: left, to: right, by: step) {
+                let p = pixels.pixel(x: x, y: y)
+                guard p.a > 200 else { continue }
+                reds.append(p.r); greens.append(p.g); blues.append(p.b)
+            }
+        }
+        guard reds.count >= 8 else { return nil }
+        let color = (median(reds), median(greens), median(blues))
+        let near = zip(zip(reds, greens), blues).filter { same(($0.0.0, $0.0.1, $0.1), color) }.count
+        return Double(near) >= Double(reds.count) * 0.5 ? (color.0, color.1, color.2) : nil
     }
 
     private static func median(_ values: [Int]) -> Int {

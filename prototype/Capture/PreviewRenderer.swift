@@ -194,7 +194,7 @@ func nativeTitleStripLooksBroken(_ image: CGImage, logicalHeight: CGFloat) -> (B
     // 只统计 alpha 覆盖率，不看颜色，用来区分两种“两侧空”：
     // 真正浮在中间的标题（Codex 那种两侧断开的圆角标题块）两侧是 alpha≈0 的透明缺口；
     // Liquid Glass 的全宽工具栏（Safari 不在前台时）两侧是接近白色的半透明材质——
-    // 后者是正常的标题栏，不能退回简化标题栏。
+    // 后者是正常的标题栏，不能退回图标和标题。
     func alphaCoverage(xRange: Range<Int>, yRange: Range<Int>) -> CGFloat {
         var covered = 0
         var count = 0
@@ -352,6 +352,15 @@ func quickWindowPreviewCGImage(id: CGWindowID,
     return FastCapture.hasContent(image) ? image : nil
 }
 
+/// 收起时给看一眼用的截图：保留原尺寸（看一眼按窗口原大小显示，缩小过就发虚）。只用缩小的副本检查有没有画面，
+/// 检查要把整张图画一遍，缩小后快。窗口还没合成出画面时返回 nil，和 quickWindowPreviewCGImage 一样。
+func quickFoldPreviewCGImage(id: CGWindowID,
+                             capture: (CGWindowID) -> CGImage? = { FastCapture.rawWindow($0) }) -> CGImage? {
+    guard let raw = capture(id) else { return nil }
+    let probe = downsampleCGImage(raw, maxPixelSize: hoverPreviewMaxPixelSize) ?? raw
+    return FastCapture.hasContent(probe) ? raw : nil
+}
+
 /// 在截图里找到的下沿比这更深时，顶部区域太高，不当卷帘条用。
 let maxPixelBoundaryHeight: CGFloat = 96
 
@@ -419,7 +428,7 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
                                       fixedBarH: fixedBarH, visualBarH: visualBarH,
                                       fallbackBarH: fallbackBarH, standardBarH: standardBarH)
     }
-    // 截图里找不到下沿、或顶部区域太高的窗口，不按辅助功能读到的高度硬切（可能切过顶栏），改用简化标题栏。
+    // 截图里找不到下沿、或顶部区域太高的窗口，不按辅助功能读到的高度硬切（可能切过顶栏），改用图标和标题。
     let boundaryUnknown = fixedBarH == nil && profile.pixelBoundary && !profile.isQuickLook && !profile.standardTitleBarOnly
         && (visualBarH.map { $0 > maxPixelBoundaryHeight } ?? true)
     let health = boundaryUnknown ? (true, "top-edge-not-found") : nativeTitleStripLooksBroken(rawStrip, logicalHeight: barH)

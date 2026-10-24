@@ -75,10 +75,23 @@ struct ChromeBandTests {
         t.expect(ChromeBand.standardWindowBar(standard: 34, found: 31, maxHeight: 96, content: [32...300]) == 31,
                  "下沿比推算的浅：不看内容元素")
 
-        t.section("S1", "分不出下沿时返回 nil（调用方改用简化标题栏）")
+        t.section("S1", "分不出下沿时返回 nil（调用方改用图标和标题）")
         t.expect(bottom { _, _ in toolbar } == nil, "顶部和内容区同一种底色、没有分隔线")
         t.expect(bottom { x, y in (UInt8(Int(x) % 256), UInt8(Int(y * 3) % 256), UInt8(Int(x + y) % 256), 255) } == nil,
                  "顶部是渐变或透出后面内容的半透明材质")
+        // 用户 2026-10-24 实测（macOS 26）：图标和标题一律是灰色的系统材质，和下面窗口的标题栏对不上（终端的标题栏是白的）。
+        t.section("S5", "图标和标题的卷帘条照原窗口的标题栏：底色、高度")
+        let whiteBar = image { x, y in y < 32 ? (x < 70 ? red : white) : grey }
+        let barColor = ChromeBand.titleBarColor(of: whiteBar, scale: 2, height: 32)
+        t.expect(barColor.map { $0.r == 255 && $0.g == 255 && $0.b == 255 } ?? false, "白色标题栏：底色取白色，不受左边红绿灯影响")
+        let darkBar = image { _, y in y < 28 ? (40, 40, 44, 255) : white }
+        t.expect(ChromeBand.titleBarColor(of: darkBar, scale: 2, height: 28).map { $0.r == 40 && $0.g == 40 && $0.b == 44 } ?? false, "深色标题栏")
+        let noisy = image { x, y in (UInt8(Int(x * 7) % 256), UInt8(Int(y * 13) % 256), UInt8(Int(x + y) % 256), 255) }
+        t.expect(ChromeBand.titleBarColor(of: noisy, scale: 2, height: 32) == nil, "标题栏是图片或渐变：不取颜色，用系统材质")
+        t.expect(ChromeBand.proxyBarHeight(standard: 32, fallback: 34, windowHeight: 600) == 32, "和原窗口的标题栏一样高")
+        t.expect(ChromeBand.proxyBarHeight(standard: nil, fallback: 34, windowHeight: 600) == 34, "读不到时用默认高度")
+        t.expect(ChromeBand.proxyBarHeight(standard: 80, fallback: 34, windowHeight: 600) == 52, "最高 52 点")
+        t.expect(ChromeBand.proxyBarHeight(standard: 32, fallback: 34, windowHeight: 20) == 20, "不超过窗口本身")
         t.finish()
     }
 }

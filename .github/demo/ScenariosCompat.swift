@@ -37,7 +37,7 @@ func axHasAttribute(_ element: AXUIElement, _ attribute: String) -> Bool {
 }
 
 /// 记下一个应用程序所有窗口的信息和截图，再双击最大那扇窗口的顶部，看 WindowShade 怎么处理。
-/// 能收起时，换成简化标题栏再收起一次，两次都截图。
+/// 能收起时，换成图标和标题再收起一次，两次都截图。
 func compatDump(_ name: String, appPath: String, _ h: Harness) async {
     guard let bundleID = Bundle(path: appPath)?.bundleIdentifier else {
         h.result.notes["skipped"] = "\(appPath) is not installed"
@@ -106,7 +106,7 @@ func compatDump(_ name: String, appPath: String, _ h: Harness) async {
         await pause(2)
         return true
     }
-    // 先按默认的原标题栏收起，再换成简化标题栏收起一次，两次的特写用来对比。
+    // 先按默认的原标题栏收起，再换成图标和标题收起一次，两次的特写用来对比。
     if await foldOnce("native") {
         _ = await relaunchWindowShade([["ShadeAppearanceMode", "-string", "proxyTitleBar"]])
         AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
@@ -133,13 +133,13 @@ func compatStripWindows() -> [(id: Int, bounds: CGRect)] {
 }
 
 let compatScenarios: [Scenario] = [
-    Scenario(id: "COMPAT-texpile", title: "Texpile：记下窗口顶部，原标题栏和简化标题栏各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
+    Scenario(id: "COMPAT-texpile", title: "Texpile：记下窗口顶部，原标题栏和图标和标题各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("texpile", appPath: "/Applications/Texpile.app", h)
     },
-    Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，原标题栏和简化标题栏各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
+    Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，原标题栏和图标和标题各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("netease", appPath: "/Applications/NeteaseMusic.app", h)
     },
-    Scenario(id: "COMPAT-quickrecorder", title: "QuickRecorder：记下各个面板，最大那扇用原标题栏和简化标题栏各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
+    Scenario(id: "COMPAT-quickrecorder", title: "QuickRecorder：记下各个面板，最大那扇用原标题栏和图标和标题各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("quickrecorder", appPath: "/Applications/QuickRecorder.app", h)
     },
 ]
