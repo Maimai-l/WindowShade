@@ -204,7 +204,7 @@ extension AppDelegate {
             content.layer?.backgroundColor = NSColor.clear.cgColor
 
             if let barColor {
-                // 照原窗口的标题栏上色：macOS 26 的标题栏和窗口内容同色，统一的灰色材质和下面的窗口对不上
+                // 照原窗口的标题栏上色：原窗口的标题栏不一定是灰色（终端的是白的，macOS 26 的标题栏和窗口内容同色），统一的灰色材质和下面的窗口对不上
                 // （2026-10-24 用户实测）。底色深时用深色外观（浅色文字），底色浅时用浅色外观。
                 content.layer?.backgroundColor = barColor.cgColor
                 let rgb = barColor.usingColorSpace(.deviceRGB) ?? barColor

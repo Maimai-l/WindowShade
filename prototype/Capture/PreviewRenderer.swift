@@ -402,7 +402,7 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
     let visualBarH: CGFloat?
     if fixedBarH == nil && profile.pixelBoundary, let top = topPixels(of: full, points: 140, scale: scale) {
         let floor = max(12, profile.trafficLightBottom.map { $0 + 2 } ?? profile.trafficLightHeight ?? 0)
-        // 截图里分不出下沿（半透明的顶栏透出后面的内容）时，用辅助功能读到的顶部区域（见 ChromeBand.accessibleTopBand）。
+        // 截图里找不到下沿（半透明的顶栏透出后面的内容）时，改用辅助功能读到的顶部区域的下沿（见 ChromeBand.accessibleTopBand）。
         visualBarH = ChromeBand.bottom(of: top, scale: scale, floor: floor, controls: profile.topControls)
             ?? ChromeBand.accessibleTopBand(content: profile.topContent, controls: profile.topControls,
                                             floor: floor, maxHeight: maxPixelBoundaryHeight)
@@ -430,7 +430,7 @@ func prepareNativeStrip(full: CGImage, logicalSize: CGSize,
                                       fixedBarH: fixedBarH, visualBarH: visualBarH,
                                       fallbackBarH: fallbackBarH, standardBarH: standardBarH)
     }
-    // 截图里找不到下沿、或顶部区域太高的窗口，不按辅助功能读到的高度硬切（可能切过顶栏），改用图标和标题。
+    // 截图里和辅助功能都找不到顶部区域的下沿、或下沿深过 96 点的窗口，不按辅助功能读到的窗口顶部高度裁（可能裁过顶栏），改用图标和标题。
     let boundaryUnknown = fixedBarH == nil && profile.pixelBoundary && !profile.isQuickLook && !profile.standardTitleBarOnly
         && (visualBarH.map { $0 > maxPixelBoundaryHeight } ?? true)
     let health = boundaryUnknown ? (true, "top-edge-not-found") : nativeTitleStripLooksBroken(rawStrip, logicalHeight: barH)

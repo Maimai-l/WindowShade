@@ -149,8 +149,8 @@ extension GlanceController {
         precondition(controller.intent.blocked.isEmpty)
         precondition(!controller.needsTimer, "Nothing left to sample: the timer must stop")
 
-        // 缺陷回归（2026-10-24 用户实测，macOS 15.2，网易云音乐）：窗口的顶栏和侧栏是半透明的，截图里这些地方也是透明的；
-        // 看一眼的卡片有了画面以后底色是透明的，透过卡片看到桌面，在卡片底下取消隐藏时又看到真正的窗口，像盖了一层玻璃。
+        // 缺陷回归（2026-10-24 用户实测，macOS 15.2，网易云音乐）：窗口半透明的顶栏和侧栏在截图里也是透明的。
+        // 修复之前，看一眼的卡片有画面时底色透明，透出桌面；在卡片底下取消隐藏应用程序时，又透出真正的窗口。
         // 卡片有画面时也要有不透明的底色。
         let card = GlanceContentView(frame: NSRect(x: 0, y: 0, width: 300, height: 200),
                                      cardFrame: NSRect(x: 24, y: 24, width: 252, height: 152),

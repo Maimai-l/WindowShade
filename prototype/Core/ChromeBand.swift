@@ -132,8 +132,8 @@ enum ChromeBand {
         return found
     }
 
-    /// 截图里找不到下沿时，辅助功能读到的顶部区域的下沿：从窗口顶边开始（上沿不超过 2 点）、下沿在 floor 以下 4 点
-    /// 到 maxHeight 之间、里面有控件的元素，取其中最深的下沿；没有时为 nil。
+    /// 截图里找不到下沿时，从辅助功能读到的元素里找顶部区域：元素的上沿离窗口顶边不超过 2 点，下沿比 floor 深至少 4 点、
+    /// 不深过 maxHeight，里面整个包着一个控件。返回符合条件的元素里最深的下沿；没有时返回 nil。
     /// 例如网易云音乐（macOS 15.2）的顶栏是半透明的，截图里找不到下沿；辅助功能读到 0 至 50 点的一块，
     /// 搜索框（16 至 40 点）就在里面（2026-10-24 用户实测）。
     static func accessibleTopBand(content: [ClosedRange<CGFloat>], controls: [ClosedRange<CGFloat>],
@@ -153,7 +153,7 @@ enum ChromeBand {
 
     /// 原窗口标题栏的底色：截图顶部 height 点内取样（上下各留 2 点，左边从红绿灯右边、离左边 80 点处起，右边留 12 点），取样点的中位色。
     /// 至少一半的取样点是这种颜色才算（渐变、透出桌面的半透明材质、画着图片的顶栏返回 nil，调用方用系统材质）。
-    /// 显示图标和标题的卷帘条用它当底色，看起来和原窗口的标题栏一样（macOS 26 的标题栏和窗口内容同色，不再是统一的灰色）。
+    /// 显示图标和标题的卷帘条用它当底色，看起来和原窗口的标题栏一样（原窗口的标题栏不一定是灰色：终端的是白的，macOS 26 的标题栏和窗口内容同色）。
     static func titleBarColor(of pixels: TopPixels, scale: CGFloat, height: CGFloat) -> (r: Int, g: Int, b: Int)? {
         guard pixels.width > 40, scale > 0 else { return nil }
         let px = { (points: CGFloat) in Int((points * scale).rounded()) }
