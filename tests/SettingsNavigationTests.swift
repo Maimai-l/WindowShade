@@ -158,8 +158,8 @@ struct SettingsNavigationTests {
     } else {
       print("note: no recording field found on the shortcuts page; only the settings model was checked")
     }
-    // 缺陷回归（用户 2026-10-24 实测）：录快捷键时这一行的名字变成白字，底色却还是浅灰，名字几乎看不见。
-    // 选中底色用 listRowBackground 画，macOS 的分组表单不理它；选中的一行要真的画出底色。
+    // 缺陷回归（2026-10-24 用户实测）：录快捷键时，正在录制的那一行名字变成白字，底色却还是浅灰，名字几乎看不见。
+    // 修复之前，选中底色用 listRowBackground 画，macOS 的分组表单不画它；这里检查选中的一行确实画出了底色。
     func rowColumn(selected: Bool) -> [NSColor] {
       let host = NSHostingView(rootView: Form {
         Section { HStack { Text(GlobalShortcut.toggleShade.title); Spacer() }.modifier(SelectedShortcutRow(isSelected: selected)) }

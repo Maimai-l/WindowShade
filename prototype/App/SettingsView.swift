@@ -379,7 +379,7 @@ enum KeyCaps {
     }
 }
 
-/// 一行全局快捷键，照系统设置：复选框、名字、右边的组合。双击组合开始录制，按下新的组合就换上，Esc 取消。
+/// 一行全局快捷键，照系统设置：复选框、名字、右边的组合。双击名字或右边的组合开始录制，按下新的组合就换上，Esc 取消。
 /// 取消勾选时关掉这个快捷键，组合显示为灰色，再勾选时恢复使用；没设过组合时勾上就开始录制。
 /// 录制时只在这一行接收按键，不装全局监听。
 @MainActor
@@ -562,9 +562,9 @@ private struct NumberedShortcutRow: View {
     }
 }
 
-/// 正在录制的那一行照系统设置，整行用强调色作选中背景。名字改白色在各行里做，右边的输入框见 RecordingField。
-/// 正在录制的那一行的选中底色，照系统设置的“键盘快捷键”：设置窗口是当前窗口时用强调色，不是时用灰色。
-/// 不用 listRowBackground：macOS 的分组表单不画它，名字变成白字却没有底色（用户 2026-10-24 实测）。
+/// 正在录制的那一行的选中底色，照系统设置的“键盘快捷键”：设置窗口是当前窗口时用系统的选中色，不是时用灰色。
+/// 名字的颜色见 titleColor，右边的输入框见 RecordingField。
+/// 不用 listRowBackground：macOS 的分组表单不画它，名字变成白字却没有底色（2026-10-24 用户实测）。
 struct SelectedShortcutRow: ViewModifier {
     let isSelected: Bool
     @Environment(\.controlActiveState) private var activeState
@@ -581,13 +581,13 @@ struct SelectedShortcutRow: ViewModifier {
         }
     }
 
-    /// 选中行里名字的颜色：有强调色底色时用白字，灰色底色时照常。
+    /// 这一行名字的颜色：选中、且底色是选中色时用白字，其他时候颜色不变。
     static func titleColor(selected: Bool, active: ControlActiveState) -> Color {
         selected && active != .inactive ? .white : .primary
     }
 }
 
-/// 录制时右边的空白输入框：白底，右端有闪烁的插入点。prompt 只供 VoiceOver 读出，不显示。
+/// 录制时右边的空白输入框：底色随浅色、深色外观变化，右端有闪烁的插入点。prompt 只供 VoiceOver 读出，不显示。
 private struct RecordingField: View {
     var prompt: String = SettingsCopy.recording
 
