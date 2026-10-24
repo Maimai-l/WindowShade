@@ -63,7 +63,7 @@ struct CaptureWindowTests {
     precondition(measured == 3, "another element with the same window number is measured again")
   }
 
-  /// 收起时用图标和标题的那条路径先用旧接口截一张预览：窗口还没合成出画面时截到的是全透明的图，
+  /// 收起后显示图标和标题时走的那条路径先用旧接口截一张预览：窗口还没合成出画面时截到的是全透明的图，
   /// 以前照样当成截到了，就不再在隐藏原窗口之前用 ScreenCaptureKit 补截，这次收起的预览一直是空的。
   @MainActor
   static func quickPreviewRejectsAnEmptyCapture() {
@@ -90,8 +90,8 @@ struct CaptureWindowTests {
                  "the preview is scaled down to the limit")
     precondition(quickWindowPreviewCGImage(id: 9, maxPixelSize: limit, capture: { _ in nil }) == nil,
                  "no capture gives no preview")
-    // 缺陷回归（2026-10-24 用户实测）：外观为图标和标题时，看一眼的卡片发虚。收起时给看一眼的截图被缩到 720×480，
-    // 看一眼按窗口原大小显示（2000×1400 像素的窗口放大约 2.8 倍）。收起时的截图要保留原尺寸。
+    // 缺陷回归（2026-10-24 用户实测）：收起后显示图标和标题时，看一眼的卡片模糊。收起时给看一眼的截图被缩到 720×480 像素，
+    // 看一眼按窗口原大小显示（2000×1400 像素的窗口放大约 2.9 倍）。收起时的截图要保留原尺寸。
     let large = image(width: 2000, height: 1400, opaque: true)
     guard let foldPreview = quickFoldPreviewCGImage(id: 9, capture: { _ in large }) else {
       preconditionFailure("a drawn window gives a fold preview")

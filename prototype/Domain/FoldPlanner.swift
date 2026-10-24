@@ -49,7 +49,7 @@ struct FoldFacts: Sendable {
 /// 和这次收起有关的用户设置与权限。
 struct FoldSettings: Sendable {
     var appearance = ShadeAppearanceMode.nativeScreenshot
-    /// 调用方指定的样子；为 nil 时按用户设置，并在截不了图时退回图标和标题。
+    /// 调用方指定的样子；为 nil 时按用户设置，并在截不了图时改用图标和标题。
     var forcedAppearance: ShadeAppearanceMode?
     var screenRecordingGranted = true
     /// macOS 14 及以上才有 ScreenCaptureKit 的单张截图。
@@ -133,7 +133,7 @@ enum FoldPlanner {
         if facts.isQuickLook { reason += "-quicklook" }
 
         guard settings.forcedAppearance == nil else { return .fold(ShadePlan(mode: mode, policy: policy, reason: reason)) }
-        // 缩略图要收起那一刻的截图：截不了的时候和“原标题栏”一样，退回图标和标题。
+        // 缩略图要收起那一刻的截图：截不了的时候和“原标题栏”一样，改用图标和标题。
         let needsScreenshot = mode == .nativeScreenshot || mode == .thumbnail
         if needsScreenshot && !settings.screenRecordingGranted {
             mode = .proxyTitleBar
@@ -143,7 +143,7 @@ enum FoldPlanner {
             mode = .proxyTitleBar
             reason = "screencapturekit-unavailable"
         }
-        // Adobe 的标题栏是自绘的，图标和标题画不出它：有截图权限时一律用截图。
+        // Adobe 的标题栏是自绘的，显示图标和标题的卷帘条画不出它：有截图权限时一律用截图。
         if facts.adobeKind != .none, mode == .proxyTitleBar,
            settings.screenRecordingGranted, settings.screenCaptureKitAvailable {
             mode = .nativeScreenshot

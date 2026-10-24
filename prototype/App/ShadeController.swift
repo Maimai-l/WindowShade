@@ -384,7 +384,7 @@ extension AppDelegate {
             if !mayHideApp { focusParkingWindow?.orderOut(nil) }
             // 最小化和隐藏应用程序的状态要过一会儿才读得到（最小化动画进行中 kAXMinimized 还没变，
             // NSRunningApplication.isHidden 更新滞后），后台那次检查可能读到“还没藏好”。
-            // 图标和标题和缩略图模式下：读到已藏好就立即显示卷帘条；否则交给 scheduleFoldVerification 在 0.15 秒、0.45 秒后再查，
+            // 收起后显示“图标和标题”或“缩略图”时：读到已藏好就立即显示卷帘条；否则交给 scheduleFoldVerification 在 0.15 秒、0.45 秒后再查，
             // 查到藏好才显示，仍然失败就补救或回滚。
             let hideVerifiedNow = observation == .hidden
             foldPhase("日志落盘") {
@@ -505,7 +505,7 @@ extension AppDelegate {
                 installOverlay(overlay, mode: mode, previewImage: nil)
                 return
             }
-            // 原尺寸的截图：看一眼按窗口原大小显示，缩小过就发虚。
+            // 原尺寸的截图：看一眼按窗口原大小显示，缩小过就模糊。
             let previewSource = preparedImage ?? quickFoldPreviewCGImage(id: id)
             let quickPreview = previewSource.map { NSImage(cgImage: $0, size: size) }
             if quickPreview != nil || !options.capturePreview {
@@ -716,7 +716,7 @@ extension AppDelegate {
             proceed(readout)
         }
     }
-    /// 图标和标题的卷帘条的底色：收起时截图里原窗口标题栏的颜色（见 ChromeBand.titleBarColor）；取不到时为 nil，用系统材质。
+    /// 显示图标和标题的卷帘条用的底色：收起时截图里原窗口标题栏的颜色（见 ChromeBand.titleBarColor）；取不到时为 nil，用系统材质。
     func proxyBarColor(image: CGImage?, size: CGSize, height: CGFloat) -> NSColor? {
         guard let image, size.width > 0 else { return nil }
         let scale = CGFloat(image.width) / size.width

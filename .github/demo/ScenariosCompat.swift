@@ -133,13 +133,13 @@ func compatStripWindows() -> [(id: Int, bounds: CGRect)] {
 }
 
 let compatScenarios: [Scenario] = [
-    Scenario(id: "COMPAT-texpile", title: "Texpile：记下窗口顶部，原标题栏和图标和标题各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
+    Scenario(id: "COMPAT-texpile", title: "Texpile：记下窗口顶部，按“原标题栏”和“图标和标题”各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("texpile", appPath: "/Applications/Texpile.app", h)
     },
-    Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，原标题栏和图标和标题各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
+    Scenario(id: "COMPAT-netease", title: "网易云音乐：记下窗口顶部，按“原标题栏”和“图标和标题”各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("netease", appPath: "/Applications/NeteaseMusic.app", h)
     },
-    Scenario(id: "COMPAT-quickrecorder", title: "QuickRecorder：记下各个面板，最大那扇用原标题栏和图标和标题各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
+    Scenario(id: "COMPAT-quickrecorder", title: "QuickRecorder：记下各个面板，最大那扇按“原标题栏”和“图标和标题”各收起一次", options: [], changesSettings: true, group: "compat") { _, h in
         await compatDump("quickrecorder", appPath: "/Applications/QuickRecorder.app", h)
     },
 ]

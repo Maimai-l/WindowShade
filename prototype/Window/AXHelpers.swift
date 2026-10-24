@@ -42,7 +42,7 @@ func proxyTrafficLightConfiguration(of win: AXUIElement, pid: pid_t) -> ProxyTra
     let minimizeExists = axButtonFrame(win, kAXMinimizeButtonAttribute as String) != nil
     let zoomExists = axButtonFrame(win, kAXZoomButtonAttribute as String) != nil
 
-    // 临时出现的系统面板偶尔三个按钮都读不到：这时仍用 AppKit 的三个标准按钮，不做没有按钮的图标和标题。
+    // 临时出现的系统面板偶尔三个按钮都读不到：这时仍用 AppKit 的三个标准按钮，不做没有按钮、只显示图标和标题的卷帘条。
     guard closeExists || minimizeExists || zoomExists else { return .standard }
 
     var configuration = ProxyTrafficLightConfiguration(

@@ -132,16 +132,16 @@ enum ChromeBand {
         return found
     }
 
-    /// 图标和标题的卷帘条多高：和原窗口的标题栏一样高（standard，按红绿灯推算），红绿灯和原窗口的对齐；
-    /// 读不到或不合理（不到 24 点）时用 fallback；最高 52 点，也不超过窗口本身和 300 点。
+    /// 显示图标和标题的卷帘条多高：和原窗口的标题栏一样高（standard，按红绿灯推算），这样红绿灯和原窗口的红绿灯对齐；
+    /// 读不到或不合理（不到 24 点）时用 fallback；最高 52 点，也不超过窗口的高度和 300 点。
     static func proxyBarHeight(standard: CGFloat?, fallback: CGFloat, windowHeight: CGFloat) -> CGFloat {
         let base = standard.flatMap { $0 >= 24 ? min($0, 52) : nil } ?? fallback
         return min(base, min(windowHeight, 300))
     }
 
-    /// 原窗口标题栏的底色：截图顶部 height 点（不含上下各 2 点）里、红绿灯右边的取样点的中位色。
-    /// 一半以上的取样点是这种颜色才算（渐变、透出桌面的半透明材质、画着图片的顶栏返回 nil，调用方用系统材质）。
-    /// 图标和标题的卷帘条用它当底色，看起来和原窗口的标题栏一样（macOS 26 的标题栏和窗口内容同色，不再是统一的灰色）。
+    /// 原窗口标题栏的底色：截图顶部 height 点内取样（上下各留 2 点，左边从红绿灯右边、离左边 80 点处起，右边留 12 点），取样点的中位色。
+    /// 至少一半的取样点是这种颜色才算（渐变、透出桌面的半透明材质、画着图片的顶栏返回 nil，调用方用系统材质）。
+    /// 显示图标和标题的卷帘条用它当底色，看起来和原窗口的标题栏一样（macOS 26 的标题栏和窗口内容同色，不再是统一的灰色）。
     static func titleBarColor(of pixels: TopPixels, scale: CGFloat, height: CGFloat) -> (r: Int, g: Int, b: Int)? {
         guard pixels.width > 40, scale > 0 else { return nil }
         let px = { (points: CGFloat) in Int((points * scale).rounded()) }

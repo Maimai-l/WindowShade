@@ -174,7 +174,7 @@ final class NativeProxyOverlayWindow: NSWindow, NSWindowDelegate {
         inactiveLights.isHidden = showSystem
     }
 
-    /// 灰点画在系统按钮的位置上（原标题栏的卷帘条按钮对齐原窗口的灯，图标和标题的按钮按固定排版）。
+    /// 灰点画在系统按钮的位置上（原标题栏的卷帘条按钮对齐原窗口的灯，只显示图标和标题时，按钮按固定位置排）。
     /// 位置在画的时候现取，按钮被挪动时重画（见 InactiveTrafficLightsView）。
     private func layoutInactiveLights() {
         guard let content = contentView else { return }

@@ -149,7 +149,7 @@ extension AppDelegate {
         eventTapReenableWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
-    /// 卷帘条自己的双击处理（展开它对应的窗口）：带红绿灯的卷帘条（原标题栏和图标和标题）记在 NativeProxyOverlayWindow 上，
+    /// 卷帘条自己的双击处理（展开它对应的窗口）：带红绿灯的卷帘条（“原标题栏”和“图标和标题”两种）记在 NativeProxyOverlayWindow 上，
     /// 没有红绿灯的原标题栏卷帘条记在 TitleStripView 上。
     func stripDoubleClickAction(_ strip: NSWindow?) -> (() -> Void)? {
         guard let strip else { return nil }

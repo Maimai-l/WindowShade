@@ -1,5 +1,5 @@
 // 简单卷帘条窗口池：没有红绿灯的原标题栏卷帘条（OverlayWindow）复用，避免频繁创建 NSWindow。
-// 带红绿灯的卷帘条窗口（NativeProxyOverlayWindow，原标题栏和图标和标题都用它）带着很多每扇窗口各自的状态
+// 带红绿灯的卷帘条窗口（NativeProxyOverlayWindow，“原标题栏”和“图标和标题”两种样子都用它）带着很多每扇窗口各自的状态
 // （红绿灯配置、窗口代理对象、窗口管理能力），不复用。
 //
 // 池内窗口 isReleasedWhenClosed = false（makeBaseOverlay 设置）；内容视图在
