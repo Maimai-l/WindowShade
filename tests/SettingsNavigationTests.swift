@@ -158,6 +158,26 @@ struct SettingsNavigationTests {
     } else {
       print("note: no recording field found on the shortcuts page; only the settings model was checked")
     }
+    // 缺陷回归（用户 2026-10-24 实测）：录快捷键时这一行的名字变成白字，底色却还是浅灰，名字几乎看不见。
+    // 选中底色用 listRowBackground 画，macOS 的分组表单不理它；选中的一行要真的画出底色。
+    func rowColumn(selected: Bool) -> [NSColor] {
+      let host = NSHostingView(rootView: Form {
+        Section { HStack { Text(GlobalShortcut.toggleShade.title); Spacer() }.modifier(SelectedShortcutRow(isSelected: selected)) }
+      }.formStyle(.grouped).frame(width: 480, height: 160))
+      host.frame = NSRect(x: 0, y: 0, width: 480, height: 160)
+      host.appearance = NSAppearance(named: .aqua)
+      host.layoutSubtreeIfNeeded()
+      guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { preconditionFailure("Cannot render a row") }
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      let x = bitmap.pixelsWide * 7 / 10
+      return (0..<bitmap.pixelsHigh).compactMap { bitmap.colorAt(x: x, y: $0)?.usingColorSpace(.sRGB) }
+    }
+    let plainColumn = rowColumn(selected: false), selectedColumn = rowColumn(selected: true)
+    let biggestChange = zip(plainColumn, selectedColumn).map { a, b in
+      abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent) + abs(a.blueComponent - b.blueComponent)
+    }.max() ?? 0
+    precondition(biggestChange > 0.15, "A selected shortcut row draws a selection background (largest change \(biggestChange))")
+
     for ref in owner.hotKeyRefs.values { UnregisterEventHotKey(ref) }
     owner.hotKeyRefs.removeAll()
     GlobalShortcutSettings.defaults = savedShortcutDefaults

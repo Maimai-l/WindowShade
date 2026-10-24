@@ -388,6 +388,7 @@ private struct ShortcutRow: View {
     let shortcut: GlobalShortcut
     @State private var recording = false
     @State private var message: String?
+    @Environment(\.controlActiveState) private var activeState
 
     private var enabled: Binding<Bool> {
         Binding(get: { model.hotKeys[shortcut] != nil }, set: { on in
@@ -409,7 +410,11 @@ private struct ShortcutRow: View {
                 .toggleStyle(.checkbox)
                 .labelsHidden()
             Text(shortcut.title)
-                .foregroundStyle(recording ? Color.white : Color.primary)
+                .foregroundStyle(SelectedShortcutRow.titleColor(selected: recording, active: activeState))
+                .onTapGesture(count: 2) {
+                    message = nil
+                    recording = true
+                }
             Spacer()
             current
                 .contentShape(Rectangle())
@@ -477,13 +482,14 @@ private struct ShortcutRow: View {
     }
 }
 
-/// “按编号展开”一行：复选框、名字、右边的修饰键加“1–9”。双击右边的组合，按住新的修饰键再按一个数字，
+/// “按编号展开”一行：复选框、名字、右边的修饰键加“1–9”。双击名字或右边的组合，按住新的修饰键再按一个数字，
 /// 换掉这一组的修饰键；数字 1 至 9 跟着菜单里的顺序，不能改。规则和别的快捷键一样（GlobalShortcutSettings.numberedVerdict）。
 @MainActor
 private struct NumberedShortcutRow: View {
     @ObservedObject var model: SettingsModel
     @State private var recording = false
     @State private var message: String?
+    @Environment(\.controlActiveState) private var activeState
 
     var body: some View {
         HStack(spacing: 10) {
@@ -491,7 +497,11 @@ private struct NumberedShortcutRow: View {
                 .toggleStyle(.checkbox)
                 .labelsHidden()
             Text(SettingsCopy.numbered)
-                .foregroundStyle(recording ? Color.white : Color.primary)
+                .foregroundStyle(SelectedShortcutRow.titleColor(selected: recording, active: activeState))
+                .onTapGesture(count: 2) {
+                    message = nil
+                    recording = true
+                }
             Spacer()
             current
                 .contentShape(Rectangle())
@@ -553,15 +563,27 @@ private struct NumberedShortcutRow: View {
 }
 
 /// 正在录制的那一行照系统设置，整行用强调色作选中背景。名字改白色在各行里做，右边的输入框见 RecordingField。
-private struct SelectedShortcutRow: ViewModifier {
+/// 正在录制的那一行的选中底色，照系统设置的“键盘快捷键”：设置窗口是当前窗口时用强调色，不是时用灰色。
+/// 不用 listRowBackground：macOS 的分组表单不画它，名字变成白字却没有底色（用户 2026-10-24 实测）。
+struct SelectedShortcutRow: ViewModifier {
     let isSelected: Bool
+    @Environment(\.controlActiveState) private var activeState
 
     func body(content: Content) -> some View {
-        if isSelected {
-            content.listRowBackground(Color.accentColor)
-        } else {
-            content
+        content.background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color(nsColor: activeState == .inactive ? .unemphasizedSelectedContentBackgroundColor
+                                                               : .selectedContentBackgroundColor))
+                    .padding(.horizontal, -8)
+                    .padding(.vertical, -5)
+            }
         }
+    }
+
+    /// 选中行里名字的颜色：有强调色底色时用白字，灰色底色时照常。
+    static func titleColor(selected: Bool, active: ControlActiveState) -> Color {
+        selected && active != .inactive ? .white : .primary
     }
 }
 
@@ -581,7 +603,7 @@ private struct RecordingField: View {
             }
             .padding(.horizontal, 6)
             .frame(width: 180, height: 22)
-            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white))
+            .background(RoundedRectangle(cornerRadius: 3).fill(Color(nsColor: .textBackgroundColor)))
         }
         .accessibilityElement()
         .accessibilityLabel(prompt)
